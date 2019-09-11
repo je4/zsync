@@ -1,0 +1,24 @@
+service = "ZoteroSync"
+endpoint = "https://api.zotero.org"
+apikey = "XxuGdxZuXiB1epXH8B9XX2oR"
+logfile = ""
+#	"CRITICAL",
+#	"ERROR",
+#	"WARNING",
+#	"NOTICE",
+#	"INFO",
+#	"DEBUG",
+loglevel = "DEBUG"
+
+libraries = []
+ignorelibraries = [2171465,2206003]
+
+
+[database]
+#	servertype = "mysql"
+#	dsn = "mediaserver:SWORDFISH@tcp(localhost:3306)/mediaserver?charset=utf8&sql_mode=ANSI_QUOTES"
+	servertype = "postgres"
+	dsn = "postgres://postgres:guslywyo@localhost/zotero"
+	connection_max = 5000
+	schema = "public"
+
