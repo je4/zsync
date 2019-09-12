@@ -10,9 +10,10 @@ logfile = ""
 #	"DEBUG",
 loglevel = "DEBUG"
 
+#libraries = [1510019]
 libraries = []
-ignorelibraries = [2171465,2206003]
-
+ignorelibraries = [2171465,2206003,2171463]
+attachmentfolder = "//localhost/c$/temp/zotero"
 
 [database]
 #	servertype = "mysql"

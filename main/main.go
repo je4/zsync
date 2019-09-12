@@ -57,7 +57,7 @@ func main() {
 	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
 	defer lf.Close()
 
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, logger)
+	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, logger)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
@@ -91,6 +91,7 @@ func main() {
 		}
 		if ignore {
 			logger.Infof("library %v not in postive list", groupId)
+			continue
 		}
 		// check whether library is configured as ignore
 		for _, ignoreId := range cfg.Ignorelibraries {
@@ -121,7 +122,41 @@ func main() {
 			logger.Errorf("cannot sync items of group %v: %v", groupId, err)
 			return
 		}
+		_, err = group.SyncTags()
+		if err != nil {
+			logger.Errorf("cannot sync tags of group %v: %v", groupId, err)
+			return
+		}
 
+		delcoll, delitem, deltag, err := group.GetDeleted(group.Version)
+		if err != nil {
+			logger.Errorf("cannot get deletions of group %v: %v", groupId, err)
+			return
+		}
+		if delitem != nil {
+			for _, itemKey := range *delitem {
+				if err := zot.DeleteItemDB(itemKey); err != nil {
+					logger.Errorf("cannot delete item %s: %v", itemKey, err)
+					return
+				}
+			}
+		}
+		if delcoll != nil {
+			for _, colKey := range *delcoll {
+				if err := zot.DeleteCollectionDB(colKey); err != nil {
+					logger.Errorf("cannot delete item %s: %v", colKey, err)
+					return
+				}
+			}
+		}
+		if deltag != nil {
+			for _, tag := range *deltag {
+				if err := zot.DeleteCollectionDB(tag); err != nil {
+					logger.Errorf("cannot delete tag %s: %v", tag, err)
+					return
+				}
+			}
+		}
 
 		// store new group data if necessary
 		logger.Infof("group %v[%v <-> %v]", groupId, group.Version, version)

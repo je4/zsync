@@ -17,9 +17,10 @@ type Zotero struct {
 	logger  *logging.Logger
 	db      *sql.DB
 	dbSchema string
+	attachmentFolder string
 }
 
-func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, logger *logging.Logger) (*Zotero, error) {
+func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attachmentFolder string, logger *logging.Logger) (*Zotero, error) {
 	burl, err := url.Parse(baseUrl)
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot create url from %s", baseUrl)
@@ -29,6 +30,7 @@ func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, logge
 		logger: logger,
 		db:db,
 		dbSchema:dbSchema,
+		attachmentFolder:attachmentFolder,
 	}
 	zot.Init()
 	return zot, nil
@@ -39,6 +41,7 @@ func (zot *Zotero) Init() {
 	zot.client.SetHostURL(zot.baseUrl.String())
 	zot.client.SetAuthToken(zot.apiKey)
 	zot.client.SetContentLength(true)
+	zot.client.SetRedirectPolicy(resty.FlexibleRedirectPolicy(3))
 }
 
 func (zot *Zotero) GetGroup(groupId int64) (*Group, error) {

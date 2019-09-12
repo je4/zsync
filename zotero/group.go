@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
+	"os"
 	"strings"
 	"time"
 )
@@ -83,4 +84,14 @@ func (zot *Zotero) LoadGroupDB(groupId int64) (*Group, error) {
 		return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
 	}
 	return group, nil
+}
+
+func (group *Group) GetAttachmentFolder() (string,error) {
+	folder := fmt.Sprintf("%s/%v", group.zot.attachmentFolder, group.Id)
+	if _, err := os.Stat(folder); err != nil {
+		if err := os.Mkdir(folder, 0777); err != nil {
+			return "", emperror.Wrapf(err, "cannot create %s", folder)
+		}
+	}
+	return folder, nil
 }
