@@ -11,6 +11,14 @@ import (
 	"strings"
 )
 
+type ItemStatus int
+
+const (
+	ItemStatus_New      ItemStatus = 0
+	ItemStatus_Synced   ItemStatus = 1
+	ItemStatus_Modified ItemStatus = 2
+)
+
 type ItemMeta struct {
 	CreatedByUser  User   `json:"createdByUser"`
 	CreatorSummary string `json:creatorSummary,omitempty`
@@ -25,6 +33,7 @@ type Item struct {
 	Links   interface{}            `json:"links,omitempty"`
 	Meta    ItemMeta               `json:"meta,omitempty"`
 	Data    map[string]interface{} `json:"data,omitempty"`
+	Group   *Group                 `json:"-"`
 }
 
 type ItemDataBase struct {
@@ -33,6 +42,8 @@ type ItemDataBase struct {
 	ItemType     string            `json:"itemType"`
 	Tags         []string          `json:"tags"`
 	Relations    map[string]string `json:"relations"`
+	ParentItem   string            `json:"parentItem,omitempty"`
+	Collections  []string          `json:"collections,omitempty"`
 	DateAdded    string            `json:"dateAdded,omitempty"`
 	DateModified string            `json:"dateModified,omitempty"`
 }
@@ -68,10 +79,11 @@ func (zot *Zotero) DeleteItemDB(key string) error {
 }
 
 func (group *Group) CreateItemDB(itemId string) error {
-	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, synced) VALUES( $1, 0, $2, true)", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync) VALUES( $1, 0, $2, $3)", group.zot.dbSchema)
 	params := []interface{}{
 		itemId,
 		group.Id,
+		"synced",
 	}
 	_, err := group.zot.db.Exec(sqlstr, params...)
 	if err != nil {
@@ -80,37 +92,47 @@ func (group *Group) CreateItemDB(itemId string) error {
 	return nil
 }
 
-func (group *Group) GetItemVersionDB(itemId string) (int64, bool, error) {
-	sqlstr := fmt.Sprintf("SELECT version, synced FROM %s.items WHERE key=$1", group.zot.dbSchema)
+func (group *Group) GetItemVersionDB(itemId string) (int64, ItemStatus, error) {
+	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.items WHERE library=$1 AND key=$2", group.zot.dbSchema)
 	params := []interface{}{
+		group.Id,
 		itemId,
 	}
 	var version int64
-	var synced bool
-	err := group.zot.db.QueryRow(sqlstr, params...).Scan(&version, &synced)
+	var syncstr string
+	var sync ItemStatus
+	err := group.zot.db.QueryRow(sqlstr, params...).Scan(&version, &syncstr)
 	switch {
 	case err == sql.ErrNoRows:
 		if err := group.CreateItemDB(itemId); err != nil {
-			return 0, false, emperror.Wrapf(err, "cannot create new collection")
+			return 0, ItemStatus_New, emperror.Wrapf(err, "cannot create new collection")
 		}
 		version = 0
-		synced = true
+		sync = ItemStatus_Synced
 	case err != nil:
-		return 0, false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return 0, ItemStatus_New, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
-	return version, synced, nil
+	switch syncstr {
+	case "new":
+		sync = ItemStatus_New
+	case "synced":
+		sync = ItemStatus_Synced
+	case "modified":
+		sync = ItemStatus_Modified
+	}
+	return version, sync, nil
 }
 
-func (group *Group) StoreAttachment(item *Item) error {
-	folder, err := group.GetAttachmentFolder()
+func (item *Item) StoreAttachment() error {
+	folder, err := item.Group.GetAttachmentFolder()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get attachment folder")
 	}
 	filename := fmt.Sprintf("%s/%s", folder, item.Key)
-	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", group.Id, item.Key)
+	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.Group.Id, item.Key)
 
-	group.zot.logger.Infof("rest call: %s", endpoint)
-	resp, err := group.zot.client.R().
+	item.Group.zot.logger.Infof("rest call: %s", endpoint)
+	resp, err := item.Group.zot.client.R().
 		SetHeader("Accept", "application/json").
 		Get(endpoint)
 	if err != nil {
@@ -125,8 +147,8 @@ func (group *Group) StoreAttachment(item *Item) error {
 	return nil
 }
 
-func (group *Group) UpdateItemDB(item *Item, trashed bool) error {
-	group.zot.logger.Infof("Updating Item [#%s]", item.Key)
+func (item *Item) UpdateItemDB(trashed bool) error {
+	item.Group.zot.logger.Infof("Updating Item [#%s]", item.Key)
 	data, err := json.Marshal(item.Data)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall data %v", item.Data)
@@ -135,15 +157,17 @@ func (group *Group) UpdateItemDB(item *Item, trashed bool) error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall meta %v", item.Meta)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, synced=true, data=$2, meta=$3, trashed=$4 WHERE key=$5", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, sync=$5 WHERE library=$6 AND key=$7", item.Group.zot.dbSchema)
 	params := []interface{}{
 		item.Version,
 		data,
 		meta,
 		trashed,
+		"synced",
+		item.Group.Id,
 		item.Key,
 	}
-	_, err = group.zot.db.Exec(sqlstr, params...)
+	_, err = item.Group.zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -153,7 +177,7 @@ func (group *Group) UpdateItemDB(item *Item, trashed bool) error {
 		return emperror.Wrapf(err, "cannot get item type")
 	}
 	if itemType == "attachment" {
-		if err := group.StoreAttachment(item); err != nil {
+		if err := item.StoreAttachment(); err != nil {
 			return emperror.Wrapf(err, "cannot download attachment")
 		}
 	}
@@ -217,16 +241,22 @@ func (group *Group) GetItems(objectKeys []string) (*[]Item, error) {
 	resp, err := group.zot.client.R().
 		SetHeader("Accept", "application/json").
 		SetQueryParam("itemKey", strings.Join(objectKeys, ",")).
+		SetQueryParam("includeTrashed", "1").
 		Get(endpoint)
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 	}
 	rawBody := resp.Body()
-	items := &[]Item{}
-	if err := json.Unmarshal(rawBody, items); err != nil {
+	items := []Item{}
+	if err := json.Unmarshal(rawBody, &items); err != nil {
 		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	return items, nil
+	result := &[]Item{}
+	for _, item := range items {
+		item.Group = group
+		*result = append(*result, item)
+	}
+	return result, nil
 }
 
 func (group *Group) SyncItems() (int64, error) {
@@ -250,11 +280,11 @@ func (group *Group) syncItems(trashed bool) (int64, error) {
 	}
 	itemsUpdate := []string{}
 	for itemid, version := range *objectList {
-		oldversion, synced, err := group.GetItemVersionDB(itemid)
+		oldversion, sync, err := group.GetItemVersionDB(itemid)
 		if err != nil {
 			return counter, emperror.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
 		}
-		if !synced {
+		if sync != ItemStatus_Synced {
 			return counter, errors.New(fmt.Sprintf("iem %v not synced. please handle conflict", itemid))
 		}
 		if oldversion < version {
@@ -276,7 +306,7 @@ func (group *Group) syncItems(trashed bool) (int64, error) {
 		group.zot.logger.Infof("%v items", len(*items))
 		for _, item := range *items {
 			group.zot.logger.Infof("Item %v of %v", counter, numItems)
-			if err := group.UpdateItemDB(&item, trashed); err != nil {
+			if err := item.UpdateItemDB(trashed); err != nil {
 				return counter, emperror.Wrapf(err, "cannot update collection")
 			}
 			counter++

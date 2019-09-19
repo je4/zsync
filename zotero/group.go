@@ -23,6 +23,7 @@ type Group struct {
 	Meta    GroupMeta   `json:"meta"`
 	Data    interface{} `json:"data"`
 	Deleted bool        `json:"-"`
+	Active  bool        `json:"-"`
 	zot     *Zotero     `json:"-"`
 }
 
@@ -41,12 +42,22 @@ func (zot *Zotero) DeleteUnknownGroups(knownGroups []int64) error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
 	}
+	sqlstr = fmt.Sprintf("UPDATE %s.syncgroups SET active=false WHERE id NOT IN (%s)", zot.dbSchema, strings.Join(placeHolder, ", "))
+	_, err = zot.db.Exec(sqlstr, params...)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
+	}
 	return nil
 }
 
 func (zot *Zotero) CreateEmptyGroupDB(groupId int64) error {
 	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,lastmodified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
 	_, err := zot.db.Exec(sqlstr, groupId)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+	}
+	sqlstr = fmt.Sprintf("INSERT INTO %s.syncgroups(id,active) VALUES($1, false)", zot.dbSchema)
+	_, err = zot.db.Exec(sqlstr, groupId)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 	}
@@ -76,17 +87,24 @@ func (zot *Zotero) LoadGroupDB(groupId int64) (*Group, error) {
 		Links:   nil,
 		Meta:    GroupMeta{},
 		Data:    nil,
+		Active:  false,
 		zot:     zot,
 	}
-	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data FROM %s.groups WHERE id=$1", zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data, active FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
 	row := zot.db.QueryRow(sqlstr, groupId)
-	if err := row.Scan(&group.Version, &group.Meta.Created, &group.Meta.LastModified, &group.Data); err != nil && err != sql.ErrNoRows {
+	err := row.Scan(&group.Version, &group.Meta.Created, &group.Meta.LastModified, &group.Data, &group.Active);
+	if err != nil && err != sql.ErrNoRows {
 		return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
+	}
+	if err == sql.ErrNoRows {
+		if err := zot.CreateEmptyGroupDB(groupId); err != nil {
+			return nil, emperror.Wrapf(err, "cannot create empty group %v", groupId)
+		}
 	}
 	return group, nil
 }
 
-func (group *Group) GetAttachmentFolder() (string,error) {
+func (group *Group) GetAttachmentFolder() (string, error) {
 	folder := fmt.Sprintf("%s/%v", group.zot.attachmentFolder, group.Id)
 	if _, err := os.Stat(folder); err != nil {
 		if err := os.Mkdir(folder, 0777); err != nil {

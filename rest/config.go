@@ -13,15 +13,16 @@ type Cfg_database struct {
 }
 
 type Config struct {
-	Service           string
-	Endpoint          string
-	Apikey            string
-	Logfile           string
-	Loglevel          string
-	Libraries         []int64
-	Ignorelibraries   []int64
+	Service          string
+	Listen           string
+	Endpoint         string
+	Apikey           string
+	Logfile          string
+	Loglevel         string
+	Libraries        []int64
+	Ignorelibraries  []int64
 	Attachmentfolder string
-	DB                Cfg_database `toml:"database"`
+	DB               Cfg_database `toml:"database"`
 }
 
 func LoadConfig(filepath string) Config {

@@ -1,6 +1,6 @@
 service = "ZoteroSync"
 endpoint = "https://api.zotero.org"
-apikey = "XxuGdxZuXiB1epXH8B9XX2oR"
+apikey = "XXXXXX"
 logfile = ""
 #	"CRITICAL",
 #	"ERROR",

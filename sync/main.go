@@ -7,7 +7,9 @@ import (
 	"github.com/op/go-logging"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/zotero"
 	"log"
+	"math/rand"
 	"os"
+	"time"
 )
 
 var _logformat = logging.MustStringFormatter(
@@ -37,7 +39,13 @@ func CreateLogger(module string, logfile string, loglevel string) (log *logging.
 	return
 }
 
+type ZotField struct {
+	Field     string `json:"field"`
+	Localized string `json:"localized"`
+}
+
 func main() {
+
 	cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
 	flag.Parse()
 	cfg := LoadConfig(*cfgfile)
@@ -56,6 +64,8 @@ func main() {
 	}
 	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
 	defer lf.Close()
+
+	rand.Seed(time.Now().Unix())
 
 	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, logger)
 	if err != nil {
@@ -79,37 +89,14 @@ func main() {
 
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
-		ignore := false
-		if len(cfg.Libraries) > 0 {
-			ignore = true
-			for _, id := range cfg.Libraries {
-				if id == groupId {
-					ignore = false
-					break
-				}
-			}
-		}
-		if ignore {
-			logger.Infof("library %v not in postive list", groupId)
-			continue
-		}
-		// check whether library is configured as ignore
-		for _, ignoreId := range cfg.Ignorelibraries {
-			if ignoreId == groupId {
-				ignore = true
-				break
-			}
-		}
-		if ignore {
-			logger.Infof("library %v in negative list", groupId)
-			continue
-		}
-
 		groupIds = append(groupIds, groupId)
 		group, err := zot.LoadGroupDB(groupId)
 		if err != nil {
 			logger.Errorf("cannot load group %v: %v", groupId, err)
 			return
+		}
+		if !group.Active {
+			continue
 		}
 
 		_, err = group.SyncCollections()
@@ -162,12 +149,6 @@ func main() {
 		logger.Infof("group %v[%v <-> %v]", groupId, group.Version, version)
 		// check whether version is newer online...
 		if group.Version < version || group.Deleted {
-			if group.Version == 0 {
-				if err := zot.CreateEmptyGroupDB(groupId); err != nil {
-					logger.Errorf("cannot create empty group: %v", err)
-					return
-				}
-			}
 			newGroup, err := zot.GetGroup(groupId)
 			if err != nil {
 				logger.Errorf("cannot get group %v: %v", groupId, err)
@@ -183,4 +164,5 @@ func main() {
 	if err := zot.DeleteUnknownGroups(groupIds); err != nil {
 		logger.Errorf("cannot delete unknown groups: %v", err)
 	}
+
 }

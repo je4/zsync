@@ -3,7 +3,6 @@ package zotero
 type ItemDataAttachment struct {
 	ItemDataBase
 	Title       string `json:"title"`
-	ParentItem  string `json:"parentItem"`
 	LinkMode    string `json:"linkMode"`
 	AccessDate  string `json:"accessDate"`
 	Url         string `json:"url"`
