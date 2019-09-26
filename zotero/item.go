@@ -1,49 +1,54 @@
 package zotero
 
 import (
+	"crypto/md5"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"gopkg.in/resty.v1"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
-)
-
-type ItemStatus int
-
-const (
-	ItemStatus_New      ItemStatus = 0
-	ItemStatus_Synced   ItemStatus = 1
-	ItemStatus_Modified ItemStatus = 2
+	"time"
 )
 
 type ItemMeta struct {
 	CreatedByUser  User   `json:"createdByUser"`
-	CreatorSummary string `json:creatorSummary,omitempty`
+	CreatorSummary string `json:"creatorSummary,omitempty"`
 	ParsedDate     string `json:"parsedDate,omitempty"`
 	NumChildren    int64  `json:"numChildren,omitempty"`
 }
 
 type Item struct {
-	Key     string                 `json:"key"`
-	Version int64                  `json:"version"`
-	Library CollectionLibrary      `json:"library,omitempty"`
-	Links   interface{}            `json:"links,omitempty"`
-	Meta    ItemMeta               `json:"meta,omitempty"`
-	Data    map[string]interface{} `json:"data,omitempty"`
-	Group   *Group                 `json:"-"`
+	Key     string            `json:"key"`
+	Version int64             `json:"version"`
+	Library CollectionLibrary `json:"library,omitempty"`
+	Links   interface{}       `json:"links,omitempty"`
+	Meta    ItemMeta          `json:"meta,omitempty"`
+	Data    ItemGeneric       `json:"data,omitempty"`
+	Group   *Group            `json:"-"`
+	Trashed bool              `json:"-"`
+	Deleted bool              `json:"-"`
+	Status  SyncStatus        `json:"-"`
+	MD5     string            `json:"-"`
+}
+
+type ItemTag struct {
+	Tag  string `json:"tag"`
+	Type int64  `json:"type,omitempty"`
 }
 
 type ItemDataBase struct {
 	Key          string            `json:"key,omitempty"`
-	Version      int64             `json:"version,omitempty"`
+	Version      int64             `json:"version"`
 	ItemType     string            `json:"itemType"`
-	Tags         []string          `json:"tags"`
+	Tags         []ItemTag         `json:"tags"`
 	Relations    map[string]string `json:"relations"`
 	ParentItem   string            `json:"parentItem,omitempty"`
-	Collections  []string          `json:"collections,omitempty"`
+	Collections  []string          `json:"collections"`
 	DateAdded    string            `json:"dateAdded,omitempty"`
 	DateModified string            `json:"dateModified,omitempty"`
 }
@@ -54,79 +59,81 @@ type ItemDataPerson struct {
 	LastName    string `json:"lastName"`
 }
 
-func (item *Item) GetType() (string, error) {
-	t, ok := item.Data["itemType"]
-	if !ok {
-		return "", errors.New(fmt.Sprintf("cannot get item type of %v", item.Key))
-	}
-	tstr, ok := t.(string)
-	if !ok {
-		return "", errors.New(fmt.Sprintf("item type of %v not a string", item.Key))
-	}
-	return tstr, nil
+type ItemCreateResultFailed struct {
+	Key     string `json:"key"`
+	Code    int64  `json:"code"`
+	Message string `json:"message"`
 }
 
-func (zot *Zotero) DeleteItemDB(key string) error {
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET deleted=true WHERE key=$1", zot.dbSchema)
-
-	params := []interface{}{
-		key,
-	}
-	if _, err := zot.db.Exec(sqlstr, params...); err != nil {
-		return emperror.Wrapf(err, "error executing %s: %v", sqlstr, params)
-	}
-	return nil
+type ItemCreateResult struct {
+	Success   map[string]string                 `json:"success"`
+	Unchanged map[string]string                 `json:"unchanged"`
+	Failed    map[string]ItemCreateResultFailed `json:"failed"`
 }
 
-func (group *Group) CreateItemDB(itemId string) error {
-	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync) VALUES( $1, 0, $2, $3)", group.zot.dbSchema)
-	params := []interface{}{
-		itemId,
-		group.Id,
-		"synced",
+func (res *ItemCreateResult) checkSuccess(id int64) (string, error) {
+	successlist := res.getSuccess()
+	success, ok := successlist[id]
+	if ok {
+		return success, nil
 	}
-	_, err := group.zot.db.Exec(sqlstr, params...)
-	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+	unchangedlist := res.getUnchanged()
+	unchanged, ok := unchangedlist[id]
+	if ok {
+		return unchanged, nil
 	}
-	return nil
+	failed := res.getFailed()
+	fail, ok := failed[id]
+	if ok {
+		return fail.Key, errors.New(fmt.Sprintf("item %v update/creation failed with [%v]%v", fail.Key, fail.Code, fail.Message))
+	}
+	return "", errors.New(fmt.Sprintf("invalid id %v", id))
 }
 
-func (group *Group) GetItemVersionDB(itemId string) (int64, ItemStatus, error) {
-	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.items WHERE library=$1 AND key=$2", group.zot.dbSchema)
-	params := []interface{}{
-		group.Id,
-		itemId,
-	}
-	var version int64
-	var syncstr string
-	var sync ItemStatus
-	err := group.zot.db.QueryRow(sqlstr, params...).Scan(&version, &syncstr)
-	switch {
-	case err == sql.ErrNoRows:
-		if err := group.CreateItemDB(itemId); err != nil {
-			return 0, ItemStatus_New, emperror.Wrapf(err, "cannot create new collection")
+func (res *ItemCreateResult) getSuccess() map[int64]string {
+	result := map[int64]string{}
+	for key, val := range res.Success {
+		id, err := strconv.ParseInt(key, 10, 64)
+		if err != nil {
+			continue
 		}
-		version = 0
-		sync = ItemStatus_Synced
-	case err != nil:
-		return 0, ItemStatus_New, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		result[id] = val
 	}
-	switch syncstr {
-	case "new":
-		sync = ItemStatus_New
-	case "synced":
-		sync = ItemStatus_Synced
-	case "modified":
-		sync = ItemStatus_Modified
-	}
-	return version, sync, nil
+	return result
 }
 
-func (item *Item) StoreAttachment() error {
+func (res *ItemCreateResult) getUnchanged() map[int64]string {
+	result := map[int64]string{}
+	for key, val := range res.Unchanged {
+		id, err := strconv.ParseInt(key, 10, 64)
+		if err != nil {
+			continue
+		}
+		result[id] = val
+	}
+	return result
+}
+
+func (res *ItemCreateResult) getFailed() map[int64]ItemCreateResultFailed {
+	result := map[int64]ItemCreateResultFailed{}
+	for key, val := range res.Failed {
+		id, err := strconv.ParseInt(key, 10, 64)
+		if err != nil {
+			continue
+		}
+		result[id] = val
+	}
+	return result
+}
+
+func (item *Item) GetType() (string, error) {
+	return item.Data.ItemType, nil
+}
+
+func (item *Item) StoreAttachment() (string, error) {
 	folder, err := item.Group.GetAttachmentFolder()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get attachment folder")
+		return "", emperror.Wrapf(err, "cannot get attachment folder")
 	}
 	filename := fmt.Sprintf("%s/%s", folder, item.Key)
 	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.Group.Id, item.Key)
@@ -136,19 +143,247 @@ func (item *Item) StoreAttachment() error {
 		SetHeader("Accept", "application/json").
 		Get(endpoint)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+		return "", emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 	}
 	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot create %v", filename)
+		return "", emperror.Wrapf(err, "cannot create %v", filename)
 	}
 	defer f.Close()
 	f.Write(resp.Body())
+	md5str := resp.Header().Get("ETag")
+	md5str = strings.Trim(md5str, "\"")
+	if md5str == "" {
+		md5sink := md5.New()
+		md5str = fmt.Sprintf("%x", md5sink.Sum(resp.Body()))
+	}
+	item.Group.zot.CheckWait(resp.Header())
+	return md5str, nil
+}
+func (item *Item) Update() error {
+	item.Group.zot.logger.Infof("Creating Zotero Item [#%s]", item.Key)
+
+	item.Data.Version = item.Version
+	if item.Deleted {
+		endpoint := fmt.Sprintf("/groups/%v/items/%v", item.Group.Id, item.Key)
+		item.Group.zot.logger.Infof("rest call: DELETE %s", endpoint)
+		resp, err := item.Group.zot.client.R().
+			SetHeader("Accept", "application/json").
+			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", item.Version)).
+			Delete(endpoint)
+		if err != nil {
+			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+		}
+		switch resp.RawResponse.StatusCode {
+		case 409:
+			return errors.New(fmt.Sprintf("delete: Conflict: the target library #%v is locked", item.Group.Id))
+		case 412:
+			return errors.New(fmt.Sprintf("delete: Precondition failed: The item #%v.%v has changed since retrieval", item.Group.Id, item.Key))
+		case 428:
+			return errors.New(fmt.Sprintf("delete: Precondition required: If-Unmodified-Since-Version was not provided."))
+		}
+	} else {
+		endpoint := fmt.Sprintf("/groups/%v/items", item.Group.Id)
+		item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+		items := []ItemGeneric{item.Data}
+		resp, err := item.Group.zot.client.R().
+			SetHeader("Accept", "application/json").
+			SetBody(items).
+			Post(endpoint)
+		if err != nil {
+			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+		}
+		result := ItemCreateResult{}
+		jsonstr := resp.Body()
+		if err := json.Unmarshal(jsonstr, &result); err != nil {
+			return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
+		}
+		successKey, err := result.checkSuccess(0)
+		if err != nil {
+			return emperror.Wrapf(err, "could not create item #%v.%v", item.Group.Id, item.Key)
+		}
+		if successKey != item.Key {
+			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, item.Key))
+		}
+		if item.Data.ItemType == "attachment" {
+			// todo: attachment upload
+			var md5str string
+			var finfo os.FileInfo
+			//var md5Sink hash.Hash
+			var endpoint string
+			var resp *resty.Response
+			var h *resty.Request
+			// var f *os.File
+			var jsonstr []byte
+			var result map[string]string
+			var attachmentFolder string
+			var attachmentFile string
+			var attachmentBytes []byte
+			var ok bool
+			var contenttype string
+			var prefix string
+			var suffix string
+			var uploadKey string
+
+			attachmentFolder, err = item.Group.GetAttachmentFolder()
+			if err != nil {
+				goto End
+			}
+			attachmentFile = fmt.Sprintf("%s/%s", attachmentFolder, item.Key)
+
+			finfo, err = os.Stat(attachmentFile)
+			if err != nil {
+				goto End
+			}
+
+			attachmentBytes, err = ioutil.ReadFile(attachmentFile)
+			if err != nil {
+				goto End
+			}
+			md5str = fmt.Sprintf("%x", md5.Sum(attachmentBytes))
+			if md5str == "" || md5str == item.MD5 {
+				goto End
+			}
+
+			/**
+			Get Authorization
+			 */
+			endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
+			h = item.Group.zot.client.R().
+				SetHeader("Content-Type", "application/x-www-form-urlencoded")
+			if item.MD5 == "" {
+				h.SetHeader("If-None-Match", "*")
+			} else {
+				h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
+			}
+			item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+			resp, err = h.
+				SetFormData(map[string]string{
+					"md5":      fmt.Sprintf("%s", md5str),
+					"filename": item.Key,
+					"filesize": fmt.Sprintf("%v", finfo.Size()),
+					"mtime":    fmt.Sprintf("%v", finfo.ModTime().UnixNano()/int64(time.Millisecond)),
+				}).
+				Post(endpoint)
+			if err != nil {
+				return emperror.Wrapf(err, "upload attachment for item %v with %s", item.Key, endpoint)
+			}
+			switch resp.StatusCode() {
+			case 200:
+			case 403:
+				return errors.New(fmt.Sprintf("file editing denied for item %v with %s", item.Key, endpoint))
+			case 412:
+				return errors.New(fmt.Sprintf("file precondition failed. please solve conflict for item %v with %s", item.Key, endpoint))
+			case 413:
+				return errors.New(fmt.Sprintf("file too large. please upgrade storage for item %v with %s", item.Key, endpoint))
+			case 428:
+				return errors.New(fmt.Sprintf("file precondition required. If-Match or If-None-Match was not provided for item %v with %s", item.Key, endpoint))
+			case 429:
+				return errors.New(fmt.Sprintf("file too many requests. Too many unfinished uploads for item %v with %s", item.Key, endpoint))
+			default:
+				return errors.New(fmt.Sprintf("file unknown error #%v for item %v with %s", resp.Status(), item.Key, endpoint))
+			}
+			jsonstr = resp.Body()
+			if err = json.Unmarshal(jsonstr, &result); err != nil {
+				return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
+			}
+			if _, ok = result["exists"]; ok {
+				// already there
+				goto End
+			}
+
+			/**
+			Upload file
+			 */
+			endpoint, ok = result["url"]
+			if !ok {
+				return errors.New(fmt.Sprintf("no url in upload authorization %v", string(jsonstr)))
+			}
+			contenttype, ok = result["contentType"]
+			if !ok {
+				return errors.New(fmt.Sprintf("no contentType in upload authorization %v", string(jsonstr)))
+			}
+			prefix, ok = result["prefix"]
+			if !ok {
+				return errors.New(fmt.Sprintf("no prefix in upload authorization %v", string(jsonstr)))
+			}
+			suffix, ok = result["suffix"]
+			if !ok {
+				return errors.New(fmt.Sprintf("no suffix in upload authorization %v", string(jsonstr)))
+			}
+			uploadKey, ok = result["uploadKey"]
+			if !ok {
+				return errors.New(fmt.Sprintf("no uploadKey in upload authorization %v", string(jsonstr)))
+			}
+			item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+			resp, err = resty.New().R().
+				SetHeader("Content-Type", contenttype).
+				SetBody(append([]byte(prefix), append(attachmentBytes, []byte(suffix)...)...)).
+				Post(endpoint)
+			if err != nil {
+				return emperror.Wrapf(err, "error uploading file to %v", endpoint)
+			}
+			if resp.StatusCode() != 201 {
+				return errors.New(fmt.Sprintf("error uploading file with status %v - %v", resp.Status(), resp.Body()))
+			}
+
+
+			/**
+			register upload
+			 */
+			endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
+			item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+			h = item.Group.zot.client.R()
+			if item.MD5 == "" {
+				h.SetHeader("If-None-Match", "*")
+			} else {
+				h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
+			}
+			resp, err = h.
+				SetFormData(map[string]string{"upload":uploadKey}).
+				Post(endpoint)
+			if err != nil {
+				return emperror.Wrapf(err, "cannot register upload %v", endpoint)
+			}
+			switch resp.StatusCode() {
+			case 204:
+			case 412:
+				return errors.New(fmt.Sprintf("Precondition failed - The file has changed remotely since retrieval for item %v.%v", item.Group.Id, item.Key))
+			}
+			// todo: should be etag from upload...
+			item.MD5 = md5str
+		End:
+		}
+	}
+	item.Status = SyncStatus_Synced
+	if err := item.UpdateDB(); err != nil {
+		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", item.Group.Id, item.Key))
+	}
 	return nil
 }
 
-func (item *Item) UpdateItemDB(trashed bool) error {
+func (item *Item) UpdateDB() error {
 	item.Group.zot.logger.Infof("Updating Item [#%s]", item.Key)
+
+	md5val := sql.NullString{Valid: false}
+	itemType, err := item.GetType()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot get item type")
+	}
+	// if not deleted and status is synced get the attachment
+	if itemType == "attachment" && !item.Deleted && item.Status == SyncStatus_Synced {
+		md5val.String, err = item.StoreAttachment()
+		if err != nil {
+			return emperror.Wrapf(err, "cannot download attachment")
+		}
+		if md5val.String != "" {
+			md5val.Valid = true
+		}
+	} else {
+		md5val.String = item.MD5
+		md5val.Valid = true
+	}
+
 	data, err := json.Marshal(item.Data)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall data %v", item.Data)
@@ -157,13 +392,16 @@ func (item *Item) UpdateItemDB(trashed bool) error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall meta %v", item.Meta)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, sync=$5 WHERE library=$6 AND key=$7", item.Group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7 "+
+		"WHERE library=$8 AND key=$9", item.Group.zot.dbSchema)
 	params := []interface{}{
 		item.Version,
-		data,
-		meta,
-		trashed,
-		"synced",
+		string(data),
+		string(meta),
+		item.Trashed,
+		item.Deleted,
+		SyncStatusString[item.Status],
+		md5val.String,
 		item.Group.Id,
 		item.Key,
 	}
@@ -172,146 +410,5 @@ func (item *Item) UpdateItemDB(trashed bool) error {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
-	itemType, err := item.GetType()
-	if err != nil {
-		return emperror.Wrapf(err, "cannot get item type")
-	}
-	if itemType == "attachment" {
-		if err := item.StoreAttachment(); err != nil {
-			return emperror.Wrapf(err, "cannot download attachment")
-		}
-	}
 	return nil
-}
-
-func (group *Group) GetItemsVersion(sinceVersion int64, trashed bool) (*map[string]int64, error) {
-	var endpoint string
-	if trashed {
-		endpoint = fmt.Sprintf("/groups/%v/items/trash", group.Id)
-	} else {
-		endpoint = fmt.Sprintf("/groups/%v/items", group.Id)
-	}
-
-	totalObjects := &map[string]int64{}
-	limit := int64(500)
-	start := int64(0)
-	for {
-		group.zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
-		resp, err := group.zot.client.R().
-			SetHeader("Accept", "application/json").
-			SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
-			SetQueryParam("format", "versions").
-			SetQueryParam("limit", strconv.FormatInt(limit, 10)).
-			SetQueryParam("start", strconv.FormatInt(start, 10)).
-			Get(endpoint)
-		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
-		}
-		rawBody := resp.Body()
-		objects := &map[string]int64{}
-		if err := json.Unmarshal(rawBody, objects); err != nil {
-			return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
-		}
-		totalResult, err := strconv.ParseInt(resp.RawResponse.Header.Get("Total-Results"), 10, 64)
-		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
-		}
-		for key, version := range *objects {
-			(*totalObjects)[key] = version
-		}
-		if totalResult <= start+limit {
-			break
-		}
-		start += limit
-	}
-	return totalObjects, nil
-}
-
-func (group *Group) GetItems(objectKeys []string) (*[]Item, error) {
-	if len(objectKeys) == 0 {
-		return &[]Item{}, nil
-	}
-	if len(objectKeys) > 50 {
-		return nil, errors.New("too much objectKeys (max. 50)")
-	}
-
-	endpoint := fmt.Sprintf("/groups/%v/items", group.Id)
-	group.zot.logger.Infof("rest call: %s", endpoint)
-
-	resp, err := group.zot.client.R().
-		SetHeader("Accept", "application/json").
-		SetQueryParam("itemKey", strings.Join(objectKeys, ",")).
-		SetQueryParam("includeTrashed", "1").
-		Get(endpoint)
-	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
-	}
-	rawBody := resp.Body()
-	items := []Item{}
-	if err := json.Unmarshal(rawBody, &items); err != nil {
-		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
-	}
-	result := &[]Item{}
-	for _, item := range items {
-		item.Group = group
-		*result = append(*result, item)
-	}
-	return result, nil
-}
-
-func (group *Group) SyncItems() (int64, error) {
-	num, err := group.syncItems(true)
-	if err != nil {
-		return 0, err
-	}
-	num2, err := group.syncItems(false)
-	if err != nil {
-		return 0, err
-	}
-	return num + num2, nil
-}
-
-func (group *Group) syncItems(trashed bool) (int64, error) {
-	group.zot.logger.Infof("Syncing items of group #%v", group.Id)
-	var counter int64
-	objectList, err := group.GetItemsVersion(group.Version, trashed)
-	if err != nil {
-		return counter, emperror.Wrapf(err, "cannot get collection versions")
-	}
-	itemsUpdate := []string{}
-	for itemid, version := range *objectList {
-		oldversion, sync, err := group.GetItemVersionDB(itemid)
-		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
-		}
-		if sync != ItemStatus_Synced {
-			return counter, errors.New(fmt.Sprintf("iem %v not synced. please handle conflict", itemid))
-		}
-		if oldversion < version {
-			itemsUpdate = append(itemsUpdate, itemid)
-		}
-	}
-	numItems := len(itemsUpdate)
-	for i := 0; i < (numItems/50)+1; i++ {
-		start := i * 50
-		end := start + 50
-		if numItems < end {
-			end = numItems
-		}
-		part := itemsUpdate[start:end]
-		items, err := group.GetItems(part)
-		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot get items")
-		}
-		group.zot.logger.Infof("%v items", len(*items))
-		for _, item := range *items {
-			group.zot.logger.Infof("Item %v of %v", counter, numItems)
-			if err := item.UpdateItemDB(trashed); err != nil {
-				return counter, emperror.Wrapf(err, "cannot update collection")
-			}
-			counter++
-		}
-	}
-	group.zot.logger.Infof("Syncing items of group #%v done. %v items changed", group.Id, counter)
-	return counter, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/lib/pq"
 	"os"
 	"strings"
 	"time"
@@ -16,12 +17,27 @@ type GroupMeta struct {
 	NumItems     int64     `json:"numItems"`
 }
 
+type GroupData struct {
+	Id             int64   `json:"id"`
+	Version        int64   `json:"version"`
+	Name           string  `json:"name"`
+	Owner          int64   `json:owner`
+	Type           string  `json:"type"`
+	Description    string  `json:"description"`
+	Url            string  `json:"url"`
+	HasImage       int64   `json:"hasImage"`
+	LibraryEditing string  `json:libraryEditing`
+	LibraryReading string  `json:libraryReading`
+	FileEditing    string  `json:fileEditing`
+	Admins         []int64 `json:"admins"`
+}
+
 type Group struct {
 	Id      int64       `json:"id"`
 	Version int64       `json:"version"`
 	Links   interface{} `json:"links,omitempty"`
 	Meta    GroupMeta   `json:"meta"`
-	Data    interface{} `json:"data"`
+	Data    GroupData   `json:"data"`
 	Deleted bool        `json:"-"`
 	Active  bool        `json:"-"`
 	zot     *Zotero     `json:"-"`
@@ -50,18 +66,36 @@ func (zot *Zotero) DeleteUnknownGroups(knownGroups []int64) error {
 	return nil
 }
 
-func (zot *Zotero) CreateEmptyGroupDB(groupId int64) error {
+func (zot *Zotero) CreateEmptyGroupDB(groupId int64) (bool, error) {
+	active := true
 	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,lastmodified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
 	_, err := zot.db.Exec(sqlstr, groupId)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+		return false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 	}
 	sqlstr = fmt.Sprintf("INSERT INTO %s.syncgroups(id,active) VALUES($1, false)", zot.dbSchema)
 	_, err = zot.db.Exec(sqlstr, groupId)
-	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+	if pqError, ok := err.(*pq.Error); ok {
+		switch {
+		/*
+			Class 23 — Integrity Constraint Violation
+			23000	INTEGRITY CONSTRAINT VIOLATION	integrity_constraint_violation
+			23001	RESTRICT VIOLATION	restrict_violation
+			23502	NOT NULL VIOLATION	not_null_violation
+			23503	FOREIGN KEY VIOLATION	foreign_key_violation
+			23505	UNIQUE VIOLATION	unique_violation
+			23514	CHECK VIOLATION	check_violation
+		*/
+		case pqError.Code == "23505":
+			sqlstr := fmt.Sprintf("SELECT active FROM %s.syncgroups WHERE id=$1", zot.dbSchema );
+			if err := zot.db.QueryRow(sqlstr, groupId).Scan(&active); err != nil {
+				return false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+			}
+		default:
+			return false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+		}
 	}
-	return nil
+	return active, nil
 }
 
 func (group *Group) UpdateDB() error {
@@ -86,19 +120,29 @@ func (zot *Zotero) LoadGroupDB(groupId int64) (*Group, error) {
 		Version: 0,
 		Links:   nil,
 		Meta:    GroupMeta{},
-		Data:    nil,
-		Active:  false,
+		Data:    GroupData{},
+		Active:  zot.newGroupActive,
 		zot:     zot,
 	}
+	zot.logger.Debugf("loading group #%v from database", groupId)
 	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data, active FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
 	row := zot.db.QueryRow(sqlstr, groupId)
-	err := row.Scan(&group.Version, &group.Meta.Created, &group.Meta.LastModified, &group.Data, &group.Active);
+	var jsonstr sql.NullString
+	err := row.Scan(&group.Version, &group.Meta.Created, &group.Meta.LastModified, &jsonstr, &group.Active)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
 	}
 	if err == sql.ErrNoRows {
-		if err := zot.CreateEmptyGroupDB(groupId); err != nil {
+		active, err := zot.CreateEmptyGroupDB(groupId);
+		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot create empty group %v", groupId)
+		}
+		group.Active = active
+	}
+	if jsonstr.Valid {
+		err = json.Unmarshal([]byte(jsonstr.String), &group.Data)
+		if err != nil {
+			return nil, emperror.Wrapf(err, "cannot unmarshall group data %s", jsonstr)
 		}
 	}
 	return group, nil

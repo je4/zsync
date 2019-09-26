@@ -23,7 +23,7 @@ type ApiKey struct {
 	Access Access `json:"access"`
 }
 
-func (zot *Zotero) GetCurrentKey() (*ApiKey, error) {
+func (zot *Zotero) getCurrentKey() (*ApiKey, error) {
 	endpoint := "/keys/current"
 	zot.logger.Infof("rest call: %s", endpoint)
 

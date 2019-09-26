@@ -44,43 +44,38 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-func main() {
+	func main() {
 
-	cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
-	flag.Parse()
-	cfg := LoadConfig(*cfgfile)
+		cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
+		flag.Parse()
+		cfg := LoadConfig(*cfgfile)
 
-	// get database connection handle
-	db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
-	if err != nil {
-		log.Fatalf("error opening database: %v", err)
-	}
-	defer db.Close()
+		// get database connection handle
+		db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
+		if err != nil {
+			log.Fatalf("error opening database: %v", err)
+		}
+		defer db.Close()
 
-	// Open doesn't open a connection. Validate DSN data:
-	err = db.Ping()
-	if err != nil {
-		log.Fatalf("error pinging database: %v", err)
-	}
-	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
-	defer lf.Close()
+		// Open doesn't open a connection. Validate DSN data:
+		err = db.Ping()
+		if err != nil {
+			log.Fatalf("error pinging database: %v", err)
+		}
+		logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
+		defer lf.Close()
 
 	rand.Seed(time.Now().Unix())
 
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, logger)
+	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, logger)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
 	}
 
-	key, err := zot.GetCurrentKey()
-	if err != nil {
-		logger.Errorf("cannot get current key: %v", err)
-		return
-	}
-	logger.Infof("current key: %v", key)
+	logger.Infof("current key: %v", zot.CurrentKey)
 
-	groupVersions, err := zot.GetUserGroupVersions(key)
+	groupVersions, err := zot.GetUserGroupVersions(zot.CurrentKey)
 	if err != nil {
 		logger.Errorf("cannot get group versions: %v", err)
 		return
@@ -96,6 +91,7 @@ func main() {
 			return
 		}
 		if !group.Active {
+			logger.Infof("ignoring inactive group #%v", group.Id)
 			continue
 		}
 
@@ -122,7 +118,7 @@ func main() {
 		}
 		if delitem != nil {
 			for _, itemKey := range *delitem {
-				if err := zot.DeleteItemDB(itemKey); err != nil {
+				if err := group.DeleteItemDB(itemKey); err != nil {
 					logger.Errorf("cannot delete item %s: %v", itemKey, err)
 					return
 				}
