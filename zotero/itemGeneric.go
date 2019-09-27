@@ -2,113 +2,111 @@ package zotero
 
 type ItemGeneric struct {
 	ItemDataBase
-
-	NumPages             string `json:"numPages,omitempty"`             // # of Pages
-	NumberOfVolumes      string `json:"numberOfVolumes,omitempty"`      // # of Volumes
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Abstract
-	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
-	ApplicationNumber    string `json:"applicationNumber,omitempty"`    // Application Number
-	Archive              string `json:"archive,omitempty"`              // Archive
-	ArtworkSize          string `json:"artworkSize,omitempty"`          // Artwork Size
-	Assignee             string `json:"assignee,omitempty"`             // Assignee
-	BillNumber           string `json:"billNumber,omitempty"`           // Bill Number
-	BlogTitle            string `json:"blogTitle,omitempty"`            // Blog Title
-	BookTitle            string `json:"bookTitle,omitempty"`            // Book Title
-	CallNumber           string `json:"callNumber,omitempty"`           // Call Number
-	CaseName             string `json:"caseName,omitempty"`             // Case Name
-	Code                 string `json:"code,omitempty"`                 // Code
-	CodeNumber           string `json:"codeNumber,omitempty"`           // Code Number
-	CodePages            string `json:"codePages,omitempty"`            // Code Pages
-	CodeVolume           string `json:"codeVolume,omitempty"`           // Code Volume
-	Committee            string `json:"committee,omitempty"`            // Committee
-	Company              string `json:"company,omitempty"`              // Company
-	ConferenceName       string `json:"conferenceName,omitempty"`       // Conference Name
-	Country              string `json:"country,omitempty"`              // Country
-	Court                string `json:"court,omitempty"`                // Court
-	DOI                  string `json:"DOI,omitempty"`                  // DOI
-	Date                 string `json:"date,omitempty"`                 // Date
-	DateDecided          string `json:"dateDecided,omitempty"`          // Date Decided
-	DateEnacted          string `json:"dateEnacted,omitempty"`          // Date Enacted
-	DictionaryTitle      string `json:"dictionaryTitle,omitempty"`      // Dictionary Title
-	Distributor          string `json:"distributor,omitempty"`          // Distributor
-	DocketNumber         string `json:"docketNumber,omitempty"`         // Docket Number
-	DocumentNumber       string `json:"documentNumber,omitempty"`       // Document Number
-	Edition              string `json:"edition,omitempty"`              // Edition
-	EncyclopediaTitle    string `json:"encyclopediaTitle,omitempty"`    // Encyclopedia Title
-	EpisodeNumber        string `json:"episodeNumber,omitempty"`        // Episode Number
-	Extra                string `json:"extra,omitempty"`                // Extra
-	AudioFileType        string `json:"audioFileType,omitempty"`        // File Type
-	FilingDate           string `json:"filingDate,omitempty"`           // Filing Date
-	FirstPage            string `json:"firstPage,omitempty"`            // First Page
-	AudioRecordingFormat string `json:"audioRecordingFormat,omitempty"` // Format
-	VideoRecordingFormat string `json:"videoRecordingFormat,omitempty"` // Format
-	ForumTitle           string `json:"forumTitle,omitempty"`           // Forum/Listserv Title
-	Genre                string `json:"genre,omitempty"`                // Genre
-	History              string `json:"history,omitempty"`              // History
-	ISBN                 string `json:"ISBN,omitempty"`                 // ISBN
-	ISSN                 string `json:"ISSN,omitempty"`                 // ISSN
-	Institution          string `json:"institution,omitempty"`          // Institution
-	Issue                string `json:"issue,omitempty"`                // Issue
-	IssueDate            string `json:"issueDate,omitempty"`            // Issue Date
-	IssuingAuthority     string `json:"issuingAuthority,omitempty"`     // Issuing Authority
-	JournalAbbreviation  string `json:"journalAbbreviation,omitempty"`  // Journal Abbr
-	Label                string `json:"label,omitempty"`                // Label
-	Language             string `json:"language,omitempty"`             // Language
-	ProgrammingLanguage  string `json:"programmingLanguage,omitempty"`  // Language
-	LegalStatus          string `json:"legalStatus,omitempty"`          // Legal Status
-	LegislativeBody      string `json:"legislativeBody,omitempty"`      // Legislative Body
-	LibraryCatalog       string `json:"libraryCatalog,omitempty"`       // Library Catalog
-	ArchiveLocation      string `json:"archiveLocation,omitempty"`      // Loc. in Archive
-	InterviewMedium      string `json:"interviewMedium,omitempty"`      // Medium
-	ArtworkMedium        string `json:"artworkMedium,omitempty"`        // Medium
-	MeetingName          string `json:"meetingName,omitempty"`          // Meeting Name
-	NameOfAct            string `json:"nameOfAct,omitempty"`            // Name of Act
-	Network              string `json:"network,omitempty"`              // Network
-	Pages                string `json:"pages,omitempty"`                // Pages
-	PatentNumber         string `json:"patentNumber,omitempty"`         // Patent Number
-	Place                string `json:"place,omitempty"`                // Place
-	PostType             string `json:"postType,omitempty"`             // Post Type
-	PriorityNumbers      string `json:"priorityNumbers,omitempty"`      // Priority Numbers
-	ProceedingsTitle     string `json:"proceedingsTitle,omitempty"`     // Proceedings Title
-	ProgramTitle         string `json:"programTitle,omitempty"`         // Program Title
-	PublicLawNumber      string `json:"publicLawNumber,omitempty"`      // Public Law Number
-	PublicationTitle     string `json:"publicationTitle,omitempty"`     // Publication
-	Publisher            string `json:"publisher,omitempty"`            // Publisher
-	References           string `json:"references,omitempty"`           // References
-	ReportNumber         string `json:"reportNumber,omitempty"`         // Report Number
-	ReportType           string `json:"reportType,omitempty"`           // Report Type
-	Reporter             string `json:"reporter,omitempty"`             // Reporter
-	ReporterVolume       string `json:"reporterVolume,omitempty"`       // Reporter Volume
-	Rights               string `json:"rights,omitempty"`               // Rights
-	RunningTime          string `json:"runningTime,omitempty"`          // Running Time
-	Scale                string `json:"scale,omitempty"`                // Scale
-	Section              string `json:"section,omitempty"`              // Section
-	Series               string `json:"series,omitempty"`               // Series
-	SeriesNumber         string `json:"seriesNumber,omitempty"`         // Series Number
-	SeriesText           string `json:"seriesText,omitempty"`           // Series Text
-	SeriesTitle          string `json:"seriesTitle,omitempty"`          // Series Title
-	Session              string `json:"session,omitempty"`              // Session
-	ShortTitle           string `json:"shortTitle,omitempty"`           // Short Title
-	Studio               string `json:"studio,omitempty"`               // Studio
-	Subject              string `json:"subject,omitempty"`              // Subject
-	System               string `json:"system,omitempty"`               // System
-	Title                string `json:"title,omitempty"`                // Title
-	ThesisType           string `json:"thesisType,omitempty"`           // Type
-	PresentationType     string `json:"presentationType,omitempty"`     // Type
-	MapType              string `json:"mapType,omitempty"`              // Type
-	ManuscriptType       string `json:"manuscriptType,omitempty"`       // Type
-	LetterType           string `json:"letterType,omitempty"`           // Type
-	Url                  string `json:"url,omitempty"`                  // URL
-	University           string `json:"university,omitempty"`           // University
-	VersionNumber        string `json:"versionNumber,omitempty"`        // Version
-	Volume               string `json:"volume,omitempty"`               // Volume
-	WebsiteTitle         string `json:"websiteTitle,omitempty"`         // Website Title
-	WebsiteType          string `json:"websiteType,omitempty"`          // Website Type
+	NumPages             string           `json:"numPages,omitempty"`             // # of Pages
+	NumberOfVolumes      string           `json:"numberOfVolumes,omitempty"`      // # of Volumes
+	AbstractNote         string           `json:"abstractNote,omitempty"`         // Abstract
+	AccessDate           string           `json:"accessDate,omitempty"`           // Accessed
+	ApplicationNumber    string           `json:"applicationNumber,omitempty"`    // Application Number
+	Archive              string           `json:"archive,omitempty"`              // Archive
+	ArtworkSize          string           `json:"artworkSize,omitempty"`          // Artwork Size
+	Assignee             string           `json:"assignee,omitempty"`             // Assignee
+	BillNumber           string           `json:"billNumber,omitempty"`           // Bill Number
+	BlogTitle            string           `json:"blogTitle,omitempty"`            // Blog Title
+	BookTitle            string           `json:"bookTitle,omitempty"`            // Book Title
+	CallNumber           string           `json:"callNumber,omitempty"`           // Call Number
+	CaseName             string           `json:"caseName,omitempty"`             // Case Name
+	Code                 string           `json:"code,omitempty"`                 // Code
+	CodeNumber           string           `json:"codeNumber,omitempty"`           // Code Number
+	CodePages            string           `json:"codePages,omitempty"`            // Code Pages
+	CodeVolume           string           `json:"codeVolume,omitempty"`           // Code Volume
+	Committee            string           `json:"committee,omitempty"`            // Committee
+	Company              string           `json:"company,omitempty"`              // Company
+	ConferenceName       string           `json:"conferenceName,omitempty"`       // Conference Name
+	Country              string           `json:"country,omitempty"`              // Country
+	Court                string           `json:"court,omitempty"`                // Court
+	DOI                  string           `json:"DOI,omitempty"`                  // DOI
+	Date                 string           `json:"date,omitempty"`                 // Date
+	DateDecided          string           `json:"dateDecided,omitempty"`          // Date Decided
+	DateEnacted          string           `json:"dateEnacted,omitempty"`          // Date Enacted
+	DictionaryTitle      string           `json:"dictionaryTitle,omitempty"`      // Dictionary Title
+	Distributor          string           `json:"distributor,omitempty"`          // Distributor
+	DocketNumber         string           `json:"docketNumber,omitempty"`         // Docket Number
+	DocumentNumber       string           `json:"documentNumber,omitempty"`       // Document Number
+	Edition              string           `json:"edition,omitempty"`              // Edition
+	EncyclopediaTitle    string           `json:"encyclopediaTitle,omitempty"`    // Encyclopedia Title
+	EpisodeNumber        string           `json:"episodeNumber,omitempty"`        // Episode Number
+	Extra                string           `json:"extra,omitempty"`                // Extra
+	AudioFileType        string           `json:"audioFileType,omitempty"`        // File Type
+	FilingDate           string           `json:"filingDate,omitempty"`           // Filing Date
+	FirstPage            string           `json:"firstPage,omitempty"`            // First Page
+	AudioRecordingFormat string           `json:"audioRecordingFormat,omitempty"` // Format
+	VideoRecordingFormat string           `json:"videoRecordingFormat,omitempty"` // Format
+	ForumTitle           string           `json:"forumTitle,omitempty"`           // Forum/Listserv Title
+	Genre                string           `json:"genre,omitempty"`                // Genre
+	History              string           `json:"history,omitempty"`              // History
+	ISBN                 string           `json:"ISBN,omitempty"`                 // ISBN
+	ISSN                 string           `json:"ISSN,omitempty"`                 // ISSN
+	Institution          string           `json:"institution,omitempty"`          // Institution
+	Issue                string           `json:"issue,omitempty"`                // Issue
+	IssueDate            string           `json:"issueDate,omitempty"`            // Issue Date
+	IssuingAuthority     string           `json:"issuingAuthority,omitempty"`     // Issuing Authority
+	JournalAbbreviation  string           `json:"journalAbbreviation,omitempty"`  // Journal Abbr
+	Label                string           `json:"label,omitempty"`                // Label
+	Language             string           `json:"language,omitempty"`             // Language
+	ProgrammingLanguage  string           `json:"programmingLanguage,omitempty"`  // Language
+	LegalStatus          string           `json:"legalStatus,omitempty"`          // Legal Status
+	LegislativeBody      string           `json:"legislativeBody,omitempty"`      // Legislative Body
+	LibraryCatalog       string           `json:"libraryCatalog,omitempty"`       // Library Catalog
+	ArchiveLocation      string           `json:"archiveLocation,omitempty"`      // Loc. in Archive
+	InterviewMedium      string           `json:"interviewMedium,omitempty"`      // Medium
+	ArtworkMedium        string           `json:"artworkMedium,omitempty"`        // Medium
+	MeetingName          string           `json:"meetingName,omitempty"`          // Meeting Name
+	NameOfAct            string           `json:"nameOfAct,omitempty"`            // Name of Act
+	Network              string           `json:"network,omitempty"`              // Network
+	Pages                string           `json:"pages,omitempty"`                // Pages
+	PatentNumber         string           `json:"patentNumber,omitempty"`         // Patent Number
+	Place                string           `json:"place,omitempty"`                // Place
+	PostType             string           `json:"postType,omitempty"`             // Post Type
+	PriorityNumbers      string           `json:"priorityNumbers,omitempty"`      // Priority Numbers
+	ProceedingsTitle     string           `json:"proceedingsTitle,omitempty"`     // Proceedings Title
+	ProgramTitle         string           `json:"programTitle,omitempty"`         // Program Title
+	PublicLawNumber      string           `json:"publicLawNumber,omitempty"`      // Public Law Number
+	PublicationTitle     string           `json:"publicationTitle,omitempty"`     // Publication
+	Publisher            string           `json:"publisher,omitempty"`            // Publisher
+	References           string           `json:"references,omitempty"`           // References
+	ReportNumber         string           `json:"reportNumber,omitempty"`         // Report Number
+	ReportType           string           `json:"reportType,omitempty"`           // Report Type
+	Reporter             string           `json:"reporter,omitempty"`             // Reporter
+	ReporterVolume       string           `json:"reporterVolume,omitempty"`       // Reporter Volume
+	Rights               string           `json:"rights,omitempty"`               // Rights
+	RunningTime          string           `json:"runningTime,omitempty"`          // Running Time
+	Scale                string           `json:"scale,omitempty"`                // Scale
+	Section              string           `json:"section,omitempty"`              // Section
+	Series               string           `json:"series,omitempty"`               // Series
+	SeriesNumber         string           `json:"seriesNumber,omitempty"`         // Series Number
+	SeriesText           string           `json:"seriesText,omitempty"`           // Series Text
+	SeriesTitle          string           `json:"seriesTitle,omitempty"`          // Series Title
+	Session              string           `json:"session,omitempty"`              // Session
+	ShortTitle           string           `json:"shortTitle,omitempty"`           // Short Title
+	Studio               string           `json:"studio,omitempty"`               // Studio
+	Subject              string           `json:"subject,omitempty"`              // Subject
+	System               string           `json:"system,omitempty"`               // System
+	Title                string           `json:"title,omitempty"`                // Title
+	ThesisType           string           `json:"thesisType,omitempty"`           // Type
+	PresentationType     string           `json:"presentationType,omitempty"`     // Type
+	MapType              string           `json:"mapType,omitempty"`              // Type
+	ManuscriptType       string           `json:"manuscriptType,omitempty"`       // Type
+	LetterType           string           `json:"letterType,omitempty"`           // Type
+	Url                  string           `json:"url,omitempty"`                  // URL
+	University           string           `json:"university,omitempty"`           // University
+	VersionNumber        string           `json:"versionNumber,omitempty"`        // Version
+	Volume               string           `json:"volume,omitempty"`               // Volume
+	WebsiteTitle         string           `json:"websiteTitle,omitempty"`         // Website Title
+	WebsiteType          string           `json:"websiteType,omitempty"`          // Website Type
 }
 
 type ItemArtwork struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	ArtworkMedium   string           `json:"artworkMedium,omitempty"`   // Medium
@@ -128,7 +126,6 @@ type ItemArtwork struct {
 
 type ItemAudioRecording struct {
 	ItemDataBase
-	Creators             []ItemDataPerson `json:"creators"`
 	Title                string           `json:"title,omitempty"`                // Title
 	AbstractNote         string           `json:"abstractNote,omitempty"`         // Abstract
 	AudioRecordingFormat string           `json:"audioRecordingFormat,omitempty"` // Format
@@ -154,7 +151,6 @@ type ItemAudioRecording struct {
 
 type ItemBill struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	BillNumber      string           `json:"billNumber,omitempty"`      // Bill Number
@@ -176,7 +172,6 @@ type ItemBill struct {
 
 type ItemBlogPost struct {
 	ItemDataBase
-	Creators     []ItemDataPerson `json:"creators"`
 	Title        string           `json:"title,omitempty"`        // Title
 	AbstractNote string           `json:"abstractNote,omitempty"` // Abstract
 	BlogTitle    string           `json:"blogTitle,omitempty"`    // Blog Title
@@ -192,7 +187,6 @@ type ItemBlogPost struct {
 
 type ItemBook struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	Series          string           `json:"series,omitempty"`          // Series
@@ -219,7 +213,6 @@ type ItemBook struct {
 
 type ItemBookSection struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	BookTitle       string           `json:"bookTitle,omitempty"`       // Book Title
@@ -247,7 +240,6 @@ type ItemBookSection struct {
 
 type ItemCase struct {
 	ItemDataBase
-	Creators       []ItemDataPerson `json:"creators"`
 	CaseName       string           `json:"caseName,omitempty"`       // Case Name
 	AbstractNote   string           `json:"abstractNote,omitempty"`   // Abstract
 	Reporter       string           `json:"reporter,omitempty"`       // Reporter
@@ -267,7 +259,6 @@ type ItemCase struct {
 
 type ItemComputerProgram struct {
 	ItemDataBase
-	Creators            []ItemDataPerson `json:"creators"`
 	Title               string           `json:"title,omitempty"`               // Title
 	AbstractNote        string           `json:"abstractNote,omitempty"`        // Abstract
 	SeriesTitle         string           `json:"seriesTitle,omitempty"`         // Series Title
@@ -291,7 +282,6 @@ type ItemComputerProgram struct {
 
 type ItemConferencePaper struct {
 	ItemDataBase
-	Creators         []ItemDataPerson `json:"creators"`
 	Title            string           `json:"title,omitempty"`            // Title
 	AbstractNote     string           `json:"abstractNote,omitempty"`     // Abstract
 	Date             string           `json:"date,omitempty"`             // Date
@@ -318,7 +308,6 @@ type ItemConferencePaper struct {
 
 type ItemDictionaryEntry struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	DictionaryTitle string           `json:"dictionaryTitle,omitempty"` // Dictionary Title
@@ -346,7 +335,6 @@ type ItemDictionaryEntry struct {
 
 type ItemDocument struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	Publisher       string           `json:"publisher,omitempty"`       // Publisher
@@ -365,7 +353,6 @@ type ItemDocument struct {
 
 type ItemEmail struct {
 	ItemDataBase
-	Creators     []ItemDataPerson `json:"creators"`
 	Subject      string           `json:"subject,omitempty"`      // Subject
 	AbstractNote string           `json:"abstractNote,omitempty"` // Abstract
 	Date         string           `json:"date,omitempty"`         // Date
@@ -379,7 +366,6 @@ type ItemEmail struct {
 
 type ItemEncyclopediaArticle struct {
 	ItemDataBase
-	Creators          []ItemDataPerson `json:"creators"`
 	Title             string           `json:"title,omitempty"`             // Title
 	AbstractNote      string           `json:"abstractNote,omitempty"`      // Abstract
 	EncyclopediaTitle string           `json:"encyclopediaTitle,omitempty"` // Encyclopedia Title
@@ -407,7 +393,6 @@ type ItemEncyclopediaArticle struct {
 
 type ItemFilm struct {
 	ItemDataBase
-	Creators             []ItemDataPerson `json:"creators"`
 	Title                string           `json:"title,omitempty"`                // Title
 	AbstractNote         string           `json:"abstractNote,omitempty"`         // Abstract
 	Distributor          string           `json:"distributor,omitempty"`          // Distributor
@@ -429,7 +414,6 @@ type ItemFilm struct {
 
 type ItemForumPost struct {
 	ItemDataBase
-	Creators     []ItemDataPerson `json:"creators"`
 	Title        string           `json:"title,omitempty"`        // Title
 	AbstractNote string           `json:"abstractNote,omitempty"` // Abstract
 	ForumTitle   string           `json:"forumTitle,omitempty"`   // Forum/Listserv Title
@@ -445,7 +429,7 @@ type ItemForumPost struct {
 
 type ItemHearing struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	Committee       string           `json:"committee,omitempty"`       // Committee
@@ -468,7 +452,7 @@ type ItemHearing struct {
 
 type ItemInstantMessage struct {
 	ItemDataBase
-	Creators     []ItemDataPerson `json:"creators"`
+	
 	Title        string           `json:"title,omitempty"`        // Title
 	AbstractNote string           `json:"abstractNote,omitempty"` // Abstract
 	Date         string           `json:"date,omitempty"`         // Date
@@ -482,7 +466,7 @@ type ItemInstantMessage struct {
 
 type ItemInterview struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	Date            string           `json:"date,omitempty"`            // Date
@@ -501,7 +485,6 @@ type ItemInterview struct {
 
 type ItemJournalArticle struct {
 	ItemDataBase
-	Creators            []ItemDataPerson `json:"creators"`
 	Title               string           `json:"title,omitempty"`               // Title
 	AbstractNote        string           `json:"abstractNote,omitempty"`        // Abstract
 	PublicationTitle    string           `json:"publicationTitle,omitempty"`    // Publication
@@ -529,7 +512,7 @@ type ItemJournalArticle struct {
 
 type ItemLetter struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	LetterType      string           `json:"letterType,omitempty"`      // Type
@@ -548,7 +531,6 @@ type ItemLetter struct {
 
 type ItemMagazineArticle struct {
 	ItemDataBase
-	Creators         []ItemDataPerson `json:"creators"`
 	Title            string           `json:"title,omitempty"`            // Title
 	AbstractNote     string           `json:"abstractNote,omitempty"`     // Abstract
 	PublicationTitle string           `json:"publicationTitle,omitempty"` // Publication
@@ -571,7 +553,7 @@ type ItemMagazineArticle struct {
 
 type ItemManuscript struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	ManuscriptType  string           `json:"manuscriptType,omitempty"`  // Type
@@ -592,7 +574,7 @@ type ItemManuscript struct {
 
 type ItemMap struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	MapType         string           `json:"mapType,omitempty"`         // Type
@@ -617,7 +599,6 @@ type ItemMap struct {
 
 type ItemNewspaperArticle struct {
 	ItemDataBase
-	Creators         []ItemDataPerson `json:"creators"`
 	Title            string           `json:"title,omitempty"`            // Title
 	AbstractNote     string           `json:"abstractNote,omitempty"`     // Abstract
 	PublicationTitle string           `json:"publicationTitle,omitempty"` // Publication
@@ -641,7 +622,6 @@ type ItemNewspaperArticle struct {
 
 type ItemPatent struct {
 	ItemDataBase
-	Creators          []ItemDataPerson `json:"creators"`
 	Title             string           `json:"title,omitempty"`             // Title
 	AbstractNote      string           `json:"abstractNote,omitempty"`      // Abstract
 	Place             string           `json:"place,omitempty"`             // Place
@@ -666,7 +646,6 @@ type ItemPatent struct {
 
 type ItemPodcast struct {
 	ItemDataBase
-	Creators      []ItemDataPerson `json:"creators"`
 	Title         string           `json:"title,omitempty"`         // Title
 	AbstractNote  string           `json:"abstractNote,omitempty"`  // Abstract
 	SeriesTitle   string           `json:"seriesTitle,omitempty"`   // Series Title
@@ -683,7 +662,6 @@ type ItemPodcast struct {
 
 type ItemPresentation struct {
 	ItemDataBase
-	Creators         []ItemDataPerson `json:"creators"`
 	Title            string           `json:"title,omitempty"`            // Title
 	AbstractNote     string           `json:"abstractNote,omitempty"`     // Abstract
 	PresentationType string           `json:"presentationType,omitempty"` // Type
@@ -700,7 +678,6 @@ type ItemPresentation struct {
 
 type ItemRadioBroadcast struct {
 	ItemDataBase
-	Creators             []ItemDataPerson `json:"creators"`
 	Title                string           `json:"title,omitempty"`                // Title
 	AbstractNote         string           `json:"abstractNote,omitempty"`         // Abstract
 	ProgramTitle         string           `json:"programTitle,omitempty"`         // Program Title
@@ -724,7 +701,7 @@ type ItemRadioBroadcast struct {
 
 type ItemReport struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	ReportNumber    string           `json:"reportNumber,omitempty"`    // Report Number
@@ -748,7 +725,7 @@ type ItemReport struct {
 
 type ItemStatute struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	NameOfAct       string           `json:"nameOfAct,omitempty"`       // Name of Act
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	Code            string           `json:"code,omitempty"`            // Code
@@ -769,7 +746,6 @@ type ItemStatute struct {
 
 type ItemTvBroadcast struct {
 	ItemDataBase
-	Creators             []ItemDataPerson `json:"creators"`
 	Title                string           `json:"title,omitempty"`                // Title
 	AbstractNote         string           `json:"abstractNote,omitempty"`         // Abstract
 	ProgramTitle         string           `json:"programTitle,omitempty"`         // Program Title
@@ -793,7 +769,7 @@ type ItemTvBroadcast struct {
 
 type ItemThesis struct {
 	ItemDataBase
-	Creators        []ItemDataPerson `json:"creators"`
+	
 	Title           string           `json:"title,omitempty"`           // Title
 	AbstractNote    string           `json:"abstractNote,omitempty"`    // Abstract
 	ThesisType      string           `json:"thesisType,omitempty"`      // Type
@@ -815,7 +791,6 @@ type ItemThesis struct {
 
 type ItemVideoRecording struct {
 	ItemDataBase
-	Creators             []ItemDataPerson `json:"creators"`
 	Title                string           `json:"title,omitempty"`                // Title
 	AbstractNote         string           `json:"abstractNote,omitempty"`         // Abstract
 	VideoRecordingFormat string           `json:"videoRecordingFormat,omitempty"` // Format
@@ -841,7 +816,7 @@ type ItemVideoRecording struct {
 
 type ItemWebpage struct {
 	ItemDataBase
-	Creators     []ItemDataPerson `json:"creators"`
+	
 	Title        string           `json:"title,omitempty"`        // Title
 	AbstractNote string           `json:"abstractNote,omitempty"` // Abstract
 	WebsiteTitle string           `json:"websiteTitle,omitempty"` // Website Title

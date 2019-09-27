@@ -51,6 +51,7 @@ type ItemDataBase struct {
 	Collections  []string          `json:"collections"`
 	DateAdded    string            `json:"dateAdded,omitempty"`
 	DateModified string            `json:"dateModified,omitempty"`
+	Creators     []ItemDataPerson  `json:"creators"`
 }
 
 type ItemDataPerson struct {
@@ -160,6 +161,147 @@ func (item *Item) StoreAttachment() (string, error) {
 	item.Group.zot.CheckWait(resp.Header())
 	return md5str, nil
 }
+
+func (item *Item) uploadFile() error {
+	attachmentFolder, err := item.Group.GetAttachmentFolder()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot get attachment folder")
+	}
+	attachmentFile := fmt.Sprintf("%s/%s", attachmentFolder, item.Key)
+
+	finfo, err := os.Stat(attachmentFile)
+	if err != nil {
+		// no file no error
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return emperror.Wrapf(err, "cannot get file info for %v", attachmentFile)
+	}
+
+	attachmentBytes, err := ioutil.ReadFile(attachmentFile)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot read %v", attachmentFile)
+	}
+	md5str := fmt.Sprintf("%x", md5.Sum(attachmentBytes))
+	if md5str == "" {
+		return errors.New(fmt.Sprintf("cannot create md5 of %v", attachmentFile))
+	}
+	if md5str == item.MD5 {
+		// no change, do nothing
+		return nil
+	}
+
+	/**
+	Get Authorization
+	*/
+	endpoint := fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
+	h := item.Group.zot.client.R().
+		SetHeader("Content-Type", "application/x-www-form-urlencoded")
+	if item.MD5 == "" {
+		h.SetHeader("If-None-Match", "*")
+	} else {
+		h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
+	}
+	item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+	resp, err := h.
+		SetFormData(map[string]string{
+			"md5":      fmt.Sprintf("%s", md5str),
+			"filename": item.Key,
+			"filesize": fmt.Sprintf("%v", finfo.Size()),
+			"mtime":    fmt.Sprintf("%v", finfo.ModTime().UnixNano()/int64(time.Millisecond)),
+		}).
+		Post(endpoint)
+	if err != nil {
+		return emperror.Wrapf(err, "upload attachment for item %v with %s", item.Key, endpoint)
+	}
+	switch resp.StatusCode() {
+	case 200:
+	case 403:
+		return errors.New(fmt.Sprintf("file editing denied for item %v with %s", item.Key, endpoint))
+	case 412:
+		return errors.New(fmt.Sprintf("file precondition failed. please solve conflict for item %v with %s", item.Key, endpoint))
+	case 413:
+		return errors.New(fmt.Sprintf("file too large. please upgrade storage for item %v with %s", item.Key, endpoint))
+	case 428:
+		return errors.New(fmt.Sprintf("file precondition required. If-Match or If-None-Match was not provided for item %v with %s", item.Key, endpoint))
+	case 429:
+		return errors.New(fmt.Sprintf("file too many requests. Too many unfinished uploads for item %v with %s", item.Key, endpoint))
+	default:
+		return errors.New(fmt.Sprintf("file unknown error #%v for item %v with %s", resp.Status(), item.Key, endpoint))
+	}
+	jsonstr := resp.Body()
+	var result map[string]string
+	if err = json.Unmarshal(jsonstr, &result); err != nil {
+		return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
+	}
+	var ok bool
+	if _, ok = result["exists"]; ok {
+		// already there
+		return nil
+	}
+
+	/**
+	Upload file (Amazon S3 e.a.)
+	*/
+	endpoint, ok = result["url"]
+	if !ok {
+		return errors.New(fmt.Sprintf("no url in upload authorization %v", string(jsonstr)))
+	}
+	contenttype, ok := result["contentType"]
+	if !ok {
+		return errors.New(fmt.Sprintf("no contentType in upload authorization %v", string(jsonstr)))
+	}
+	prefix, ok := result["prefix"]
+	if !ok {
+		return errors.New(fmt.Sprintf("no prefix in upload authorization %v", string(jsonstr)))
+	}
+	suffix, ok := result["suffix"]
+	if !ok {
+		return errors.New(fmt.Sprintf("no suffix in upload authorization %v", string(jsonstr)))
+	}
+	uploadKey, ok := result["uploadKey"]
+	if !ok {
+		return errors.New(fmt.Sprintf("no uploadKey in upload authorization %v", string(jsonstr)))
+	}
+	item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+	resp, err = resty.New().R().
+		SetHeader("Content-Type", contenttype).
+		SetBody(append([]byte(prefix), append(attachmentBytes, []byte(suffix)...)...)).
+		Post(endpoint)
+	if err != nil {
+		return emperror.Wrapf(err, "error uploading file to %v", endpoint)
+	}
+	if resp.StatusCode() != 201 {
+		return errors.New(fmt.Sprintf("error uploading file with status %v - %v", resp.Status(), resp.Body()))
+	}
+
+	/**
+	register upload
+	*/
+	endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
+	item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+	h = item.Group.zot.client.R()
+	if item.MD5 == "" {
+		h.SetHeader("If-None-Match", "*")
+	} else {
+		h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
+	}
+	resp, err = h.
+		SetFormData(map[string]string{"upload": uploadKey}).
+		Post(endpoint)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot register upload %v", endpoint)
+	}
+	switch resp.StatusCode() {
+	case 204:
+	case 412:
+		return errors.New(fmt.Sprintf("Precondition failed - The file has changed remotely since retrieval for item %v.%v", item.Group.Id, item.Key))
+	}
+	// todo: should be etag from upload...
+	item.MD5 = md5str
+	return nil
+}
+
 func (item *Item) Update() error {
 	item.Group.zot.logger.Infof("Creating Zotero Item [#%s]", item.Key)
 
@@ -206,153 +348,9 @@ func (item *Item) Update() error {
 			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, item.Key))
 		}
 		if item.Data.ItemType == "attachment" {
-			// todo: attachment upload
-			var md5str string
-			var finfo os.FileInfo
-			//var md5Sink hash.Hash
-			var endpoint string
-			var resp *resty.Response
-			var h *resty.Request
-			// var f *os.File
-			var jsonstr []byte
-			var result map[string]string
-			var attachmentFolder string
-			var attachmentFile string
-			var attachmentBytes []byte
-			var ok bool
-			var contenttype string
-			var prefix string
-			var suffix string
-			var uploadKey string
-
-			attachmentFolder, err = item.Group.GetAttachmentFolder()
-			if err != nil {
-				goto End
+			if err := item.uploadFile(); err != nil {
+				return emperror.Wrapf(err, "cannot upload file")
 			}
-			attachmentFile = fmt.Sprintf("%s/%s", attachmentFolder, item.Key)
-
-			finfo, err = os.Stat(attachmentFile)
-			if err != nil {
-				goto End
-			}
-
-			attachmentBytes, err = ioutil.ReadFile(attachmentFile)
-			if err != nil {
-				goto End
-			}
-			md5str = fmt.Sprintf("%x", md5.Sum(attachmentBytes))
-			if md5str == "" || md5str == item.MD5 {
-				goto End
-			}
-
-			/**
-			Get Authorization
-			 */
-			endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
-			h = item.Group.zot.client.R().
-				SetHeader("Content-Type", "application/x-www-form-urlencoded")
-			if item.MD5 == "" {
-				h.SetHeader("If-None-Match", "*")
-			} else {
-				h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
-			}
-			item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
-			resp, err = h.
-				SetFormData(map[string]string{
-					"md5":      fmt.Sprintf("%s", md5str),
-					"filename": item.Key,
-					"filesize": fmt.Sprintf("%v", finfo.Size()),
-					"mtime":    fmt.Sprintf("%v", finfo.ModTime().UnixNano()/int64(time.Millisecond)),
-				}).
-				Post(endpoint)
-			if err != nil {
-				return emperror.Wrapf(err, "upload attachment for item %v with %s", item.Key, endpoint)
-			}
-			switch resp.StatusCode() {
-			case 200:
-			case 403:
-				return errors.New(fmt.Sprintf("file editing denied for item %v with %s", item.Key, endpoint))
-			case 412:
-				return errors.New(fmt.Sprintf("file precondition failed. please solve conflict for item %v with %s", item.Key, endpoint))
-			case 413:
-				return errors.New(fmt.Sprintf("file too large. please upgrade storage for item %v with %s", item.Key, endpoint))
-			case 428:
-				return errors.New(fmt.Sprintf("file precondition required. If-Match or If-None-Match was not provided for item %v with %s", item.Key, endpoint))
-			case 429:
-				return errors.New(fmt.Sprintf("file too many requests. Too many unfinished uploads for item %v with %s", item.Key, endpoint))
-			default:
-				return errors.New(fmt.Sprintf("file unknown error #%v for item %v with %s", resp.Status(), item.Key, endpoint))
-			}
-			jsonstr = resp.Body()
-			if err = json.Unmarshal(jsonstr, &result); err != nil {
-				return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
-			}
-			if _, ok = result["exists"]; ok {
-				// already there
-				goto End
-			}
-
-			/**
-			Upload file
-			 */
-			endpoint, ok = result["url"]
-			if !ok {
-				return errors.New(fmt.Sprintf("no url in upload authorization %v", string(jsonstr)))
-			}
-			contenttype, ok = result["contentType"]
-			if !ok {
-				return errors.New(fmt.Sprintf("no contentType in upload authorization %v", string(jsonstr)))
-			}
-			prefix, ok = result["prefix"]
-			if !ok {
-				return errors.New(fmt.Sprintf("no prefix in upload authorization %v", string(jsonstr)))
-			}
-			suffix, ok = result["suffix"]
-			if !ok {
-				return errors.New(fmt.Sprintf("no suffix in upload authorization %v", string(jsonstr)))
-			}
-			uploadKey, ok = result["uploadKey"]
-			if !ok {
-				return errors.New(fmt.Sprintf("no uploadKey in upload authorization %v", string(jsonstr)))
-			}
-			item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
-			resp, err = resty.New().R().
-				SetHeader("Content-Type", contenttype).
-				SetBody(append([]byte(prefix), append(attachmentBytes, []byte(suffix)...)...)).
-				Post(endpoint)
-			if err != nil {
-				return emperror.Wrapf(err, "error uploading file to %v", endpoint)
-			}
-			if resp.StatusCode() != 201 {
-				return errors.New(fmt.Sprintf("error uploading file with status %v - %v", resp.Status(), resp.Body()))
-			}
-
-
-			/**
-			register upload
-			 */
-			endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
-			item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
-			h = item.Group.zot.client.R()
-			if item.MD5 == "" {
-				h.SetHeader("If-None-Match", "*")
-			} else {
-				h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
-			}
-			resp, err = h.
-				SetFormData(map[string]string{"upload":uploadKey}).
-				Post(endpoint)
-			if err != nil {
-				return emperror.Wrapf(err, "cannot register upload %v", endpoint)
-			}
-			switch resp.StatusCode() {
-			case 204:
-			case 412:
-				return errors.New(fmt.Sprintf("Precondition failed - The file has changed remotely since retrieval for item %v.%v", item.Group.Id, item.Key))
-			}
-			// todo: should be etag from upload...
-			item.MD5 = md5str
-		End:
 		}
 	}
 	item.Status = SyncStatus_Synced
