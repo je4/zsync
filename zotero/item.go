@@ -23,17 +23,18 @@ type ItemMeta struct {
 }
 
 type Item struct {
-	Key     string            `json:"key"`
-	Version int64             `json:"version"`
-	Library CollectionLibrary `json:"library,omitempty"`
-	Links   interface{}       `json:"links,omitempty"`
-	Meta    ItemMeta          `json:"meta,omitempty"`
-	Data    ItemGeneric       `json:"data,omitempty"`
-	Group   *Group            `json:"-"`
-	Trashed bool              `json:"-"`
-	Deleted bool              `json:"-"`
-	Status  SyncStatus        `json:"-"`
-	MD5     string            `json:"-"`
+	Key     string      `json:"key"`
+	Version int64       `json:"version"`
+	Library Library     `json:"library,omitempty"`
+	Links   interface{} `json:"links,omitempty"`
+	Meta    ItemMeta    `json:"meta,omitempty"`
+	Data    ItemGeneric `json:"data,omitempty"`
+	group   *Group      `json:"-"`
+	Trashed bool        `json:"-"`
+	Deleted bool        `json:"-"`
+	Status  SyncStatus  `json:"-"`
+	MD5     string      `json:"-"`
+	OldId   string      `json:"-"`
 }
 
 type ItemTag struct {
@@ -47,7 +48,7 @@ type ItemDataBase struct {
 	ItemType     string            `json:"itemType"`
 	Tags         []ItemTag         `json:"tags"`
 	Relations    map[string]string `json:"relations"`
-	ParentItem   string            `json:"parentItem,omitempty"`
+	ParentItem   Parent            `json:"parentItem,omitempty"`
 	Collections  []string          `json:"collections"`
 	DateAdded    string            `json:"dateAdded,omitempty"`
 	DateModified string            `json:"dateModified,omitempty"`
@@ -60,19 +61,7 @@ type ItemDataPerson struct {
 	LastName    string `json:"lastName"`
 }
 
-type ItemCreateResultFailed struct {
-	Key     string `json:"key"`
-	Code    int64  `json:"code"`
-	Message string `json:"message"`
-}
-
-type ItemCreateResult struct {
-	Success   map[string]string                 `json:"success"`
-	Unchanged map[string]string                 `json:"unchanged"`
-	Failed    map[string]ItemCreateResultFailed `json:"failed"`
-}
-
-func (res *ItemCreateResult) checkSuccess(id int64) (string, error) {
+func (res *ItemCollectionCreateResult) checkSuccess(id int64) (string, error) {
 	successlist := res.getSuccess()
 	success, ok := successlist[id]
 	if ok {
@@ -91,7 +80,7 @@ func (res *ItemCreateResult) checkSuccess(id int64) (string, error) {
 	return "", errors.New(fmt.Sprintf("invalid id %v", id))
 }
 
-func (res *ItemCreateResult) getSuccess() map[int64]string {
+func (res *ItemCollectionCreateResult) getSuccess() map[int64]string {
 	result := map[int64]string{}
 	for key, val := range res.Success {
 		id, err := strconv.ParseInt(key, 10, 64)
@@ -103,7 +92,7 @@ func (res *ItemCreateResult) getSuccess() map[int64]string {
 	return result
 }
 
-func (res *ItemCreateResult) getUnchanged() map[int64]string {
+func (res *ItemCollectionCreateResult) getUnchanged() map[int64]string {
 	result := map[int64]string{}
 	for key, val := range res.Unchanged {
 		id, err := strconv.ParseInt(key, 10, 64)
@@ -115,8 +104,8 @@ func (res *ItemCreateResult) getUnchanged() map[int64]string {
 	return result
 }
 
-func (res *ItemCreateResult) getFailed() map[int64]ItemCreateResultFailed {
-	result := map[int64]ItemCreateResultFailed{}
+func (res *ItemCollectionCreateResult) getFailed() map[int64]ItemCollectionCreateResultFailed {
+	result := map[int64]ItemCollectionCreateResultFailed{}
 	for key, val := range res.Failed {
 		id, err := strconv.ParseInt(key, 10, 64)
 		if err != nil {
@@ -132,19 +121,25 @@ func (item *Item) GetType() (string, error) {
 }
 
 func (item *Item) StoreAttachment() (string, error) {
-	folder, err := item.Group.GetAttachmentFolder()
+	folder, err := item.group.GetAttachmentFolder()
 	if err != nil {
 		return "", emperror.Wrapf(err, "cannot get attachment folder")
 	}
 	filename := fmt.Sprintf("%s/%s", folder, item.Key)
-	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.Group.Id, item.Key)
+	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.group.Id, item.Key)
 
-	item.Group.zot.logger.Infof("rest call: %s", endpoint)
-	resp, err := item.Group.zot.client.R().
-		SetHeader("Accept", "application/json").
-		Get(endpoint)
-	if err != nil {
-		return "", emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+	item.group.zot.logger.Infof("rest call: %s", endpoint)
+	call := item.group.zot.client.R().
+		SetHeader("Accept", "application/json")
+	var resp *resty.Response
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return "", emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+		}
+		if !item.group.zot.CheckRetry(resp.Header()) {
+			break
+		}
 	}
 	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
@@ -158,12 +153,12 @@ func (item *Item) StoreAttachment() (string, error) {
 		md5sink := md5.New()
 		md5str = fmt.Sprintf("%x", md5sink.Sum(resp.Body()))
 	}
-	item.Group.zot.CheckWait(resp.Header())
+	item.group.zot.CheckBackoff(resp.Header())
 	return md5str, nil
 }
 
 func (item *Item) uploadFile() error {
-	attachmentFolder, err := item.Group.GetAttachmentFolder()
+	attachmentFolder, err := item.group.GetAttachmentFolder()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get attachment folder")
 	}
@@ -194,15 +189,15 @@ func (item *Item) uploadFile() error {
 	/**
 	Get Authorization
 	*/
-	endpoint := fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
-	h := item.Group.zot.client.R().
+	endpoint := fmt.Sprintf("/groups/%v/items/%v/file", item.group.Id, item.Key)
+	h := item.group.zot.client.R().
 		SetHeader("Content-Type", "application/x-www-form-urlencoded")
 	if item.MD5 == "" {
 		h.SetHeader("If-None-Match", "*")
 	} else {
 		h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
 	}
-	item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+	item.group.zot.logger.Infof("rest call: POST %s", endpoint)
 	resp, err := h.
 		SetFormData(map[string]string{
 			"md5":      fmt.Sprintf("%s", md5str),
@@ -263,7 +258,7 @@ func (item *Item) uploadFile() error {
 	if !ok {
 		return errors.New(fmt.Sprintf("no uploadKey in upload authorization %v", string(jsonstr)))
 	}
-	item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+	item.group.zot.logger.Infof("rest call: POST %s", endpoint)
 	resp, err = resty.New().R().
 		SetHeader("Content-Type", contenttype).
 		SetBody(append([]byte(prefix), append(attachmentBytes, []byte(suffix)...)...)).
@@ -278,9 +273,9 @@ func (item *Item) uploadFile() error {
 	/**
 	register upload
 	*/
-	endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
-	item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
-	h = item.Group.zot.client.R()
+	endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.group.Id, item.Key)
+	item.group.zot.logger.Infof("rest call: POST %s", endpoint)
+	h = item.group.zot.client.R()
 	if item.MD5 == "" {
 		h.SetHeader("If-None-Match", "*")
 	} else {
@@ -295,7 +290,7 @@ func (item *Item) uploadFile() error {
 	switch resp.StatusCode() {
 	case 204:
 	case 412:
-		return errors.New(fmt.Sprintf("Precondition failed - The file has changed remotely since retrieval for item %v.%v", item.Group.Id, item.Key))
+		return errors.New(fmt.Sprintf("Precondition failed - The file has changed remotely since retrieval for item %v.%v", item.group.Id, item.Key))
 	}
 	// todo: should be etag from upload...
 	item.MD5 = md5str
@@ -303,13 +298,13 @@ func (item *Item) uploadFile() error {
 }
 
 func (item *Item) Update() error {
-	item.Group.zot.logger.Infof("Creating Zotero Item [#%s]", item.Key)
+	item.group.zot.logger.Infof("Creating Zotero Item [#%s]", item.Key)
 
 	item.Data.Version = item.Version
 	if item.Deleted {
-		endpoint := fmt.Sprintf("/groups/%v/items/%v", item.Group.Id, item.Key)
-		item.Group.zot.logger.Infof("rest call: DELETE %s", endpoint)
-		resp, err := item.Group.zot.client.R().
+		endpoint := fmt.Sprintf("/groups/%v/items/%v", item.group.Id, item.Key)
+		item.group.zot.logger.Infof("rest call: DELETE %s", endpoint)
+		resp, err := item.group.zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", item.Version)).
 			Delete(endpoint)
@@ -318,31 +313,31 @@ func (item *Item) Update() error {
 		}
 		switch resp.RawResponse.StatusCode {
 		case 409:
-			return errors.New(fmt.Sprintf("delete: Conflict: the target library #%v is locked", item.Group.Id))
+			return errors.New(fmt.Sprintf("delete: Conflict: the target library #%v is locked", item.group.Id))
 		case 412:
-			return errors.New(fmt.Sprintf("delete: Precondition failed: The item #%v.%v has changed since retrieval", item.Group.Id, item.Key))
+			return errors.New(fmt.Sprintf("delete: Precondition failed: The item #%v.%v has changed since retrieval", item.group.Id, item.Key))
 		case 428:
 			return errors.New(fmt.Sprintf("delete: Precondition required: If-Unmodified-Since-Version was not provided."))
 		}
 	} else {
-		endpoint := fmt.Sprintf("/groups/%v/items", item.Group.Id)
-		item.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+		endpoint := fmt.Sprintf("/groups/%v/items", item.group.Id)
+		item.group.zot.logger.Infof("rest call: POST %s", endpoint)
 		items := []ItemGeneric{item.Data}
-		resp, err := item.Group.zot.client.R().
+		resp, err := item.group.zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetBody(items).
 			Post(endpoint)
 		if err != nil {
 			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
 		}
-		result := ItemCreateResult{}
+		result := ItemCollectionCreateResult{}
 		jsonstr := resp.Body()
 		if err := json.Unmarshal(jsonstr, &result); err != nil {
 			return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
 		}
 		successKey, err := result.checkSuccess(0)
 		if err != nil {
-			return emperror.Wrapf(err, "could not create item #%v.%v", item.Group.Id, item.Key)
+			return emperror.Wrapf(err, "could not create item #%v.%v", item.group.Id, item.Key)
 		}
 		if successKey != item.Key {
 			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, item.Key))
@@ -355,13 +350,13 @@ func (item *Item) Update() error {
 	}
 	item.Status = SyncStatus_Synced
 	if err := item.UpdateDB(); err != nil {
-		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", item.Group.Id, item.Key))
+		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", item.group.Id, item.Key))
 	}
 	return nil
 }
 
 func (item *Item) UpdateDB() error {
-	item.Group.zot.logger.Infof("Updating Item [#%s]", item.Key)
+	item.group.zot.logger.Infof("Updating Item [#%s]", item.Key)
 
 	md5val := sql.NullString{Valid: false}
 	itemType, err := item.GetType()
@@ -391,7 +386,7 @@ func (item *Item) UpdateDB() error {
 		return emperror.Wrapf(err, "cannot marshall meta %v", item.Meta)
 	}
 	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7 "+
-		"WHERE library=$8 AND key=$9", item.Group.zot.dbSchema)
+		"WHERE library=$8 AND key=$9", item.group.zot.dbSchema)
 	params := []interface{}{
 		item.Version,
 		string(data),
@@ -400,10 +395,10 @@ func (item *Item) UpdateDB() error {
 		item.Deleted,
 		SyncStatusString[item.Status],
 		md5val.String,
-		item.Group.Id,
+		item.group.Id,
 		item.Key,
 	}
-	_, err = item.Group.zot.db.Exec(sqlstr, params...)
+	_, err = item.group.zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}

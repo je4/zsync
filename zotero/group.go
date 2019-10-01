@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"github.com/goph/emperror"
 	"github.com/lib/pq"
+	"gopkg.in/resty.v1"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -87,7 +89,7 @@ func (zot *Zotero) CreateEmptyGroupDB(groupId int64) (bool, error) {
 			23514	CHECK VIOLATION	check_violation
 		*/
 		case pqError.Code == "23505":
-			sqlstr := fmt.Sprintf("SELECT active FROM %s.syncgroups WHERE id=$1", zot.dbSchema );
+			sqlstr := fmt.Sprintf("SELECT active FROM %s.syncgroups WHERE id=$1", zot.dbSchema)
 			if err := zot.db.QueryRow(sqlstr, groupId).Scan(&active); err != nil {
 				return false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 			}
@@ -96,6 +98,15 @@ func (zot *Zotero) CreateEmptyGroupDB(groupId int64) (bool, error) {
 		}
 	}
 	return active, nil
+}
+
+func (group *Group) GetLibrary() *Library {
+	return &Library{
+		Type:  group.Data.Type,
+		Id:    group.Id,
+		Name:  group.Data.Name,
+		Links: group.Links,
+	}
 }
 
 func (group *Group) UpdateDB() error {
@@ -133,7 +144,7 @@ func (zot *Zotero) LoadGroupDB(groupId int64) (*Group, error) {
 		return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
 	}
 	if err == sql.ErrNoRows {
-		active, err := zot.CreateEmptyGroupDB(groupId);
+		active, err := zot.CreateEmptyGroupDB(groupId)
 		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot create empty group %v", groupId)
 		}
@@ -156,4 +167,37 @@ func (group *Group) GetAttachmentFolder() (string, error) {
 		}
 	}
 	return folder, nil
+}
+
+func (group *Group) SyncDeleted() error {
+	endpoint := fmt.Sprintf("/groups/%v/deleted", group.Id)
+	group.zot.logger.Infof("rest call: %s [%v]", endpoint, group.Version)
+	call := group.zot.client.R().
+		SetHeader("Accept", "application/json").
+		SetQueryParam("since", strconv.FormatInt(group.Version, 10))
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return emperror.Wrapf(err, "cannot get deleted objects from %s", endpoint)
+		}
+		if !group.zot.CheckRetry(resp.Header()) {
+			break
+		}
+	}
+	lastModifiedVersion, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot parse Last-Modified-Version %v", resp.RawResponse.Header.Get("Last-Modified-Version"))
+	}
+	rawBody := resp.Body()
+	deletions := Deletions{}
+	if err := json.Unmarshal(rawBody, deletions); err != nil {
+		return emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+	}
+
+
+	group.zot.CheckBackoff(resp.Header())
+
+	return nil
 }

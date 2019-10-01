@@ -107,8 +107,13 @@ func main() {
 
 	router := mux.NewRouter()
 	router.HandleFunc("/{groupid}/items", handler.makeItemCreateHandler()).Methods("POST")
-//	router.HandleFunc("/{groupid}/signature/{sig}", handler.makeItemAttachmentHandler()).Methods("POST")
+	router.HandleFunc("/{groupid}/items/{key}", handler.makeItemGetHandler()).Methods("GET")
+	router.HandleFunc("/{groupid}/items/oldid/{oldid}", handler.makeItemCreateHandler()).Methods("POST")
+	router.HandleFunc("/{groupid}/items/oldid/{oldid}", handler.makeItemGetHandler()).Methods("GET")
 	router.HandleFunc("/{groupid}/items/{key}/attachment", handler.makeItemAttachmentHandler()).Methods("POST")
+	router.HandleFunc("/{groupid}/collections", handler.makeCollectionCreateHandler()).Methods("POST")
+	router.HandleFunc("/{groupid}/collections/{name}", handler.makeCollectionGetHandler()).Methods("GET")
+	router.HandleFunc("/{groupid}/collections/{key}/{name}", handler.makeCollectionGetHandler()).Methods("GET")
 
 	var f *os.File
 	if cfg.AccessLog == "" {

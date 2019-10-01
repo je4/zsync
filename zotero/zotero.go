@@ -3,8 +3,10 @@ package zotero
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/lib/pq"
 	"github.com/op/go-logging"
 	"gopkg.in/resty.v1"
 	"net/http"
@@ -24,6 +26,66 @@ type Zotero struct {
 	attachmentFolder string
 	newGroupActive   bool
 	CurrentKey       *ApiKey
+}
+
+type Library struct {
+	Type  string      `json:"type"`
+	Id    int64       `json:"id"`
+	Name  string      `json:"name"`
+	Links interface{} `json:"links"`
+}
+
+type ItemCollectionCreateResultFailed struct {
+	Key     string `json:"key"`
+	Code    int64  `json:"code"`
+	Message string `json:"message"`
+}
+
+type ItemCollectionCreateResult struct {
+	Success   map[string]string                           `json:"success"`
+	Unchanged map[string]string                           `json:"unchanged"`
+	Failed    map[string]ItemCollectionCreateResultFailed `json:"failed"`
+}
+
+type Deletions struct {
+	Collections []string `json:"collections"`
+	Searches    []string `json:"searches"`
+	Items       []string `json:"items"`
+	Tags        []string `json:"tags"`
+}
+
+type Parent string
+
+// zotero treats empty strings as false in ParentCollection
+func (pc *Parent) UnmarshalJSON(data []byte) error {
+	var i interface{}
+	if err := json.Unmarshal(data, &i); err != nil {
+		return err
+	}
+	switch i.(type) {
+	case bool:
+		*pc = ""
+	case string:
+		*pc = Parent(i.(string))
+	default:
+		return errors.New(fmt.Sprintf("invalid no string for %v", string(data)))
+	}
+	return nil
+}
+
+func IsEmptyResult(err error) bool {
+	return err == sql.ErrNoRows
+}
+
+func IsUniqueViolation(err error, constraint string) bool {
+	pqErr, ok := err.(*pq.Error)
+	if !ok {
+		return false
+	}
+	if constraint != "" && pqErr.Constraint != constraint {
+		return false
+	}
+	return pqErr.Code == "23505"
 }
 
 func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attachmentFolder string, newGroupActive bool, logger *logging.Logger) (*Zotero, error) {
@@ -63,10 +125,27 @@ If the API servers are overloaded, the API may include a Backoff: <seconds> HTTP
 If a client has made too many requests within a given time period, the API may return 429 Too Many Requests with a Retry-After: <seconds> header. Clients receiving a 429 should wait the number of seconds indicated in the header before retrying the request.
 Retry-After can also be included with 503 Service Unavailable responses when the server is undergoing maintenance.
 */
-func (zot *Zotero) CheckWait(header http.Header) bool {
+func (zot *Zotero) CheckRetry(header http.Header) bool {
+	var err error
+	retryAfter := int64(0)
+	retryAfterStr := header.Get("Retry-After")
+	if retryAfterStr != "" {
+		retryAfter, err = strconv.ParseInt(retryAfterStr, 10, 64)
+		if err != nil {
+			retryAfter = 0
+		}
+	}
+
+	if retryAfter > 0 {
+		zot.logger.Infof("Sleeping %v seconds (RetryAfter)", retryAfter)
+		time.Sleep(time.Duration(retryAfter) * time.Second)
+	}
+	return retryAfter > 0
+}
+
+func (zot *Zotero) CheckBackoff(header http.Header) bool {
 	var err error
 	backoff := int64(0)
-	retryAfter := int64(0)
 	backoffStr := header.Get("Backoff")
 	if backoffStr != "" {
 		backoff, err = strconv.ParseInt(backoffStr, 10, 64)
@@ -74,23 +153,11 @@ func (zot *Zotero) CheckWait(header http.Header) bool {
 			backoff = 0
 		}
 	}
-	retryAfterStr := header.Get("Retry-After")
-	if retryAfterStr != "" {
-		backoff, err = strconv.ParseInt(retryAfterStr, 10, 64)
-		if err != nil {
-			retryAfter = 0
-		}
+	if backoff > 0 {
+		zot.logger.Infof("Sleeping %v seconds (Backoff)", backoff)
+		time.Sleep(time.Duration(backoff) * time.Second)
 	}
-
-	sleep := backoff
-	if retryAfter > sleep {
-		sleep = retryAfter
-	}
-	if sleep > 0 {
-		zot.logger.Infof("Sleeping %v seconds (Backoff: %v / RetryAfter: %v)", sleep, backoff, retryAfter)
-		time.Sleep(time.Duration(sleep) * time.Second)
-	}
-	return retryAfter > 0
+	return backoff > 0
 }
 
 func (zot *Zotero) GetTypeStructs() (str string) {
@@ -105,18 +172,25 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 	}
 
 	endpoint := "/itemTypes"
-	resp, err := zot.client.R().
-		SetHeader("Accept", "application/json").
-		Get(endpoint)
-	if err != nil {
-		zot.logger.Panicf("cannot execute rest call to %s", endpoint)
+	call := zot.client.R().
+		SetHeader("Accept", "application/json")
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			zot.logger.Panicf("cannot execute rest call to %s", endpoint)
+		}
+		if zot.CheckRetry(resp.Header()) {
+			break
+		}
 	}
 	rawBody := resp.Body()
 	types := []itemType{}
 	if err := json.Unmarshal(rawBody, &types); err != nil {
 		zot.logger.Panicf("cannot unmarshal %s: %v", string(rawBody), err)
 	}
-	zot.CheckWait(resp.Header())
+	zot.CheckBackoff(resp.Header())
 	str += fmt.Sprintln("switch item.(type) {")
 	for _, _type := range types {
 		str += fmt.Sprintf("case Item%s:\n", strings.Title(_type.ItemType))
@@ -128,19 +202,26 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 		str += fmt.Sprintln("	Creators        []ItemDataPerson `json:\"creators\"`")
 
 		endpoint = "/itemTypeFields"
-		resp, err := zot.client.R().
+		call := zot.client.R().
 			SetHeader("Accept", "application/json").
-			SetQueryParam("itemType", _type.ItemType).
-			Get(endpoint)
-		if err != nil {
-			zot.logger.Panicf("cannot execute rest call to %s", endpoint)
+			SetQueryParam("itemType", _type.ItemType)
+		var resp *resty.Response
+		var err error
+		for {
+			resp, err = call.Get(endpoint)
+			if err != nil {
+				zot.logger.Panicf("cannot execute rest call to %s", endpoint)
+			}
+			if !zot.CheckRetry(resp.Header()) {
+				break
+			}
 		}
 		rawBody := resp.Body()
 		fields := []field{}
 		if err := json.Unmarshal(rawBody, &fields); err != nil {
 			zot.logger.Panicf("cannot unmarshal %s: %v", string(rawBody), err)
 		}
-		zot.CheckWait(resp.Header())
+		zot.CheckBackoff(resp.Header())
 		for _, field := range fields {
 			str += fmt.Sprintf("   %s string `json:\"%s,omitempty\"` // %s\n", strings.Title(field.Field), field.Field, field.Localized)
 		}
@@ -154,18 +235,25 @@ func (zot *Zotero) GetGroup(groupId int64) (*Group, error) {
 	endpoint := fmt.Sprintf("/groups/%v", groupId)
 	zot.logger.Infof("rest call: %s", endpoint)
 
-	resp, err := zot.client.R().
-		SetHeader("Accept", "application/json").
-		Get(endpoint)
-	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+	call := zot.client.R().
+		SetHeader("Accept", "application/json")
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+		}
+		if !zot.CheckRetry(resp.Header()) {
+			break
+		}
 	}
 	rawBody := resp.Body()
 	group := &Group{}
 	if err := json.Unmarshal(rawBody, group); err != nil {
 		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	zot.CheckWait(resp.Header())
+	zot.CheckBackoff(resp.Header())
 	group.zot = zot
 	return group, nil
 }

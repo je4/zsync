@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
+func (handlers *Handlers) makeCollectionCreateHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		// get groups object from cache
@@ -18,32 +18,20 @@ func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no group: %v", err))
 			return
 		}
-		oldid, ok := vars["oldid"]
-		if !ok {
-			oldid = ""
-		}
-
-		var itemData zotero.ItemGeneric
+		var collectionData zotero.CollectionData
 		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&itemData); err != nil {
+		if err := decoder.Decode(&collectionData); err != nil {
 			handlers.logger.Errorf("cannot decode json: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("cannot decode json: %v", err))
 			return
 		}
-		itemMeta := zotero.ItemMeta{
-			CreatedByUser:  zotero.User{
-				Id:       handlers.zot.CurrentKey.UserId,
-				Username: handlers.zot.CurrentKey.Username,
-				Links:    nil,
-			},
-		}
-		item, err := group.CreateItemDB(&itemData, &itemMeta, oldid)
+		coll, err := group.CreateCollectionDB(&collectionData)
 		if err != nil {
 			handlers.logger.Errorf("error storing new item: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new item: %v", err))
 			return
 		}
-		respondWithJSON(w, http.StatusOK, item)
+		respondWithJSON(w, http.StatusOK, coll)
 	}
 }
 
