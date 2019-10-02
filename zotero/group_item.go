@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/goph/emperror"
 	"gopkg.in/resty.v1"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -34,7 +35,7 @@ func (group *Group) CreateItemDB(itemData *ItemGeneric, itemMeta *ItemMeta, oldI
 		Data:    *itemData,
 		group:   group,
 		OldId:   oldId,
-		Status:SyncStatus_New,
+		Status:  SyncStatus_New,
 	}
 	jsonstr, err := json.Marshal(itemData)
 	if err != nil {
@@ -203,32 +204,15 @@ func (group *Group) GetItemsDB(objectKeys []string) (*[]Item, error) {
 
 	result := []Item{}
 	for rows.Next() {
-		item := Item{}
-		var datastr sql.NullString
-		var sync string
-		var md5str sql.NullString
-		if err := rows.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
-			return &[]Item{}, emperror.Wrapf(err, "cannot scan result %s: %v", sqlstr, params)
+		item, err := group.itemFromRow(rows)
+		if err != nil {
+			return nil, emperror.Wrapf(err, "cannot scan row")
 		}
-		if md5str.Valid {
-			item.MD5 = md5str.String
-		}
-		item.Status = SyncStatusId[sync]
-		if datastr.Valid {
-			if err := json.Unmarshal([]byte(datastr.String), &item.Data); err != nil {
-				return &[]Item{}, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
-			}
-			if item.Data.Collections == nil {
-				item.Data.Collections = []string{}
-			}
-		} else {
-			return &[]Item{}, emperror.Wrapf(err, "item has no data %v.%v", group.Id, item.Key)
-		}
-		item.group = group
-		result = append(result, item)
+		result = append(result, *item)
 	}
 	return &result, nil
 }
+
 func (group *Group) GetItems(objectKeys []string) (*[]Item, error) {
 	if len(objectKeys) == 0 {
 		return &[]Item{}, nil
@@ -272,33 +256,7 @@ func (group *Group) GetItems(objectKeys []string) (*[]Item, error) {
 	return &result, nil
 }
 
-func (group *Group) SyncItems() (int64, error) {
-	num, err := group.syncNewItems()
-	if err != nil {
-		return 0, err
-	}
-	num2, err := group.syncItems(true)
-	if err != nil {
-		return 0, err
-	}
-	num3, err := group.syncItems(false)
-	if err != nil {
-		return 0, err
-	}
-	counter := num + num2 + num3
-	if counter > 0 {
-		group.zot.logger.Infof("refreshing materialized view item_type_hier")
-		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.zot.dbSchema)
-		_, err := group.zot.db.Exec(sqlstr)
-		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
-		}
-	}
-
-	return counter, nil
-}
-
-func (group *Group) syncNewItems() (int64, error) {
+func (group *Group) syncModifiedItems() (int64, error) {
 	var counter int64
 	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
 	params := []interface{}{
@@ -312,28 +270,11 @@ func (group *Group) syncNewItems() (int64, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		item := Item{}
-		var datastr sql.NullString
-		var sync string
-		var md5str sql.NullString
-		if err := rows.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
-			return 0, emperror.Wrapf(err, "cannot scan result %s: %v", sqlstr, params)
+		item, err := group.itemFromRow(rows)
+		if err != nil {
+			return 0, emperror.Wrapf(err, "cannot scan row")
 		}
-		if md5str.Valid {
-			item.MD5 = md5str.String
-		}
-		item.Status = SyncStatusId[sync]
-		if datastr.Valid {
-			if err := json.Unmarshal([]byte(datastr.String), &item.Data); err != nil {
-				return 0, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
-			}
-			if item.Data.Collections == nil {
-				item.Data.Collections = []string{}
-			}
-		} else {
-			return 0, emperror.Wrapf(err, "item has no data %v.%v", group.Id, item.Key)
-		}
-		item.group = group
+
 		if err := item.Update(); err != nil {
 			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", group.Id, item.Key)
 		}
@@ -378,6 +319,7 @@ func (group *Group) syncItems(trashed bool) (int64, error) {
 		for _, item := range *items {
 			group.zot.logger.Infof("Item %v of %v", counter, numItems)
 			item.Status = SyncStatus_Synced
+			item.Trashed = trashed
 			if err := item.UpdateDB(); err != nil {
 				return counter, emperror.Wrapf(err, "cannot update items")
 			}
@@ -388,54 +330,128 @@ func (group *Group) syncItems(trashed bool) (int64, error) {
 	return counter, nil
 }
 
+func (group *Group) SyncItems() (int64, error) {
+	var num int64
+	var num2 int64
+	var num3 int64
+	var err error
+
+	if group.CanUpload() {
+		num, err = group.syncModifiedItems()
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	if group.CanDownload() {
+		num2, err = group.syncItems(true)
+		if err != nil {
+			return 0, err
+		}
+		num3, err = group.syncItems(false)
+		if err != nil {
+			return 0, err
+		}
+	}
+	counter := num + num2 + num3
+	if counter > 0 {
+		group.zot.logger.Infof("refreshing materialized view item_type_hier")
+		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.zot.dbSchema)
+		_, err := group.zot.db.Exec(sqlstr)
+		if err != nil {
+			return counter, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
+		}
+	}
+
+	return counter, nil
+}
+
 func (group *Group) GetItemByKey(key string) (*Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items" +
-		" WHERE library=$1 AND key=$2 AND deleted=false", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items"+
+		" WHERE library=$1 AND key=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		key,
 	}
-	item := Item{}
-	var datastr sql.NullString
-	var sync string
-	var md5str sql.NullString
-	if err := group.zot.db.QueryRow(sqlstr, params...).
-		Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
+
+	item, err := group.itemFromRow(group.zot.db.QueryRow(sqlstr, params...))
+	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
-	if md5str.Valid {
-		item.MD5 = md5str.String
-	}
-	item.Status = SyncStatusId[sync]
-	if datastr.Valid {
-		if err := json.Unmarshal([]byte(datastr.String), &item.Data); err != nil {
-			return nil, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
-		}
-		if item.Data.Collections == nil {
-			item.Data.Collections = []string{}
-		}
-	} else {
-		return nil, errors.New(fmt.Sprintf("item has no data %v.%v", group.Id, item.Key))
-	}
-	item.group = group
 
-	return &item, nil
+	return item, nil
 }
 
 
 func (group *Group) GetItemByOldid(oldid string) (*Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items WHERE library=$1 AND oldid=$2 AND deleted=false", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items WHERE library=$1 AND oldid=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		oldid,
 	}
+	item, err := group.itemFromRow(group.zot.db.QueryRow(sqlstr, params...))
+	if err != nil {
+		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+	}
+
+	return item, nil
+}
+
+func (group *Group) TryDeleteItem(key string, lastModifiedVersion int64) error {
+	item, err := group.GetItemByKey(key)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot get item %v", key)
+	}
+	// no item no deletion
+	if item == nil {
+		return nil
+	}
+
+	// already deleted
+	if item.Deleted {
+		return nil
+	}
+
+	if item.Status == SyncStatus_Synced {
+		// all fine. delete item
+		item.Deleted = true
+	} else if group.Direction == SyncDirection_ToLocal || group.Direction == SyncDirection_BothCloud {
+		// cloud leads --> delete
+		item.Deleted = true
+		item.Status = SyncStatus_Synced
+	} else {
+		// local leads sync back to cloud
+		item.Version = lastModifiedVersion
+		item.Status = SyncStatus_Synced
+	}
+	if err := item.UpdateDB(); err != nil {
+		return emperror.Wrapf(err, "cannot update collection %v", key)
+	}
+	return nil
+}
+
+func (group *Group) itemFromRow( rowss interface{} ) (*Item, error) {
+
 	item := Item{}
 	var datastr sql.NullString
 	var sync string
 	var md5str sql.NullString
-	if err := group.zot.db.QueryRow(sqlstr, params...).
-		Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
-		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+	switch rowss.(type) {
+	case *sql.Row:
+		row := rowss.(*sql.Row)
+		if err := row.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, nil
+			}
+			return nil, emperror.Wrapf(err, "cannot scan row")
+		}
+	case *sql.Rows:
+		rows := rowss.(*sql.Rows)
+		if err := rows.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
+			return nil, emperror.Wrapf(err, "cannot scan row")
+		}
+	default:
+		return nil, errors.New(fmt.Sprintf("unknown row type: %v", reflect.TypeOf(rowss).String() ))
 	}
 	if md5str.Valid {
 		item.MD5 = md5str.String

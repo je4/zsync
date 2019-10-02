@@ -95,50 +95,9 @@ type ZotField struct {
 			continue
 		}
 
-		_, err = group.SyncCollections()
-		if err != nil {
-			logger.Errorf("cannot sync collections of group %v: %v", groupId, err)
-			return
-		}
-		_, err = group.SyncItems()
-		if err != nil {
-			logger.Errorf("cannot sync items of group %v: %v", groupId, err)
-			return
-		}
-		_, err = group.SyncTags()
-		if err != nil {
-			logger.Errorf("cannot sync tags of group %v: %v", groupId, err)
-			return
-		}
-
-		delcoll, delitem, deltag, err := group.GetDeleted(group.Version)
-		if err != nil {
-			logger.Errorf("cannot get deletions of group %v: %v", groupId, err)
-			return
-		}
-		if delitem != nil {
-			for _, itemKey := range *delitem {
-				if err := group.DeleteItemDB(itemKey); err != nil {
-					logger.Errorf("cannot delete item %s: %v", itemKey, err)
-					return
-				}
-			}
-		}
-		if delcoll != nil {
-			for _, colKey := range *delcoll {
-				if err := zot.DeleteCollectionDB(colKey); err != nil {
-					logger.Errorf("cannot delete item %s: %v", colKey, err)
-					return
-				}
-			}
-		}
-		if deltag != nil {
-			for _, tag := range *deltag {
-				if err := zot.DeleteCollectionDB(tag); err != nil {
-					logger.Errorf("cannot delete tag %s: %v", tag, err)
-					return
-				}
-			}
+		if err = group.Sync(); err != nil {
+			logger.Errorf("cannot sync group #%v: %v", group.Id, err)
+			continue
 		}
 
 		// store new group data if necessary

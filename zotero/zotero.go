@@ -52,6 +52,7 @@ type Deletions struct {
 	Searches    []string `json:"searches"`
 	Items       []string `json:"items"`
 	Tags        []string `json:"tags"`
+	Settings    []string `json:"settings"`
 }
 
 type Parent string

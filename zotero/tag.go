@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
-	"github.com/lib/pq"
 	"strconv"
 )
 
@@ -20,7 +19,7 @@ type Tag struct {
 }
 
 func (group *Group) CreateTagDB(tag Tag) error {
-	group.zot.logger.Infof("Creating Tag %s", tag.Tag)
+	group.zot.logger.Debugf("Creating Tag %s", tag.Tag)
 	metastr, err := json.Marshal(tag.Meta)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshal meta %v", tag.Meta)
@@ -32,22 +31,10 @@ func (group *Group) CreateTagDB(tag Tag) error {
 		group.Id,
 	}
 	_, err = group.zot.db.Exec(sqlstr, params...)
-	if pqError, ok := err.(*pq.Error); ok {
-		switch {
-		/*
-		Class 23 — Integrity Constraint Violation
-		23000	INTEGRITY CONSTRAINT VIOLATION	integrity_constraint_violation
-		23001	RESTRICT VIOLATION	restrict_violation
-		23502	NOT NULL VIOLATION	not_null_violation
-		23503	FOREIGN KEY VIOLATION	foreign_key_violation
-		23505	UNIQUE VIOLATION	unique_violation
-		23514	CHECK VIOLATION	check_violation
-		 */
-		case pqError.Code == "23505":
+	if err != nil {
+		if IsUniqueViolation(err, "pk_tags") {
 			return nil
 		}
-	}
-	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	return nil
@@ -88,6 +75,9 @@ func (group *Group) GetTagsVersion(sinceVersion int64) (*[]Tag, error) {
 }
 
 func (group *Group) SyncTags() (int64, error) {
+	if !group.CanDownload() {
+		return 0, nil
+	}
 	group.zot.logger.Infof("Syncing tags of group #%v", group.Id)
 	var counter int64
 	tagList, err := group.GetTagsVersion(group.Version)

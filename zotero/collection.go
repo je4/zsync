@@ -39,11 +39,12 @@ func (collection *Collection) UpdateDB() error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall data %v", collection.Data)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, deleted=false WHERE key=$4", collection.group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, deleted=$4 WHERE key=$5", collection.group.zot.dbSchema)
 	params := []interface{}{
 		collection.Version,
 		SyncStatusString[collection.Status],
 		data,
+		collection.Deleted,
 		collection.Key,
 	}
 	_, err = collection.group.zot.db.Exec(sqlstr, params...)

@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-func (handlers *Handlers) makeItemGetHandler() http.HandlerFunc {
+func (handlers *Handlers) makeItemDeleteHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		// get groups object from cache
@@ -48,6 +48,12 @@ func (handlers *Handlers) makeItemGetHandler() http.HandlerFunc {
 		}
 		if item.Deleted {
 			respondWithJSON(w, http.StatusNotFound, fmt.Sprintf("item %v.%v %v is marked as deleted", group.Id, item.Key, oldid))
+			return
+		}
+
+		if err := item.Delete(); err != nil {
+			handlers.logger.Errorf("cannot delete item %v.%v %v: %v", group.Id, item.Key, oldid, err)
+			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot delete item %v.%v %v: %v", group.Id, item.Key, oldid, err))
 			return
 		}
 

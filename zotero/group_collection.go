@@ -17,9 +17,9 @@ func (group *Group) CreateCollectionDB(collectionData *CollectionData) (*Collect
 		Key:     collectionData.Key,
 		Version: 0,
 		Library: *group.GetLibrary(),
-		Meta:  CollectionMeta{},
-		Data:  *collectionData,
-		group: group,
+		Meta:    CollectionMeta{},
+		Data:    *collectionData,
+		group:   group,
 	}
 	jsonstr, err := json.Marshal(collectionData)
 	if err != nil {
@@ -41,18 +41,35 @@ func (group *Group) CreateCollectionDB(collectionData *CollectionData) (*Collect
 
 }
 
-func (group *Group) TryDeleteCollection( key string, lastModifiedVersion int64) error {
+func (group *Group) TryDeleteCollection(key string, lastModifiedVersion int64) error {
 	coll, err := group.GetCollectionByKey(key)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get collection %v", key)
 	}
-	if coll.Status == SyncStatus_Synced {
-		coll.Deleted = true
-		coll.Version = 0
-		if err := coll.UpdateDB(); err != nil {
-			return emperror.Wrapf(err, "cannot update collection %v", key)
-		}
+	// no collection, no deletion
+	if coll == nil {
+		return nil
 	}
+	if coll.Deleted {
+		return nil
+	}
+
+	if coll.Status == SyncStatus_Synced {
+		// all fine. delete item
+		coll.Deleted = true
+	} else if group.Direction == SyncDirection_ToLocal || group.Direction == SyncDirection_BothCloud {
+		// cloud leads --> delete
+		coll.Deleted = true
+		coll.Status = SyncStatus_Synced
+	} else {
+		// local leads sync back to cloud
+		coll.Version = lastModifiedVersion
+		coll.Status = SyncStatus_Synced
+	}
+	if err := coll.UpdateDB(); err != nil {
+		return emperror.Wrapf(err, "cannot update collection %v", key)
+	}
+	return nil
 }
 
 func (group *Group) CreateEmptyCollectionDB(collectionId string) error {
@@ -188,10 +205,10 @@ func (group *Group) GetCollections(objectKeys []string) (*[]Collection, error) {
 	return &result, nil
 }
 
-func (group *Group) syncNewCollections() (int64, error) {
+func (group *Group) syncModifiedCollections() (int64, error) {
 	var counter int64
-	sqlstr := fmt.Sprintf("SELECT key, version, data, deleted, sync" +
-		" FROM %s.collections" +
+	sqlstr := fmt.Sprintf("SELECT key, version, data, deleted, sync"+
+		" FROM %s.collections"+
 		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
@@ -228,13 +245,23 @@ func (group *Group) syncNewCollections() (int64, error) {
 }
 
 func (group *Group) SyncCollections() (int64, error) {
-	num, err := group.syncNewCollections()
-	if err != nil {
-		return 0, err
+	var num int64
+	var num2 int64
+	var err error
+
+	// upload data
+	if group.CanUpload() {
+		num, err = group.syncModifiedCollections()
+		if err != nil {
+			return 0, err
+		}
 	}
-	num2, err := group.syncCollections()
-	if err != nil {
-		return 0, err
+
+	if group.CanDownload() {
+		num2, err = group.syncCollections()
+		if err != nil {
+			return 0, err
+		}
 	}
 	counter := num + num2
 	if counter > 0 {
@@ -242,7 +269,7 @@ func (group *Group) SyncCollections() (int64, error) {
 		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA", group.zot.dbSchema)
 		_, err := group.zot.db.Exec(sqlstr)
 		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr )
+			return counter, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
 	}
 
@@ -293,7 +320,7 @@ func (group *Group) syncCollections() (int64, error) {
 	return counter, nil
 }
 
-func (group *Group) GetCollectionByName( name string, parentKey string) (*Collection, error) {
+func (group *Group) GetCollectionByName(name string, parentKey string) (*Collection, error) {
 
 	coll := Collection{
 		Key:     "",
@@ -305,11 +332,11 @@ func (group *Group) GetCollectionByName( name string, parentKey string) (*Collec
 		Status:  SyncStatus_New,
 	}
 
-	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync" +
-		" FROM %s.collections cs, %s.collection_name_hier cnh" +
-		" WHERE cs.key=cnh.key AND cs.library=$1 AND cnh.name=$2", group.zot.dbSchema, group.zot.dbSchema )
+	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync"+
+		" FROM %s.collections cs, %s.collection_name_hier cnh"+
+		" WHERE cs.key=cnh.key AND cs.library=$1 AND cnh.name=$2", group.zot.dbSchema, group.zot.dbSchema)
 
-	params:= []interface{}{
+	params := []interface{}{
 		group.Id,
 		name,
 	}
@@ -324,10 +351,10 @@ func (group *Group) GetCollectionByName( name string, parentKey string) (*Collec
 	var sync string
 	if err := group.zot.db.QueryRow(sqlstr, params...).
 		Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync); err != nil {
-			if IsEmptyResult(err) {
-				return nil, nil
-			}
-			return nil, emperror.Wrapf(err, "cannot get collection: %v - %v", sqlstr, params)
+		if IsEmptyResult(err) {
+			return nil, nil
+		}
+		return nil, emperror.Wrapf(err, "cannot get collection: %v - %v", sqlstr, params)
 	}
 	coll.Status = SyncStatusId[sync]
 	if err := json.Unmarshal([]byte(datastr.String), &coll.Data); err != nil {
@@ -340,7 +367,7 @@ func (group *Group) GetCollectionByName( name string, parentKey string) (*Collec
 	return &coll, nil
 }
 
-func (group *Group) GetCollectionByKey( key string) (*Collection, error) {
+func (group *Group) GetCollectionByKey(key string) (*Collection, error) {
 
 	coll := Collection{
 		Key:     "",
@@ -352,10 +379,10 @@ func (group *Group) GetCollectionByKey( key string) (*Collection, error) {
 		Status:  SyncStatus_New,
 	}
 
-	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync" +
-		" FROM %s.collections cs WHERE cs.library=$1 AND cs.key=$2", group.zot.dbSchema, group.zot.dbSchema )
+	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync"+
+		" FROM %s.collections cs WHERE cs.library=$1 AND cs.key=$2", group.zot.dbSchema, group.zot.dbSchema)
 
-	params:= []interface{}{
+	params := []interface{}{
 		group.Id,
 		key,
 	}

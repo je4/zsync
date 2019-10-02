@@ -1,6 +1,6 @@
 package zotero
 
-type SyncStatus int
+type SyncStatus int64
 
 const (
 	SyncStatus_New        SyncStatus = 0

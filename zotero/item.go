@@ -369,13 +369,11 @@ func (item *Item) UpdateDB() error {
 		if err != nil {
 			return emperror.Wrapf(err, "cannot download attachment")
 		}
-		if md5val.String != "" {
-			md5val.Valid = true
-		}
 	} else {
 		md5val.String = item.MD5
 		md5val.Valid = true
 	}
+	md5val.Valid = md5val.String != ""
 
 	data, err := json.Marshal(item.Data)
 	if err != nil {
@@ -394,7 +392,7 @@ func (item *Item) UpdateDB() error {
 		item.Trashed,
 		item.Deleted,
 		SyncStatusString[item.Status],
-		md5val.String,
+		md5val,
 		item.group.Id,
 		item.Key,
 	}
@@ -403,5 +401,15 @@ func (item *Item) UpdateDB() error {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
+	return nil
+}
+
+func (item *Item) getChildren() ([]*Item, error) {
+	item.group.zot.logger.Infof("get children of  item [#%s]", item.Key)
+	return []*Item{}, nil
+}
+
+func (item *Item) Delete() error {
+	item.group.zot.logger.Infof("deleting item [#%s]", item.Key)
 	return nil
 }

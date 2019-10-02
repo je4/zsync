@@ -114,6 +114,8 @@ func main() {
 	router.HandleFunc("/{groupid}/collections", handler.makeCollectionCreateHandler()).Methods("POST")
 	router.HandleFunc("/{groupid}/collections/{name}", handler.makeCollectionGetHandler()).Methods("GET")
 	router.HandleFunc("/{groupid}/collections/{key}/{name}", handler.makeCollectionGetHandler()).Methods("GET")
+	router.HandleFunc("/{groupid}/items/{key}", handler.makeItemDeleteHandler()).Methods("DELETE")
+	router.HandleFunc("/{groupid}/items/oldid/{oldid}", handler.makeItemDeleteHandler()).Methods("DELETE")
 
 	var f *os.File
 	if cfg.AccessLog == "" {

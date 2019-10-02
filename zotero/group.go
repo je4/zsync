@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
-	"github.com/lib/pq"
 	"gopkg.in/resty.v1"
 	"os"
 	"strconv"
@@ -35,14 +34,15 @@ type GroupData struct {
 }
 
 type Group struct {
-	Id      int64       `json:"id"`
-	Version int64       `json:"version"`
-	Links   interface{} `json:"links,omitempty"`
-	Meta    GroupMeta   `json:"meta"`
-	Data    GroupData   `json:"data"`
-	Deleted bool        `json:"-"`
-	Active  bool        `json:"-"`
-	zot     *Zotero     `json:"-"`
+	Id        int64         `json:"id"`
+	Version   int64         `json:"version"`
+	Links     interface{}   `json:"links,omitempty"`
+	Meta      GroupMeta     `json:"meta"`
+	Data      GroupData     `json:"data"`
+	Deleted   bool          `json:"-"`
+	Active    bool          `json:"-"`
+	Direction SyncDirection `json:"-"`
+	zot       *Zotero       `json:"-"`
 }
 
 func (zot *Zotero) DeleteUnknownGroups(knownGroups []int64) error {
@@ -68,36 +68,35 @@ func (zot *Zotero) DeleteUnknownGroups(knownGroups []int64) error {
 	return nil
 }
 
-func (zot *Zotero) CreateEmptyGroupDB(groupId int64) (bool, error) {
-	active := true
+func (zot *Zotero) CreateEmptyGroupDB(groupId int64) (bool, SyncDirection, error) {
+	active := false
+	direction := SyncDirection_BothLocal
 	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,lastmodified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
 	_, err := zot.db.Exec(sqlstr, groupId)
 	if err != nil {
-		return false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+		return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 	}
-	sqlstr = fmt.Sprintf("INSERT INTO %s.syncgroups(id,active) VALUES($1, false)", zot.dbSchema)
-	_, err = zot.db.Exec(sqlstr, groupId)
-	if pqError, ok := err.(*pq.Error); ok {
-		switch {
-		/*
-			Class 23 — Integrity Constraint Violation
-			23000	INTEGRITY CONSTRAINT VIOLATION	integrity_constraint_violation
-			23001	RESTRICT VIOLATION	restrict_violation
-			23502	NOT NULL VIOLATION	not_null_violation
-			23503	FOREIGN KEY VIOLATION	foreign_key_violation
-			23505	UNIQUE VIOLATION	unique_violation
-			23514	CHECK VIOLATION	check_violation
-		*/
-		case pqError.Code == "23505":
-			sqlstr := fmt.Sprintf("SELECT active FROM %s.syncgroups WHERE id=$1", zot.dbSchema)
-			if err := zot.db.QueryRow(sqlstr, groupId).Scan(&active); err != nil {
-				return false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+	sqlstr = fmt.Sprintf("INSERT INTO %s.syncgroups(id,active,direction) VALUES($1, $2, $3)", zot.dbSchema)
+	params := []interface{}{
+		groupId,
+		active,
+		SyncDirectionString[direction],
+	}
+	_, err = zot.db.Exec(sqlstr, params...)
+	if err != nil {
+		// existiert schon
+		if IsUniqueViolation(err, "syncgroups_pkey") {
+			var dirstr string
+			sqlstr := fmt.Sprintf("SELECT active, direction FROM %s.syncgroups WHERE id=$1", zot.dbSchema)
+			if err := zot.db.QueryRow(sqlstr, groupId).Scan(&active, &dirstr); err != nil {
+				return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 			}
-		default:
-			return false, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+			direction = SyncDirectionId[dirstr]
+		} else {
+			return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 		}
 	}
-	return active, nil
+	return active, direction, nil
 }
 
 func (group *Group) GetLibrary() *Library {
@@ -136,19 +135,25 @@ func (zot *Zotero) LoadGroupDB(groupId int64) (*Group, error) {
 		zot:     zot,
 	}
 	zot.logger.Debugf("loading group #%v from database", groupId)
-	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data, active FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data, active, direction FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
 	row := zot.db.QueryRow(sqlstr, groupId)
 	var jsonstr sql.NullString
-	err := row.Scan(&group.Version, &group.Meta.Created, &group.Meta.LastModified, &jsonstr, &group.Active)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
-	}
-	if err == sql.ErrNoRows {
-		active, err := zot.CreateEmptyGroupDB(groupId)
+	var directionstr string
+	err := row.Scan(&group.Version, &group.Meta.Created, &group.Meta.LastModified, &jsonstr, &group.Active, &directionstr)
+	if err != nil {
+		// error real error
+		if err != sql.ErrNoRows {
+			return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
+		}
+		// just no data
+		active, direction, err := zot.CreateEmptyGroupDB(groupId)
 		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot create empty group %v", groupId)
 		}
 		group.Active = active
+		group.Direction = direction
+	} else {
+		group.Direction = SyncDirectionId[directionstr]
 	}
 	if jsonstr.Valid {
 		err = json.Unmarshal([]byte(jsonstr.String), &group.Data)
@@ -169,7 +174,10 @@ func (group *Group) GetAttachmentFolder() (string, error) {
 	return folder, nil
 }
 
-func (group *Group) SyncDeleted() error {
+func (group *Group) SyncDeleted() (int64, error) {
+	if !group.CanDownload() {
+		return 0, nil
+	}
 	endpoint := fmt.Sprintf("/groups/%v/deleted", group.Id)
 	group.zot.logger.Infof("rest call: %s [%v]", endpoint, group.Version)
 	call := group.zot.client.R().
@@ -180,7 +188,7 @@ func (group *Group) SyncDeleted() error {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			return emperror.Wrapf(err, "cannot get deleted objects from %s", endpoint)
+			return 0, emperror.Wrapf(err, "cannot get deleted objects from %s", endpoint)
 		}
 		if !group.zot.CheckRetry(resp.Header()) {
 			break
@@ -188,16 +196,71 @@ func (group *Group) SyncDeleted() error {
 	}
 	lastModifiedVersion, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot parse Last-Modified-Version %v", resp.RawResponse.Header.Get("Last-Modified-Version"))
+		return 0, emperror.Wrapf(err, "cannot parse Last-Modified-Version %v", resp.RawResponse.Header.Get("Last-Modified-Version"))
 	}
 	rawBody := resp.Body()
 	deletions := Deletions{}
-	if err := json.Unmarshal(rawBody, deletions); err != nil {
-		return emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+	if err := json.Unmarshal(rawBody, &deletions); err != nil {
+		return 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-
+	for _, itemKey := range deletions.Items {
+		if err := group.TryDeleteItem(itemKey, lastModifiedVersion); err != nil {
+			return 0, emperror.Wrapf(err, "cannot delete item %v", itemKey)
+		}
+	}
+	for _, collectionKey := range deletions.Collections {
+		if err := group.TryDeleteCollection(collectionKey, lastModifiedVersion); err != nil {
+			return 0, emperror.Wrapf(err, "cannot delete collection %v", collectionKey)
+		}
+	}
+	for _, tagName := range deletions.Tags {
+		if err := group.DeleteTagDB(tagName); err != nil {
+			return 0, emperror.Wrapf(err, "cannot delete tag %v", tagName)
+		}
+	}
 
 	group.zot.CheckBackoff(resp.Header())
 
+	return int64(len(deletions.Tags) + len(deletions.Items) + len(deletions.Collections)), nil
+}
+
+func (group *Group) Sync() error {
+	// no sync at all
+	if group.Direction == SyncDirection_None {
+		return nil
+	}
+
+	_, err := group.SyncCollections()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot sync collections of group %v", group.Id)
+	}
+	_, err = group.SyncItems()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot sync items of group %v", group.Id)
+	}
+	_, err = group.SyncTags()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot sync tags of group %v", group.Id)
+	}
+
+	_, err = group.SyncDeleted()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot sync tags of group %v", group.Id)
+	}
+
 	return nil
+}
+
+func (group *Group) CanUpload() bool {
+	return group.Direction == SyncDirection_BothCloud ||
+		group.Direction == SyncDirection_BothLocal ||
+		group.Direction == SyncDirection_BothManual ||
+		group.Direction == SyncDirection_ToCloud
+}
+
+func (group *Group) CanDownload() bool {
+	return group.Direction == SyncDirection_BothCloud ||
+		group.Direction == SyncDirection_BothLocal ||
+		group.Direction == SyncDirection_BothManual ||
+		group.Direction == SyncDirection_ToLocal
 }
