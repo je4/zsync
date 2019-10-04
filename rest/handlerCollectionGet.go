@@ -27,7 +27,7 @@ func (handlers *Handlers) makeCollectionGetHandler() http.HandlerFunc {
 			return
 		}
 
-		coll, err := group.GetCollectionByName(name, parentKey)
+		coll, err := group.GetCollectionByNameLocal(name, parentKey)
 		if err != nil {
 			handlers.logger.Errorf("cannot get collection: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot get collection: %v", err))

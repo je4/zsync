@@ -52,7 +52,7 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 func (handlers *Handlers) getGroup(groupId int64) (group *zotero.Group, err error) {
 	tmp, err := handlers.groups.Get(groupId)
 	if err != nil {
-		group, err = handlers.zot.LoadGroupDB(groupId)
+		group, err = handlers.zot.LoadGroupLocal(groupId)
 		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot load group %v", groupId)
 		}

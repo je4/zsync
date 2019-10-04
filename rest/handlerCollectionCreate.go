@@ -25,7 +25,7 @@ func (handlers *Handlers) makeCollectionCreateHandler() http.HandlerFunc {
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("cannot decode json: %v", err))
 			return
 		}
-		coll, err := group.CreateCollectionDB(&collectionData)
+		coll, err := group.CreateCollectionLocal(&collectionData)
 		if err != nil {
 			handlers.logger.Errorf("error storing new item: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new item: %v", err))

@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-func (group *Group) DeleteItemDB(key string) error {
+func (group *Group) DeleteItemLocal(key string) error {
 	sqlstr := fmt.Sprintf("UPDATE %s.items SET deleted=true WHERE key=$1 AND library=$2", group.zot.dbSchema)
 
 	params := []interface{}{
@@ -25,7 +25,7 @@ func (group *Group) DeleteItemDB(key string) error {
 	return nil
 }
 
-func (group *Group) CreateItemDB(itemData *ItemGeneric, itemMeta *ItemMeta, oldId string) (*Item, error) {
+func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, oldId string) (*Item, error) {
 	itemData.Key = CreateKey()
 	item := &Item{
 		Key:     itemData.Key,
@@ -59,7 +59,7 @@ func (group *Group) CreateItemDB(itemData *ItemGeneric, itemMeta *ItemMeta, oldI
 	}
 	_, err = group.zot.db.Exec(sqlstr, params...)
 	if IsUniqueViolation(err, "items_oldid_constraint") {
-		item2, err := group.GetItemByOldid(oldId)
+		item2, err := group.GetItemByOldidLocal(oldId)
 		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot load item %v", oldId)
 		}
@@ -67,7 +67,7 @@ func (group *Group) CreateItemDB(itemData *ItemGeneric, itemMeta *ItemMeta, oldI
 		item.Data.Key = item.Key
 		item.Version = item2.Version
 		item.Status = SyncStatus_Modified
-		err = item.UpdateDB()
+		err = item.UpdateLocal()
 		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot update item %v", oldId)
 		}
@@ -77,7 +77,7 @@ func (group *Group) CreateItemDB(itemData *ItemGeneric, itemMeta *ItemMeta, oldI
 	return item, nil
 }
 
-func (group *Group) CreateEmptyItemDB(itemId string, oldId string) error {
+func (group *Group) CreateEmptyItemLocal(itemId string, oldId string) error {
 	oid := sql.NullString{
 		String: oldId,
 		Valid:  true,
@@ -99,7 +99,7 @@ func (group *Group) CreateEmptyItemDB(itemId string, oldId string) error {
 	return nil
 }
 
-func (group *Group) GetItemVersionDB(itemId string, oldId string) (int64, SyncStatus, error) {
+func (group *Group) GetItemVersionLocal(itemId string, oldId string) (int64, SyncStatus, error) {
 	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.items WHERE library=$1 AND key=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
@@ -111,7 +111,7 @@ func (group *Group) GetItemVersionDB(itemId string, oldId string) (int64, SyncSt
 	err := group.zot.db.QueryRow(sqlstr, params...).Scan(&version, &syncstr)
 	switch {
 	case err == sql.ErrNoRows:
-		if err := group.CreateEmptyItemDB(itemId, oldId); err != nil {
+		if err := group.CreateEmptyItemLocal(itemId, oldId); err != nil {
 			return 0, SyncStatus_New, emperror.Wrapf(err, "cannot create new collection")
 		}
 		version = 0
@@ -132,7 +132,7 @@ func (group *Group) GetItemVersionDB(itemId string, oldId string) (int64, SyncSt
 	return version, sync, nil
 }
 
-func (group *Group) GetItemsVersion(sinceVersion int64, trashed bool) (*map[string]int64, error) {
+func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map[string]int64, int64, error) {
 	var endpoint string
 	if trashed {
 		endpoint = fmt.Sprintf("/groups/%v/items/trash", group.Id)
@@ -143,6 +143,7 @@ func (group *Group) GetItemsVersion(sinceVersion int64, trashed bool) (*map[stri
 	totalObjects := &map[string]int64{}
 	limit := int64(500)
 	start := int64(0)
+	var lastModifiedVersion int64
 	for {
 		group.zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
 		call := group.zot.client.R().
@@ -156,7 +157,7 @@ func (group *Group) GetItemsVersion(sinceVersion int64, trashed bool) (*map[stri
 		for {
 			resp, err = call.Get(endpoint)
 			if err != nil {
-				return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+				return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 			}
 			if !group.zot.CheckRetry(resp.Header()) {
 				break
@@ -165,11 +166,15 @@ func (group *Group) GetItemsVersion(sinceVersion int64, trashed bool) (*map[stri
 		rawBody := resp.Body()
 		objects := &map[string]int64{}
 		if err := json.Unmarshal(rawBody, objects); err != nil {
-			return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+			return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 		}
 		totalResult, err := strconv.ParseInt(resp.RawResponse.Header.Get("Total-Results"), 10, 64)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
+			return nil, 0, emperror.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
+		}
+		h, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+		if h > lastModifiedVersion {
+			lastModifiedVersion = h
 		}
 		group.zot.CheckBackoff(resp.Header())
 		for key, version := range *objects {
@@ -180,10 +185,10 @@ func (group *Group) GetItemsVersion(sinceVersion int64, trashed bool) (*map[stri
 		}
 		start += limit
 	}
-	return totalObjects, nil
+	return totalObjects, lastModifiedVersion, nil
 }
 
-func (group *Group) GetItemsDB(objectKeys []string) (*[]Item, error) {
+func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 	if len(objectKeys) == 0 {
 		return &[]Item{}, nil
 	}
@@ -213,7 +218,7 @@ func (group *Group) GetItemsDB(objectKeys []string) (*[]Item, error) {
 	return &result, nil
 }
 
-func (group *Group) GetItems(objectKeys []string) (*[]Item, error) {
+func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 	if len(objectKeys) == 0 {
 		return &[]Item{}, nil
 	}
@@ -239,6 +244,7 @@ func (group *Group) GetItems(objectKeys []string) (*[]Item, error) {
 			break
 		}
 	}
+	group.zot.logger.Debugf("status: #%v ", resp.StatusCode())
 	rawBody := resp.Body()
 	items := []Item{}
 	if err := json.Unmarshal(rawBody, &items); err != nil {
@@ -275,7 +281,7 @@ func (group *Group) syncModifiedItems() (int64, error) {
 			return 0, emperror.Wrapf(err, "cannot scan row")
 		}
 
-		if err := item.Update(); err != nil {
+		if err := item.UpdateCloud(); err != nil {
 			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", group.Id, item.Key)
 		}
 		counter++
@@ -283,21 +289,22 @@ func (group *Group) syncModifiedItems() (int64, error) {
 	return counter, nil
 }
 
-func (group *Group) syncItems(trashed bool) (int64, error) {
+func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 	group.zot.logger.Infof("Syncing items of group #%v", group.Id)
 	var counter int64
-	objectList, err := group.GetItemsVersion(group.Version, trashed)
+
+	objectList, lastModifiedVersion, err := group.GetItemsVersionCloud(group.ItemVersion, trashed)
 	if err != nil {
-		return counter, emperror.Wrapf(err, "cannot get collection versions")
+		return counter, 0, emperror.Wrapf(err, "cannot get collection versions")
 	}
 	itemsUpdate := []string{}
 	for itemid, version := range *objectList {
-		oldversion, sync, err := group.GetItemVersionDB(itemid, "")
+		oldversion, sync, err := group.GetItemVersionLocal(itemid, "")
 		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
+			return counter, 0, emperror.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
 		}
 		if sync != SyncStatus_Synced && sync != SyncStatus_Incomplete {
-			return counter, errors.New(fmt.Sprintf("item %v not synced. please handle conflict", itemid))
+			return counter, 0, errors.New(fmt.Sprintf("item %v not synced. please handle conflict", itemid))
 		}
 		if oldversion < version {
 			itemsUpdate = append(itemsUpdate, itemid)
@@ -311,46 +318,51 @@ func (group *Group) syncItems(trashed bool) (int64, error) {
 			end = numItems
 		}
 		part := itemsUpdate[start:end]
-		items, err := group.GetItems(part)
+		items, err := group.GetItemsCloud(part)
 		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot get items")
+			return counter, 0, emperror.Wrapf(err, "cannot get items")
 		}
 		group.zot.logger.Infof("%v items", len(*items))
 		for _, item := range *items {
 			group.zot.logger.Infof("Item %v of %v", counter, numItems)
 			item.Status = SyncStatus_Synced
 			item.Trashed = trashed
-			if err := item.UpdateDB(); err != nil {
-				return counter, emperror.Wrapf(err, "cannot update items")
+			if err := item.UpdateLocal(); err != nil {
+				return counter, 0, emperror.Wrapf(err, "cannot update items")
 			}
 			counter++
 		}
 	}
 	group.zot.logger.Infof("Syncing items of group #%v done. %v items changed", group.Id, counter)
-	return counter, nil
+	return counter, lastModifiedVersion, nil
 }
 
-func (group *Group) SyncItems() (int64, error) {
+func (group *Group) SyncItems() (int64, int64, error) {
 	var num int64
 	var num2 int64
 	var num3 int64
 	var err error
+	var lastModifiedVersion int64
 
 	if group.CanUpload() {
 		num, err = group.syncModifiedItems()
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 
 	if group.CanDownload() {
-		num2, err = group.syncItems(true)
+		num2, lastModifiedVersion, err = group.syncItems(true)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		num3, err = group.syncItems(false)
+		var h int64
+		num3, h, err = group.syncItems(false)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
+		}
+		if h > lastModifiedVersion {
+			lastModifiedVersion = h
 		}
 	}
 	counter := num + num2 + num3
@@ -359,14 +371,14 @@ func (group *Group) SyncItems() (int64, error) {
 		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.zot.dbSchema)
 		_, err := group.zot.db.Exec(sqlstr)
 		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
+			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
 	}
 
-	return counter, nil
+	return counter, lastModifiedVersion, nil
 }
 
-func (group *Group) GetItemByKey(key string) (*Item, error) {
+func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items"+
 		" WHERE library=$1 AND key=$2", group.zot.dbSchema)
 	params := []interface{}{
@@ -382,8 +394,7 @@ func (group *Group) GetItemByKey(key string) (*Item, error) {
 	return item, nil
 }
 
-
-func (group *Group) GetItemByOldid(oldid string) (*Item, error) {
+func (group *Group) GetItemByOldidLocal(oldid string) (*Item, error) {
 	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items WHERE library=$1 AND oldid=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
@@ -397,8 +408,8 @@ func (group *Group) GetItemByOldid(oldid string) (*Item, error) {
 	return item, nil
 }
 
-func (group *Group) TryDeleteItem(key string, lastModifiedVersion int64) error {
-	item, err := group.GetItemByKey(key)
+func (group *Group) TryDeleteItemLocal(key string, lastModifiedVersion int64) error {
+	item, err := group.GetItemByKeyLocal(key)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get item %v", key)
 	}
@@ -415,7 +426,7 @@ func (group *Group) TryDeleteItem(key string, lastModifiedVersion int64) error {
 	if item.Status == SyncStatus_Synced {
 		// all fine. delete item
 		item.Deleted = true
-	} else if group.Direction == SyncDirection_ToLocal || group.Direction == SyncDirection_BothCloud {
+	} else if group.direction == SyncDirection_ToLocal || group.direction == SyncDirection_BothCloud {
 		// cloud leads --> delete
 		item.Deleted = true
 		item.Status = SyncStatus_Synced
@@ -424,13 +435,13 @@ func (group *Group) TryDeleteItem(key string, lastModifiedVersion int64) error {
 		item.Version = lastModifiedVersion
 		item.Status = SyncStatus_Synced
 	}
-	if err := item.UpdateDB(); err != nil {
+	if err := item.UpdateLocal(); err != nil {
 		return emperror.Wrapf(err, "cannot update collection %v", key)
 	}
 	return nil
 }
 
-func (group *Group) itemFromRow( rowss interface{} ) (*Item, error) {
+func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 
 	item := Item{}
 	var datastr sql.NullString
@@ -451,7 +462,7 @@ func (group *Group) itemFromRow( rowss interface{} ) (*Item, error) {
 			return nil, emperror.Wrapf(err, "cannot scan row")
 		}
 	default:
-		return nil, errors.New(fmt.Sprintf("unknown row type: %v", reflect.TypeOf(rowss).String() ))
+		return nil, errors.New(fmt.Sprintf("unknown row type: %v", reflect.TypeOf(rowss).String()))
 	}
 	if md5str.Valid {
 		item.MD5 = md5str.String

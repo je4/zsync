@@ -33,9 +33,9 @@ func (handlers *Handlers) makeItemGetHandler() http.HandlerFunc {
 
 		var item *zotero.Item
 		if key != "" {
-			item, err = group.GetItemByKey( key )
+			item, err = group.GetItemByKeyLocal( key )
 		} else if oldid != "" {
-			item, err = group.GetItemByOldid( oldid )
+			item, err = group.GetItemByOldidLocal( oldid )
 		}
 		if err != nil {
 			handlers.logger.Errorf("cannot get item %v.%v%v: %v", group.Id, key, oldid, err)

@@ -34,18 +34,23 @@ type GroupData struct {
 }
 
 type Group struct {
-	Id        int64         `json:"id"`
-	Version   int64         `json:"version"`
-	Links     interface{}   `json:"links,omitempty"`
-	Meta      GroupMeta     `json:"meta"`
-	Data      GroupData     `json:"data"`
-	Deleted   bool          `json:"-"`
-	Active    bool          `json:"-"`
-	Direction SyncDirection `json:"-"`
-	zot       *Zotero       `json:"-"`
+	Id                int64         `json:"id"`
+	Version           int64         `json:"version"`
+	Links             interface{}   `json:"links,omitempty"`
+	Meta              GroupMeta     `json:"meta"`
+	Data              GroupData     `json:"data"`
+	Deleted           bool          `json:"-"`
+	Active            bool          `json:"-"`
+	syncTags          bool          `json:"-"` // sync tags?
+	direction         SyncDirection `json:"-"`
+	zot               *Zotero       `json:"-"`
+	ItemVersion       int64         `json:"-"`
+	CollectionVersion int64         `json:"-"`
+	TagVersion        int64         `json:"-"`
+	Modified          bool          `json:"-"`
 }
 
-func (zot *Zotero) DeleteUnknownGroups(knownGroups []int64) error {
+func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
 	placeHolder := []string{}
 	params := []interface{}{}
 	for i := 0; i < len(knownGroups); i++ {
@@ -68,7 +73,7 @@ func (zot *Zotero) DeleteUnknownGroups(knownGroups []int64) error {
 	return nil
 }
 
-func (zot *Zotero) CreateEmptyGroupDB(groupId int64) (bool, SyncDirection, error) {
+func (zot *Zotero) CreateEmptyGroupLocal(groupId int64) (bool, SyncDirection, error) {
 	active := false
 	direction := SyncDirection_BothLocal
 	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,lastmodified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
@@ -108,14 +113,26 @@ func (group *Group) GetLibrary() *Library {
 	}
 }
 
-func (group *Group) UpdateDB() error {
-	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=$1, created=$2, lastmodified=$3, data=$4, deleted=$5 WHERE id=$6", group.zot.dbSchema)
+func (group *Group) UpdateLocal() error {
+	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=$1, created=$2, lastmodified=$3, data=$4, deleted=$5,"+
+		" itemversion=$6, collectionversion=$7, tagversion=$8"+
+		" WHERE id=$9", group.zot.dbSchema)
 	data, err := json.Marshal(group.Data)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshal group data")
 	}
 
-	params := []interface{}{group.Version, group.Meta.Created, group.Meta.LastModified, data, group.Deleted, group.Id}
+	params := []interface{}{
+		group.Version,
+		group.Meta.Created,
+		group.Meta.LastModified,
+		data,
+		group.Deleted,
+		group.ItemVersion,
+		group.CollectionVersion,
+		group.TagVersion,
+		group.Id,
+	}
 	_, err = group.zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
@@ -124,7 +141,7 @@ func (group *Group) UpdateDB() error {
 	return nil
 }
 
-func (zot *Zotero) LoadGroupDB(groupId int64) (*Group, error) {
+func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 	group := &Group{
 		Id:      groupId,
 		Version: 0,
@@ -135,25 +152,36 @@ func (zot *Zotero) LoadGroupDB(groupId int64) (*Group, error) {
 		zot:     zot,
 	}
 	zot.logger.Debugf("loading group #%v from database", groupId)
-	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data, active, direction FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data, active, direction, tags,"+
+		" itemversion, collectionversion, tagversion"+
+		" FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
 	row := zot.db.QueryRow(sqlstr, groupId)
 	var jsonstr sql.NullString
 	var directionstr string
-	err := row.Scan(&group.Version, &group.Meta.Created, &group.Meta.LastModified, &jsonstr, &group.Active, &directionstr)
+	err := row.Scan(&group.Version,
+		&group.Meta.Created,
+		&group.Meta.LastModified,
+		&jsonstr,
+		&group.Active,
+		&directionstr,
+		&group.syncTags,
+		&group.ItemVersion,
+		&group.CollectionVersion,
+		&group.TagVersion)
 	if err != nil {
 		// error real error
 		if err != sql.ErrNoRows {
 			return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
 		}
 		// just no data
-		active, direction, err := zot.CreateEmptyGroupDB(groupId)
+		active, direction, err := zot.CreateEmptyGroupLocal(groupId)
 		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot create empty group %v", groupId)
 		}
 		group.Active = active
-		group.Direction = direction
+		group.direction = direction
 	} else {
-		group.Direction = SyncDirectionId[directionstr]
+		group.direction = SyncDirectionId[directionstr]
 	}
 	if jsonstr.Valid {
 		err = json.Unmarshal([]byte(jsonstr.String), &group.Data)
@@ -204,17 +232,17 @@ func (group *Group) SyncDeleted() (int64, error) {
 		return 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	for _, itemKey := range deletions.Items {
-		if err := group.TryDeleteItem(itemKey, lastModifiedVersion); err != nil {
+		if err := group.TryDeleteItemLocal(itemKey, lastModifiedVersion); err != nil {
 			return 0, emperror.Wrapf(err, "cannot delete item %v", itemKey)
 		}
 	}
 	for _, collectionKey := range deletions.Collections {
-		if err := group.TryDeleteCollection(collectionKey, lastModifiedVersion); err != nil {
+		if err := group.TryDeleteCollectionLocal(collectionKey, lastModifiedVersion); err != nil {
 			return 0, emperror.Wrapf(err, "cannot delete collection %v", collectionKey)
 		}
 	}
 	for _, tagName := range deletions.Tags {
-		if err := group.DeleteTagDB(tagName); err != nil {
+		if err := group.DeleteTagLocal(tagName); err != nil {
 			return 0, emperror.Wrapf(err, "cannot delete tag %v", tagName)
 		}
 	}
@@ -224,21 +252,21 @@ func (group *Group) SyncDeleted() (int64, error) {
 	return int64(len(deletions.Tags) + len(deletions.Items) + len(deletions.Collections)), nil
 }
 
-func (group *Group) Sync() error {
+func (group *Group) Sync() (err error) {
 	// no sync at all
-	if group.Direction == SyncDirection_None {
+	if group.direction == SyncDirection_None {
 		return nil
 	}
 
-	_, err := group.SyncCollections()
+	_, collectionVersion, err := group.SyncCollections()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot sync collections of group %v", group.Id)
 	}
-	_, err = group.SyncItems()
+	_, itemVersion, err := group.SyncItems()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot sync items of group %v", group.Id)
 	}
-	_, err = group.SyncTags()
+	_, tagVersion, err := group.SyncTags()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot sync tags of group %v", group.Id)
 	}
@@ -248,19 +276,33 @@ func (group *Group) Sync() error {
 		return emperror.Wrapf(err, "cannot sync tags of group %v", group.Id)
 	}
 
-	return nil
+	// change to new version if everything was ok
+	if collectionVersion > group.CollectionVersion {
+		group.CollectionVersion = collectionVersion
+		group.Modified = true
+	}
+	if itemVersion > group.ItemVersion {
+		group.ItemVersion = itemVersion
+		group.Modified = true
+	}
+	if tagVersion > group.TagVersion {
+		group.TagVersion = tagVersion
+		group.Modified = true
+	}
+
+	return
 }
 
 func (group *Group) CanUpload() bool {
-	return group.Direction == SyncDirection_BothCloud ||
-		group.Direction == SyncDirection_BothLocal ||
-		group.Direction == SyncDirection_BothManual ||
-		group.Direction == SyncDirection_ToCloud
+	return group.direction == SyncDirection_BothCloud ||
+		group.direction == SyncDirection_BothLocal ||
+		group.direction == SyncDirection_BothManual ||
+		group.direction == SyncDirection_ToCloud
 }
 
 func (group *Group) CanDownload() bool {
-	return group.Direction == SyncDirection_BothCloud ||
-		group.Direction == SyncDirection_BothLocal ||
-		group.Direction == SyncDirection_BothManual ||
-		group.Direction == SyncDirection_ToLocal
+	return group.direction == SyncDirection_BothCloud ||
+		group.direction == SyncDirection_BothLocal ||
+		group.direction == SyncDirection_BothManual ||
+		group.direction == SyncDirection_ToLocal
 }

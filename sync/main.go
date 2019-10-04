@@ -9,6 +9,8 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -44,29 +46,7 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-	func main() {
-
-		cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
-		flag.Parse()
-		cfg := LoadConfig(*cfgfile)
-
-		// get database connection handle
-		db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
-		if err != nil {
-			log.Fatalf("error opening database: %v", err)
-		}
-		defer db.Close()
-
-		// Open doesn't open a connection. Validate DSN data:
-		err = db.Ping()
-		if err != nil {
-			log.Fatalf("error pinging database: %v", err)
-		}
-		logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
-		defer lf.Close()
-
-	rand.Seed(time.Now().Unix())
-
+func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
 	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, logger)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
@@ -85,7 +65,7 @@ type ZotField struct {
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
 		groupIds = append(groupIds, groupId)
-		group, err := zot.LoadGroupDB(groupId)
+		group, err := zot.LoadGroupLocal(groupId)
 		if err != nil {
 			logger.Errorf("cannot load group %v: %v", groupId, err)
 			return
@@ -95,7 +75,7 @@ type ZotField struct {
 			continue
 		}
 
-		if err = group.Sync(); err != nil {
+		if err := group.Sync(); err != nil {
 			logger.Errorf("cannot sync group #%v: %v", group.Id, err)
 			continue
 		}
@@ -103,21 +83,85 @@ type ZotField struct {
 		// store new group data if necessary
 		logger.Infof("group %v[%v <-> %v]", groupId, group.Version, version)
 		// check whether version is newer online...
-		if group.Version < version || group.Deleted {
-			newGroup, err := zot.GetGroup(groupId)
+		if group.Version < version ||
+			group.Deleted  ||
+			group.Modified {
+			newGroup, err := zot.GetGroupCloud(groupId)
 			if err != nil {
 				logger.Errorf("cannot get group %v: %v", groupId, err)
 				return
 			}
+			newGroup.CollectionVersion = group.CollectionVersion
+			newGroup.ItemVersion = group.ItemVersion
+			newGroup.TagVersion = group.TagVersion
+			newGroup.Deleted = group.Deleted
+
 			logger.Infof("group %v[%v]", groupId, version)
-			if err := newGroup.UpdateDB(); err != nil {
+			if err := newGroup.UpdateLocal(); err != nil {
 				logger.Errorf("cannot update group %v: %v", groupId, err)
 				return
 			}
 		}
 	}
-	if err := zot.DeleteUnknownGroups(groupIds); err != nil {
+	if err := zot.DeleteUnknownGroupsLocal(groupIds); err != nil {
 		logger.Errorf("cannot delete unknown groups: %v", err)
 	}
+
+}
+
+func main() {
+
+	cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
+	flag.Parse()
+	cfg := LoadConfig(*cfgfile)
+
+	// get database connection handle
+	db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
+	if err != nil {
+		log.Fatalf("error opening database: %v", err)
+	}
+	defer db.Close()
+
+	// Open doesn't open a connection. Validate DSN data:
+	err = db.Ping()
+	if err != nil {
+		log.Fatalf("error pinging database: %v", err)
+	}
+	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
+	defer lf.Close()
+
+	rand.Seed(time.Now().Unix())
+
+	sleep, err := time.ParseDuration(cfg.SyncSleep)
+	if err != nil {
+		logger.Fatalf("error parsing syncsleep: %v", err)
+	}
+	c1 := make(chan string, 1)
+
+	go func() {
+		sigint := make(chan os.Signal, 1)
+
+		// interrupt signal sent from terminal
+		signal.Notify(sigint, os.Interrupt)
+		// sigterm signal sent from kubernetes
+		signal.Notify(sigint, syscall.SIGTERM)
+
+		<-sigint
+
+		// We received an interrupt signal, shut down.
+		logger.Infof("shutdown requested")
+		c1 <- "end please"
+
+	}()
+		for {
+			sync(&cfg, db, logger)
+			logger.Infof("sleeping %v", cfg.SyncSleep)
+			select {
+			case <-c1:
+				return
+			case <-time.After(sleep):
+				logger.Infof("end of sleep")
+			}
+		}
 
 }

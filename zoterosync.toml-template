@@ -1,7 +1,9 @@
 service = "ZoteroSync"
+listen = "localhost:80"
 endpoint = "https://api.zotero.org"
-apikey = "XXXXXX"
+apikey = "XxuGdxZuXiB1epXH8B9XX2oR"
 logfile = ""
+accesslog = ""
 #	"CRITICAL",
 #	"ERROR",
 #	"WARNING",
@@ -10,10 +12,16 @@ logfile = ""
 #	"DEBUG",
 loglevel = "DEBUG"
 
-#libraries = [1510019]
-libraries = []
-ignorelibraries = [2171465,2206003,2171463]
+tls = false
+certchain = ""
+privatekey = ""
+
+
+newgroupactive = true
 attachmentfolder = "//localhost/c$/temp/zotero"
+groupcacheexpiration = "10m"
+syncsleep = "60m"
+
 
 [database]
 #	servertype = "mysql"

@@ -25,7 +25,7 @@ func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no key in url"))
 			return
 		}
-		items, err := group.GetItemsDB([]string{key})
+		items, err := group.GetItemsLocal([]string{key})
 		if err != nil {
 			handlers.logger.Errorf("could not load item #%v.%v", group.Id, key)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("could not load item #%v.%v", group.Id, key))
@@ -64,7 +64,7 @@ func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
 		}
 
 		item.Status = zotero.SyncStatus_Modified
-		if err := item.UpdateDB(); err != nil {
+		if err := item.UpdateLocal(); err != nil {
 			handlers.logger.Errorf("cannot update status of  %v.%v: %v", group.Id, item.Key, err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot update status of  %v.%v: %v", group.Id, item.Key, err))
 			return

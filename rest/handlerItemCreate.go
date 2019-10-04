@@ -37,7 +37,7 @@ func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 				Links:    nil,
 			},
 		}
-		item, err := group.CreateItemDB(&itemData, &itemMeta, oldid)
+		item, err := group.CreateItemLocal(&itemData, &itemMeta, oldid)
 		if err != nil {
 			handlers.logger.Errorf("error storing new item: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new item: %v", err))

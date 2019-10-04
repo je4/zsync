@@ -33,13 +33,13 @@ type Collection struct {
 	Deleted bool           `json:"-"`
 }
 
-func (collection *Collection) UpdateDB() error {
+func (collection *Collection) UpdateLocal() error {
 	collection.group.zot.logger.Infof("Updating Collection [#%s]", collection.Key)
 	data, err := json.Marshal(collection.Data)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall data %v", collection.Data)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, deleted=$4 WHERE key=$5", collection.group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, deleted=$4, modified=NOW() WHERE key=$5", collection.group.zot.dbSchema)
 	params := []interface{}{
 		collection.Version,
 		SyncStatusString[collection.Status],
@@ -54,7 +54,7 @@ func (collection *Collection) UpdateDB() error {
 	return nil
 }
 
-func (collection *Collection) Update() error {
+func (collection *Collection) UpdateCloud() error {
 	collection.group.zot.logger.Infof("Creating Zotero Collection [#%s]", collection.Key)
 
 	collection.Data.Version = collection.Version
@@ -101,7 +101,7 @@ func (collection *Collection) Update() error {
 		}
 	}
 	collection.Status = SyncStatus_Synced
-	if err := collection.UpdateDB(); err != nil {
+	if err := collection.UpdateLocal(); err != nil {
 		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", collection.group.Id, collection.Key))
 	}
 	return nil

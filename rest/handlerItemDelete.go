@@ -33,9 +33,9 @@ func (handlers *Handlers) makeItemDeleteHandler() http.HandlerFunc {
 
 		var item *zotero.Item
 		if key != "" {
-			item, err = group.GetItemByKey( key )
+			item, err = group.GetItemByKeyLocal( key )
 		} else if oldid != "" {
-			item, err = group.GetItemByOldid( oldid )
+			item, err = group.GetItemByOldidLocal( oldid )
 		}
 		if err != nil {
 			handlers.logger.Errorf("cannot get item %v.%v%v: %v", group.Id, key, oldid, err)
@@ -47,11 +47,11 @@ func (handlers *Handlers) makeItemDeleteHandler() http.HandlerFunc {
 			return
 		}
 		if item.Deleted {
-			respondWithJSON(w, http.StatusNotFound, fmt.Sprintf("item %v.%v %v is marked as deleted", group.Id, item.Key, oldid))
+			respondWithJSON(w, http.StatusNotFound, fmt.Sprintf("item %v.%v %v already marked as deleted", group.Id, item.Key, oldid))
 			return
 		}
 
-		if err := item.Delete(); err != nil {
+		if err := item.DeleteLocal(); err != nil {
 			handlers.logger.Errorf("cannot delete item %v.%v %v: %v", group.Id, item.Key, oldid, err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot delete item %v.%v %v: %v", group.Id, item.Key, oldid, err))
 			return

@@ -43,16 +43,16 @@ type ItemTag struct {
 }
 
 type ItemDataBase struct {
-	Key          string            `json:"key,omitempty"`
-	Version      int64             `json:"version"`
-	ItemType     string            `json:"itemType"`
-	Tags         []ItemTag         `json:"tags"`
-	Relations    map[string]string `json:"relations"`
-	ParentItem   Parent            `json:"parentItem,omitempty"`
-	Collections  []string          `json:"collections"`
-	DateAdded    string            `json:"dateAdded,omitempty"`
-	DateModified string            `json:"dateModified,omitempty"`
-	Creators     []ItemDataPerson  `json:"creators"`
+	Key          string                      `json:"key,omitempty"`
+	Version      int64                       `json:"version"`
+	ItemType     string                      `json:"itemType"`
+	Tags         []ItemTag                   `json:"tags"`
+	Relations    map[string]ZoteroStringList `json:"relations"`
+	ParentItem   Parent                      `json:"parentItem,omitempty"`
+	Collections  []string                    `json:"collections"`
+	DateAdded    string                      `json:"dateAdded,omitempty"`
+	DateModified string                      `json:"dateModified,omitempty"`
+	Creators     []ItemDataPerson            `json:"creators"`
 }
 
 type ItemDataPerson struct {
@@ -120,7 +120,7 @@ func (item *Item) GetType() (string, error) {
 	return item.Data.ItemType, nil
 }
 
-func (item *Item) StoreAttachment() (string, error) {
+func (item *Item) DownloadAttachmentCloud() (string, error) {
 	folder, err := item.group.GetAttachmentFolder()
 	if err != nil {
 		return "", emperror.Wrapf(err, "cannot get attachment folder")
@@ -154,6 +154,12 @@ func (item *Item) StoreAttachment() (string, error) {
 		md5str = fmt.Sprintf("%x", md5sink.Sum(resp.Body()))
 	}
 	item.group.zot.CheckBackoff(resp.Header())
+	// we don't check. lets do it later
+	/*
+	if md5str != item.Data.MD5 {
+		return "", errors.New(fmt.Sprintf("invalid checksum: %v != %v", md5str, item.Data.MD5))
+	}
+	*/
 	return md5str, nil
 }
 
@@ -297,7 +303,7 @@ func (item *Item) uploadFile() error {
 	return nil
 }
 
-func (item *Item) Update() error {
+func (item *Item) UpdateCloud() error {
 	item.group.zot.logger.Infof("Creating Zotero Item [#%s]", item.Key)
 
 	item.Data.Version = item.Version
@@ -349,13 +355,13 @@ func (item *Item) Update() error {
 		}
 	}
 	item.Status = SyncStatus_Synced
-	if err := item.UpdateDB(); err != nil {
+	if err := item.UpdateLocal(); err != nil {
 		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", item.group.Id, item.Key))
 	}
 	return nil
 }
 
-func (item *Item) UpdateDB() error {
+func (item *Item) UpdateLocal() error {
 	item.group.zot.logger.Infof("Updating Item [#%s]", item.Key)
 
 	md5val := sql.NullString{Valid: false}
@@ -364,8 +370,8 @@ func (item *Item) UpdateDB() error {
 		return emperror.Wrapf(err, "cannot get item type")
 	}
 	// if not deleted and status is synced get the attachment
-	if itemType == "attachment" && !item.Deleted && item.Status == SyncStatus_Synced {
-		md5val.String, err = item.StoreAttachment()
+	if itemType == "attachment" && item.Data.MD5 != "" && !item.Deleted && item.Status == SyncStatus_Synced {
+		md5val.String, err = item.DownloadAttachmentCloud()
 		if err != nil {
 			return emperror.Wrapf(err, "cannot download attachment")
 		}
@@ -383,7 +389,7 @@ func (item *Item) UpdateDB() error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall meta %v", item.Meta)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7 "+
+	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7, modified=NOW() "+
 		"WHERE library=$8 AND key=$9", item.group.zot.dbSchema)
 	params := []interface{}{
 		item.Version,
@@ -404,12 +410,49 @@ func (item *Item) UpdateDB() error {
 	return nil
 }
 
-func (item *Item) getChildren() ([]*Item, error) {
+func (item *Item) getChildrenLocal() (*[]Item, error) {
 	item.group.zot.logger.Infof("get children of  item [#%s]", item.Key)
-	return []*Item{}, nil
+	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.trashed, i.deleted, i.sync, i.md5 FROM %s.items i, %s.item_type_hier ith"+
+		" WHERE i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.group.zot.dbSchema, item.group.zot.dbSchema)
+	params := []interface{}{
+		item.group.Id,
+		item.Key,
+	}
+	rows, err := item.group.zot.db.Query(sqlstr, params...)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &[]Item{}, nil
+		}
+		return &[]Item{}, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+	}
+	defer rows.Close()
+	items := []Item{}
+	for rows.Next() {
+		i, err := item.group.itemFromRow(rows)
+		if err != nil {
+			return &[]Item{}, emperror.Wrapf(err, "cannot scan result row")
+		}
+		items = append(items, *i)
+	}
+
+	return &items, nil
 }
 
-func (item *Item) Delete() error {
+func (item *Item) DeleteLocal() error {
 	item.group.zot.logger.Infof("deleting item [#%s]", item.Key)
+	children, err := item.getChildrenLocal()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot get children of #%v", item.Key)
+	}
+	for _, c := range *children {
+		if err := c.DeleteLocal(); err != nil {
+			return emperror.Wrapf(err, "cannot delete child #%v of #%v", c.Key, item.Key)
+		}
+	}
+	item.Deleted = true
+	item.Status = SyncStatus_Modified
+	if err := item.UpdateLocal(); err != nil {
+		return emperror.Wrapf(err, "cannot store item #%v", item.Key)
+	}
 	return nil
 }

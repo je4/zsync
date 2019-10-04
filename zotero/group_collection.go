@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func (group *Group) CreateCollectionDB(collectionData *CollectionData) (*Collection, error) {
+func (group *Group) CreateCollectionLocal(collectionData *CollectionData) (*Collection, error) {
 	collectionData.Key = CreateKey()
 	coll := &Collection{
 		Key:     collectionData.Key,
@@ -41,8 +41,8 @@ func (group *Group) CreateCollectionDB(collectionData *CollectionData) (*Collect
 
 }
 
-func (group *Group) TryDeleteCollection(key string, lastModifiedVersion int64) error {
-	coll, err := group.GetCollectionByKey(key)
+func (group *Group) TryDeleteCollectionLocal(key string, lastModifiedVersion int64) error {
+	coll, err := group.GetCollectionByKeyLocal(key)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get collection %v", key)
 	}
@@ -57,7 +57,7 @@ func (group *Group) TryDeleteCollection(key string, lastModifiedVersion int64) e
 	if coll.Status == SyncStatus_Synced {
 		// all fine. delete item
 		coll.Deleted = true
-	} else if group.Direction == SyncDirection_ToLocal || group.Direction == SyncDirection_BothCloud {
+	} else if group.direction == SyncDirection_ToLocal || group.direction == SyncDirection_BothCloud {
 		// cloud leads --> delete
 		coll.Deleted = true
 		coll.Status = SyncStatus_Synced
@@ -66,13 +66,13 @@ func (group *Group) TryDeleteCollection(key string, lastModifiedVersion int64) e
 		coll.Version = lastModifiedVersion
 		coll.Status = SyncStatus_Synced
 	}
-	if err := coll.UpdateDB(); err != nil {
+	if err := coll.UpdateLocal(); err != nil {
 		return emperror.Wrapf(err, "cannot update collection %v", key)
 	}
 	return nil
 }
 
-func (group *Group) CreateEmptyCollectionDB(collectionId string) error {
+func (group *Group) CreateEmptyCollectionLocal(collectionId string) error {
 	sqlstr := fmt.Sprintf("INSERT INTO %s.collections (key, version, library, sync) VALUES( $1, 0, $2, $3)", group.zot.dbSchema)
 	params := []interface{}{
 		collectionId,
@@ -86,7 +86,7 @@ func (group *Group) CreateEmptyCollectionDB(collectionId string) error {
 	return nil
 }
 
-func (group *Group) GetCollectionVersionDB(collectionId string) (int64, SyncStatus, error) {
+func (group *Group) GetCollectionVersionLocal(collectionId string) (int64, SyncStatus, error) {
 	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.collections WHERE key=$1", group.zot.dbSchema)
 	params := []interface{}{
 		collectionId,
@@ -97,7 +97,7 @@ func (group *Group) GetCollectionVersionDB(collectionId string) (int64, SyncStat
 	err := group.zot.db.QueryRow(sqlstr, params...).Scan(&version, &sync)
 	switch {
 	case err == sql.ErrNoRows:
-		if err := group.CreateEmptyCollectionDB(collectionId); err != nil {
+		if err := group.CreateEmptyCollectionLocal(collectionId); err != nil {
 			return 0, SyncStatus_Incomplete, emperror.Wrapf(err, "cannot create new collection")
 		}
 		version = 0
@@ -110,9 +110,10 @@ func (group *Group) GetCollectionVersionDB(collectionId string) (int64, SyncStat
 	return version, status, nil
 }
 
-func (group *Group) GetCollectionsVersion(sinceVersion int64) (*map[string]int64, error) {
+func (group *Group) GetCollectionsVersionCloud(sinceVersion int64) (*map[string]int64, int64, error) {
 	endpoint := fmt.Sprintf("/groups/%v/collections", group.Id)
 
+	var lastModifiedVersion int64
 	totalObjects := &map[string]int64{}
 	limit := int64(500)
 	start := int64(0)
@@ -131,7 +132,7 @@ func (group *Group) GetCollectionsVersion(sinceVersion int64) (*map[string]int64
 		for {
 			resp, err = call.Get(endpoint)
 			if err != nil {
-				return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+				return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 			}
 			if !group.zot.CheckRetry(resp.Header()) {
 				break
@@ -139,13 +140,18 @@ func (group *Group) GetCollectionsVersion(sinceVersion int64) (*map[string]int64
 		}
 		totalResult, err := strconv.ParseInt(resp.RawResponse.Header.Get("Total-Results"), 10, 64)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
+			return nil, 0, emperror.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
 		}
 		rawBody := resp.Body()
 		objects := &map[string]int64{}
 		if err := json.Unmarshal(rawBody, objects); err != nil {
-			return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+			return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 		}
+		h, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+		if h > lastModifiedVersion {
+			lastModifiedVersion = h
+		}
+
 		group.zot.CheckBackoff(resp.Header())
 		for key, version := range *objects {
 			(*totalObjects)[key] = version
@@ -156,15 +162,15 @@ func (group *Group) GetCollectionsVersion(sinceVersion int64) (*map[string]int64
 		start += limit
 	}
 
-	return totalObjects, nil
+	return totalObjects, lastModifiedVersion, nil
 }
 
-func (group *Group) GetCollections(objectKeys []string) (*[]Collection, error) {
+func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int64, error) {
 	if len(objectKeys) == 0 {
-		return &[]Collection{}, nil
+		return &[]Collection{}, 0, errors.New("no objectKeys")
 	}
 	if len(objectKeys) > 50 {
-		return nil, errors.New("too much objectKeys (max. 50)")
+		return nil, 0, errors.New("too much objectKeys (max. 50)")
 	}
 
 	endpoint := fmt.Sprintf("/groups/%v/collections", group.Id)
@@ -179,7 +185,7 @@ func (group *Group) GetCollections(objectKeys []string) (*[]Collection, error) {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+			return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 		}
 		if !group.zot.CheckRetry(resp.Header()) {
 			break
@@ -188,21 +194,23 @@ func (group *Group) GetCollections(objectKeys []string) (*[]Collection, error) {
 	rawBody := resp.Body()
 	collections := []Collection{}
 	if err := json.Unmarshal(rawBody, &collections); err != nil {
-		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
+	lastModifiedVersion, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+
 	group.zot.CheckBackoff(resp.Header())
 	result := []Collection{}
 	for _, coll := range collections {
 		if coll.Library.Type != "group" {
-			return nil, errors.New(fmt.Sprintf("unknown library type %v for collection %v", coll.Library.Type, coll.Key))
+			return nil, 0, errors.New(fmt.Sprintf("unknown library type %v for collection %v", coll.Library.Type, coll.Key))
 		}
 		if coll.Library.Id != group.Id {
-			return nil, errors.New(fmt.Sprintf("wrong library id %v for collection %v - current group is %v", coll.Library.Id, coll.Key, group.Id))
+			return nil, 0, errors.New(fmt.Sprintf("wrong library id %v for collection %v - current group is %v", coll.Library.Id, coll.Key, group.Id))
 		}
 		coll.group = group
 		result = append(result, coll)
 	}
-	return &result, nil
+	return &result, lastModifiedVersion, nil
 }
 
 func (group *Group) syncModifiedCollections() (int64, error) {
@@ -236,7 +244,7 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 			return 0, emperror.Wrapf(err, "item has no data %v.%v", group.Id, collection.Key)
 		}
 		collection.group = group
-		if err := collection.Update(); err != nil {
+		if err := collection.UpdateCloud(); err != nil {
 			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", group.Id, collection.Key)
 		}
 		counter++
@@ -244,7 +252,8 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 	return counter, nil
 }
 
-func (group *Group) SyncCollections() (int64, error) {
+func (group *Group) SyncCollections() (int64, int64, error) {
+	var lastModifiedVersion int64
 	var num int64
 	var num2 int64
 	var err error
@@ -253,14 +262,14 @@ func (group *Group) SyncCollections() (int64, error) {
 	if group.CanUpload() {
 		num, err = group.syncModifiedCollections()
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 
 	if group.CanDownload() {
-		num2, err = group.syncCollections()
+		num2, lastModifiedVersion, err = group.syncCollections()
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 	counter := num + num2
@@ -269,28 +278,28 @@ func (group *Group) SyncCollections() (int64, error) {
 		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA", group.zot.dbSchema)
 		_, err := group.zot.db.Exec(sqlstr)
 		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
+			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
 	}
 
-	return counter, nil
+	return counter, lastModifiedVersion, nil
 }
 
-func (group *Group) syncCollections() (int64, error) {
+func (group *Group) syncCollections() (int64, int64, error) {
 	group.zot.logger.Infof("Syncing collections of group #%v", group.Id)
 	var counter int64
-	objectList, err := group.GetCollectionsVersion(group.Version)
+	objectList, lastModifiedVersion, err := group.GetCollectionsVersionCloud(group.CollectionVersion)
 	if err != nil {
-		return counter, emperror.Wrapf(err, "cannot get collection versions")
+		return counter, 0, emperror.Wrapf(err, "cannot get collection versions")
 	}
 	collectionUpdate := []string{}
 	for collectionid, version := range *objectList {
-		oldversion, status, err := group.GetCollectionVersionDB(collectionid)
+		oldversion, status, err := group.GetCollectionVersionLocal(collectionid)
 		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot get version of collection %v from database: %v", collectionid, err)
+			return counter, 0, emperror.Wrapf(err, "cannot get version of collection %v from database: %v", collectionid, err)
 		}
 		if status != SyncStatus_Synced && status != SyncStatus_New {
-			return counter, errors.New(fmt.Sprintf("collection %v not synced. please handle conflict", collectionid))
+			return counter, 0, errors.New(fmt.Sprintf("collection %v not synced. please handle conflict", collectionid))
 		}
 		if oldversion < version {
 			collectionUpdate = append(collectionUpdate, collectionid)
@@ -304,23 +313,28 @@ func (group *Group) syncCollections() (int64, error) {
 			end = numColls
 		}
 		part := collectionUpdate[start:end]
-		colls, err := group.GetCollections(part)
-		if err != nil {
-			return counter, emperror.Wrapf(err, "cannot get collections")
-		}
-		group.zot.logger.Infof("%v collections", len(*colls))
-		for _, coll := range *colls {
-			coll.Status = SyncStatus_Synced
-			if err := coll.UpdateDB(); err != nil {
-				return counter, emperror.Wrapf(err, "cannot update collection")
+		if len(part) > 0 {
+			colls, h, err := group.GetCollectionsCloud(part)
+			if err != nil {
+				return counter, 0, emperror.Wrapf(err, "cannot get collections")
 			}
-			counter++
+			if h > lastModifiedVersion {
+				lastModifiedVersion = h
+			}
+			group.zot.logger.Infof("%v collections", len(*colls))
+			for _, coll := range *colls {
+				coll.Status = SyncStatus_Synced
+				if err := coll.UpdateLocal(); err != nil {
+					return counter, 0, emperror.Wrapf(err, "cannot update collection")
+				}
+				counter++
+			}
 		}
 	}
-	return counter, nil
+	return counter, lastModifiedVersion, nil
 }
 
-func (group *Group) GetCollectionByName(name string, parentKey string) (*Collection, error) {
+func (group *Group) GetCollectionByNameLocal(name string, parentKey string) (*Collection, error) {
 
 	coll := Collection{
 		Key:     "",
@@ -367,7 +381,7 @@ func (group *Group) GetCollectionByName(name string, parentKey string) (*Collect
 	return &coll, nil
 }
 
-func (group *Group) GetCollectionByKey(key string) (*Collection, error) {
+func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 
 	coll := Collection{
 		Key:     "",
@@ -380,7 +394,7 @@ func (group *Group) GetCollectionByKey(key string) (*Collection, error) {
 	}
 
 	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync"+
-		" FROM %s.collections cs WHERE cs.library=$1 AND cs.key=$2", group.zot.dbSchema, group.zot.dbSchema)
+		" FROM %s.collections cs WHERE cs.library=$1 AND cs.key=$2", group.zot.dbSchema)
 
 	params := []interface{}{
 		group.Id,

@@ -27,6 +27,7 @@ type Config struct {
 	Attachmentfolder     string
 	DB                   Cfg_database `toml:"database"`
 	GroupCacheExpiration string       `toml:"groupcacheexpiration"`
+	SyncSleep            string       `toml:"syncsleep"`
 }
 
 func LoadConfig(filepath string) Config {

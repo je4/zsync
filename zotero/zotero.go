@@ -11,6 +11,7 @@ import (
 	"gopkg.in/resty.v1"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -55,9 +56,33 @@ type Deletions struct {
 	Settings    []string `json:"settings"`
 }
 
-type Parent string
+// zotero returns single item lists as string
+type ZoteroStringList []string
+func (irl *ZoteroStringList) UnmarshalJSON(data []byte) error {
+	var i interface{}
+	if err := json.Unmarshal(data, &i); err != nil {
+		return err
+	}
+	switch i.(type) {
+	case string:
+		*irl = ZoteroStringList{i.(string)}
+	case []interface{}:
+		*irl = ZoteroStringList{}
+		for _, i2 := range i.([]interface{}) {
+			str, ok := i2.(string)
+			if !ok {
+				errors.New(fmt.Sprintf("invalid type %v for %v", reflect.TypeOf(i2), i2))
+			}
+			*irl = append(*irl, str)
+		}
+	default:
+		return errors.New(fmt.Sprintf("invalid type %v for %v", reflect.TypeOf(i), string(data)))
+	}
+	return nil
+}
 
 // zotero treats empty strings as false in ParentCollection
+type Parent string
 func (pc *Parent) UnmarshalJSON(data []byte) error {
 	var i interface{}
 	if err := json.Unmarshal(data, &i); err != nil {
@@ -232,7 +257,7 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 	return
 }
 
-func (zot *Zotero) GetGroup(groupId int64) (*Group, error) {
+func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 	endpoint := fmt.Sprintf("/groups/%v", groupId)
 	zot.logger.Infof("rest call: %s", endpoint)
 
