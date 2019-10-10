@@ -5,6 +5,7 @@ import (
 	"flag"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
+	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/zotero"
 	"log"
 	"math/rand"
@@ -47,7 +48,36 @@ type ZotField struct {
 }
 
 func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, logger)
+
+	var gl *gitlab.Client
+	var glproject *gitlab.Project
+	if cfg.Gitlab.Active {
+		gl = gitlab.NewClient(nil, cfg.Gitlab.Token)
+		gl.SetBaseURL(cfg.Gitlab.Url)
+		opt := &gitlab.ListProjectsOptions{Search: gitlab.String("zotero")}
+		projects, _, err := gl.Projects.ListProjects(opt)
+		if err != nil {
+			logger.Fatalf("cannot list gitlab projects: %v", err)
+		}
+		for _, project := range projects {
+			if project.Path == cfg.Gitlab.Project {
+				glproject = project
+				break
+			}
+		}
+		if glproject == nil {
+			logger.Fatalf("cannot find zotero project on %v", cfg.Gitlab.Url)
+		}
+		logger.Infof("gitlab projekt #%v %v", glproject.ID, glproject.Name)
+	}
+	/*
+		nodes, _, err := gl.Repositories.ListTree(glproject.ID, nil)
+		for _, node := range nodes {
+			logger.Infof("[%v] %v - %v", node.ID, node.Name, node.Path)
+		}
+	*/
+
+	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, gl, glproject, logger)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
@@ -84,7 +114,7 @@ func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
 		logger.Infof("group %v[%v <-> %v]", groupId, group.Version, version)
 		// check whether version is newer online...
 		if group.Version < version ||
-			group.Deleted  ||
+			group.Deleted ||
 			group.Modified {
 			newGroup, err := zot.GetGroupCloud(groupId)
 			if err != nil {
@@ -153,15 +183,15 @@ func main() {
 		c1 <- "end please"
 
 	}()
-		for {
-			sync(&cfg, db, logger)
-			logger.Infof("sleeping %v", cfg.SyncSleep)
-			select {
-			case <-c1:
-				return
-			case <-time.After(sleep):
-				logger.Infof("end of sleep")
-			}
+	for {
+		sync(&cfg, db, logger)
+		logger.Infof("sleeping %v", cfg.SyncSleep)
+		select {
+		case <-c1:
+			return
+		case <-time.After(sleep):
+			logger.Infof("end of sleep")
 		}
+	}
 
 }

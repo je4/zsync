@@ -8,6 +8,7 @@ import (
 	"github.com/goph/emperror"
 	"github.com/lib/pq"
 	"github.com/op/go-logging"
+	"github.com/xanzy/go-gitlab"
 	"gopkg.in/resty.v1"
 	"net/http"
 	"net/url"
@@ -27,6 +28,8 @@ type Zotero struct {
 	attachmentFolder string
 	newGroupActive   bool
 	CurrentKey       *ApiKey
+	git              *gitlab.Client
+	gitProject       *gitlab.Project
 }
 
 type Library struct {
@@ -58,6 +61,7 @@ type Deletions struct {
 
 // zotero returns single item lists as string
 type ZoteroStringList []string
+
 func (irl *ZoteroStringList) UnmarshalJSON(data []byte) error {
 	var i interface{}
 	if err := json.Unmarshal(data, &i); err != nil {
@@ -83,6 +87,7 @@ func (irl *ZoteroStringList) UnmarshalJSON(data []byte) error {
 
 // zotero treats empty strings as false in ParentCollection
 type Parent string
+
 func (pc *Parent) UnmarshalJSON(data []byte) error {
 	var i interface{}
 	if err := json.Unmarshal(data, &i); err != nil {
@@ -114,7 +119,7 @@ func IsUniqueViolation(err error, constraint string) bool {
 	return pqErr.Code == "23505"
 }
 
-func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attachmentFolder string, newGroupActive bool, logger *logging.Logger) (*Zotero, error) {
+func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attachmentFolder string, newGroupActive bool, git *gitlab.Client, gitProject *gitlab.Project, logger *logging.Logger) (*Zotero, error) {
 	burl, err := url.Parse(baseUrl)
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot create url from %s", baseUrl)
@@ -127,6 +132,8 @@ func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attac
 		dbSchema:         dbSchema,
 		attachmentFolder: attachmentFolder,
 		newGroupActive:   newGroupActive,
+		git:              git,
+		gitProject:       gitProject,
 	}
 	err = zot.Init()
 	if err != nil {
@@ -142,6 +149,7 @@ func (zot *Zotero) Init() (err error) {
 	zot.client.SetContentLength(true)
 	zot.client.SetRedirectPolicy(resty.FlexibleRedirectPolicy(3))
 	zot.CurrentKey, err = zot.getCurrentKey()
+
 	return
 }
 
@@ -293,5 +301,56 @@ func (zot *Zotero) DeleteCollectionDB(key string) error {
 	if _, err := zot.db.Exec(sqlstr, params...); err != nil {
 		return emperror.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
+	return nil
+}
+
+func (zot *Zotero) uploadGitlab(filename string, branch string, commit string, enc string, data string) error {
+	if zot.git == nil {
+		return nil
+	}
+	zot.logger.Infof("uploading %v to gitlab (%vbytes)", commit, len(data))
+
+	var e *string
+	if enc == "" {
+		e = nil
+	} else {
+		e = &enc
+	}
+	gopt := gitlab.CreateFileOptions{
+		Branch:        &branch,
+		Encoding:      e,
+		AuthorEmail:   nil,
+		AuthorName:    nil,
+		Content:       &data,
+		CommitMessage: &commit,
+	}
+	fileinfo, _, err := zot.git.RepositoryFiles.CreateFile(zot.gitProject.ID, filename, &gopt)
+	if err != nil {
+		glErr, ok := err.(*gitlab.ErrorResponse)
+		if !ok {
+			return emperror.Wrapf(err, "upload on gitlab failed")
+		}
+		if glErr.Response.StatusCode != http.StatusBadRequest {
+			return emperror.Wrapf(err, "upload on gitlab failed")
+		}
+		if !strings.Contains(glErr.Message, "file with this name already exists") {
+			return emperror.Wrapf(err, "upload on gitlab failed")
+		}
+		zot.logger.Debugf("%v already exists. updating...", filename)
+
+		gopt := gitlab.UpdateFileOptions{
+			Branch:        &branch,
+			Encoding:      e,
+			AuthorEmail:   nil,
+			AuthorName:    nil,
+			Content:       &data,
+			CommitMessage: &commit,
+		}
+		fileinfo, _, err = zot.git.RepositoryFiles.UpdateFile(zot.gitProject.ID, filename, &gopt)
+		if err != nil {
+			return emperror.Wrapf(err, "update on gitlab failed")
+		}
+	}
+	zot.logger.Debugf("uploading %v to gitlab done (%vbytes) - %v", commit, len(data), fileinfo.String())
 	return nil
 }

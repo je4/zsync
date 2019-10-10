@@ -12,6 +12,13 @@ type Cfg_database struct {
 	Schema     string
 }
 
+type Cfg_gitlab struct {
+	Token   string `toml:"token"`
+	Project string `toml:"project"`
+	Url     string `toml:"url"`
+	Active  bool   `toml:"active"`
+}
+
 type Config struct {
 	Service              string
 	Listen               string
@@ -28,6 +35,7 @@ type Config struct {
 	DB                   Cfg_database `toml:"database"`
 	GroupCacheExpiration string       `toml:"groupcacheexpiration"`
 	SyncSleep            string       `toml:"syncsleep"`
+	Gitlab               Cfg_gitlab   `tomal:"gitlab"`
 }
 
 func LoadConfig(filepath string) Config {

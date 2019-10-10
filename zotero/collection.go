@@ -1,6 +1,7 @@
 package zotero
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,18 @@ func (collection *Collection) UpdateLocal() error {
 	_, err = collection.group.zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+	}
+
+	var prettyJSON bytes.Buffer
+	err = json.Indent(&prettyJSON, data, "", "\t")
+	if err != nil {
+		return emperror.Wrapf(err, "cannot pretty json")
+	}
+	gcommit := fmt.Sprintf("%v - %v.%v v%v", collection.Data.Name, collection.group.Id, collection.Key, collection.Version)
+	var fname string
+	fname = fmt.Sprintf("%v/collections/%v.json", collection.group.Id, collection.Key)
+	if err := collection.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
+		return emperror.Wrapf(err, "update on gitlab failed")
 	}
 	return nil
 }

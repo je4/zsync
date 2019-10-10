@@ -1,8 +1,10 @@
 package zotero
 
 import (
+	"bytes"
 	"crypto/md5"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,6 +122,43 @@ func (item *Item) GetType() (string, error) {
 	return item.Data.ItemType, nil
 }
 
+
+func (item *Item) UploadGitlab() error {
+	item.group.zot.logger.Infof("uploading %v to gitlab", item.Data.Title)
+
+	data, err := json.Marshal(item.Data)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot marshal data")
+	}
+
+	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.group.Id, item.Key, item.Version)
+	var fname string
+	if string(item.Data.ParentItem) != "" {
+		fname = fmt.Sprintf("%v/items/%v/%v.json", item.group.Id, string(item.Data.ParentItem), item.Key)
+	} else {
+		fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
+	}
+	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", string(data)); err != nil {
+			return emperror.Wrapf(err, "update on gitlab failed")
+	}
+	return nil
+}
+
+func (item *Item) UploadAttachmentGitlab(data []byte) error {
+	item.group.zot.logger.Infof("uploading %v to gitlab (%vbytes)", item.Data.Title, len(data))
+	gcommit := fmt.Sprintf("%v (%vbytes) - %v.%v v%v", item.Data.Title, len(data), item.group.Id, item.Key, item.Version)
+	var fname string
+	if string(item.Data.ParentItem) != "" {
+		fname = fmt.Sprintf("%v/items/%v/%v.bin", item.group.Id, string(item.Data.ParentItem), item.Key)
+	} else {
+		fname = fmt.Sprintf("%v/items/%v.bin", item.group.Id, item.Key)
+	}
+	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "base64", base64.StdEncoding.EncodeToString(data)); err != nil {
+		return emperror.Wrapf(err, "update on gitlab failed")
+	}
+	return nil
+}
+
 func (item *Item) DownloadAttachmentCloud() (string, error) {
 	folder, err := item.group.GetAttachmentFolder()
 	if err != nil {
@@ -146,7 +185,8 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 		return "", emperror.Wrapf(err, "cannot create %v", filename)
 	}
 	defer f.Close()
-	f.Write(resp.Body())
+	body := resp.Body()
+	f.Write(body)
 	md5str := resp.Header().Get("ETag")
 	md5str = strings.Trim(md5str, "\"")
 	if md5str == "" {
@@ -156,10 +196,15 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 	item.group.zot.CheckBackoff(resp.Header())
 	// we don't check. lets do it later
 	/*
-	if md5str != item.Data.MD5 {
-		return "", errors.New(fmt.Sprintf("invalid checksum: %v != %v", md5str, item.Data.MD5))
-	}
+		if md5str != item.Data.MD5 {
+			return "", errors.New(fmt.Sprintf("invalid checksum: %v != %v", md5str, item.Data.MD5))
+		}
 	*/
+
+	if err := item.UploadAttachmentGitlab(body); err != nil {
+		return "", emperror.Wrapf(err, "cannot upload attachment binary")
+	}
+
 	return md5str, nil
 }
 
@@ -195,7 +240,7 @@ func (item *Item) uploadFile() error {
 	/**
 	Get Authorization
 	*/
-	endpoint := fmt.Sprintf("/groups/%v/items/%v/file", item.group.Id, item.Key)
+	endpoint := fmt.Sprintf("/groups/%v/%v/items/file", item.group.Id, item.Key)
 	h := item.group.zot.client.R().
 		SetHeader("Content-Type", "application/x-www-form-urlencoded")
 	if item.MD5 == "" {
@@ -279,7 +324,7 @@ func (item *Item) uploadFile() error {
 	/**
 	register upload
 	*/
-	endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.group.Id, item.Key)
+	endpoint = fmt.Sprintf("/groups/%v/%v/items/file", item.group.Id, item.Key)
 	item.group.zot.logger.Infof("rest call: POST %s", endpoint)
 	h = item.group.zot.client.R()
 	if item.MD5 == "" {
@@ -308,7 +353,7 @@ func (item *Item) UpdateCloud() error {
 
 	item.Data.Version = item.Version
 	if item.Deleted {
-		endpoint := fmt.Sprintf("/groups/%v/items/%v", item.group.Id, item.Key)
+		endpoint := fmt.Sprintf("/groups/%v/%v/items", item.group.Id, item.Key)
 		item.group.zot.logger.Infof("rest call: DELETE %s", endpoint)
 		resp, err := item.group.zot.client.R().
 			SetHeader("Accept", "application/json").
@@ -407,6 +452,21 @@ func (item *Item) UpdateLocal() error {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
+	var prettyJSON bytes.Buffer
+	err = json.Indent(&prettyJSON, data, "", "\t")
+	if err != nil {
+		return emperror.Wrapf(err, "cannot pretty json")
+	}
+	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.group.Id, item.Key, item.Version)
+	var fname string
+	if string(item.Data.ParentItem) != "" {
+		fname = fmt.Sprintf("%v/items/%v/%v.json", item.group.Id, string(item.Data.ParentItem), item.Key)
+	} else {
+		fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
+	}
+	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
+		return emperror.Wrapf(err, "update on gitlab failed")
+	}
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/xanzy/go-gitlab"
 	"gopkg.in/resty.v1"
 	"reflect"
 	"strconv"
@@ -74,6 +75,26 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 	} else if err != nil {
 		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
+
+	gcontent := string(jsonstr)
+	var gusername string
+	if itemMeta != nil {
+		gusername = itemMeta.CreatedByUser.Username
+	}
+	gopt := gitlab.CreateFileOptions{
+		Branch:        nil,
+		Encoding:      nil,
+		AuthorEmail:   nil,
+		AuthorName:    &gusername,
+		Content:       &gcontent,
+		CommitMessage: &itemMeta.CreatorSummary,
+	}
+	fileinfo, _, err := item.group.zot.git.RepositoryFiles.CreateFile(item.group.zot.gitProject.ID, fmt.Sprintf("%v/%v", item.group.Id, item.Key), &gopt)
+	if err != nil {
+		return nil, emperror.Wrapf(err, "upload to gitlab failed")
+	}
+	item.group.zot.logger.Debugf("upload to gitlab done: %v", fileinfo.String())
+
 	return item, nil
 }
 
