@@ -1,7 +1,6 @@
 package zotero
 
 import (
-	"bytes"
 	"crypto/md5"
 	"database/sql"
 	"encoding/base64"
@@ -37,6 +36,7 @@ type Item struct {
 	Status  SyncStatus  `json:"-"`
 	MD5     string      `json:"-"`
 	OldId   string      `json:"-"`
+	Gitlab  *time.Time  `json:"-"`
 }
 
 type ItemTag struct {
@@ -122,7 +122,6 @@ func (item *Item) GetType() (string, error) {
 	return item.Data.ItemType, nil
 }
 
-
 func (item *Item) UploadGitlab() error {
 	item.group.zot.logger.Infof("uploading %v to gitlab", item.Data.Title)
 
@@ -139,7 +138,7 @@ func (item *Item) UploadGitlab() error {
 		fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
 	}
 	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", string(data)); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		return emperror.Wrapf(err, "update on gitlab failed")
 	}
 	return nil
 }
@@ -200,10 +199,11 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 			return "", errors.New(fmt.Sprintf("invalid checksum: %v != %v", md5str, item.Data.MD5))
 		}
 	*/
-
+/** gitlab sync not here
 	if err := item.UploadAttachmentGitlab(body); err != nil {
 		return "", emperror.Wrapf(err, "cannot upload attachment binary")
 	}
+ */
 
 	return md5str, nil
 }
@@ -451,7 +451,7 @@ func (item *Item) UpdateLocal() error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
-
+/** gitlab sync not here
 	var prettyJSON bytes.Buffer
 	err = json.Indent(&prettyJSON, data, "", "\t")
 	if err != nil {
@@ -467,12 +467,14 @@ func (item *Item) UpdateLocal() error {
 	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
 		return emperror.Wrapf(err, "update on gitlab failed")
 	}
+
+*/
 	return nil
 }
 
 func (item *Item) getChildrenLocal() (*[]Item, error) {
 	item.group.zot.logger.Infof("get children of  item [#%s]", item.Key)
-	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.trashed, i.deleted, i.sync, i.md5 FROM %s.items i, %s.item_type_hier ith"+
+	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.trashed, i.deleted, i.sync, i.md5, i.gitlab FROM %s.items i, %s.item_type_hier ith"+
 		" WHERE i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.group.zot.dbSchema, item.group.zot.dbSchema)
 	params := []interface{}{
 		item.group.Id,

@@ -1,6 +1,7 @@
 package zotero
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,9 +9,11 @@ import (
 	"github.com/goph/emperror"
 	"github.com/xanzy/go-gitlab"
 	"gopkg.in/resty.v1"
+	"io/ioutil"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (group *Group) DeleteItemLocal(key string) error {
@@ -221,7 +224,7 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 		params = append(params, val)
 		pstr = append(pstr, fmt.Sprintf("$%v", len(params)))
 	}
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items WHERE library=$1 AND key IN (%s)", group.zot.dbSchema, strings.Join(pstr, ","))
+	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", group.zot.dbSchema, strings.Join(pstr, ","))
 	rows, err := group.zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return &[]Item{}, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
@@ -285,7 +288,7 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 
 func (group *Group) syncModifiedItems() (int64, error) {
 	var counter int64
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		"new",
@@ -358,35 +361,159 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 	return counter, lastModifiedVersion, nil
 }
 
+func (group *Group) syncItemsGitlab() error {
+	synctime := time.Now()
+	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab"+
+		" FROM %s.items"+
+		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.zot.dbSchema)
+	rows, err := group.zot.db.Query(sqlstr, group.Id)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, group.Id)
+	}
+
+	result := []Item{}
+	for rows.Next() {
+		item, err := group.itemFromRow(rows)
+		if err != nil {
+			rows.Close()
+			return emperror.Wrapf(err, "cannot scan row")
+		}
+		result = append(result, *item)
+	}
+	rows.Close()
+
+	num := int64(len(result))
+	slices := num / 20
+	if num%20 > 0 {
+		slices++
+	}
+	for i := int64(0); i < slices; i++ {
+		start := i * 20
+		end := i*20 + 20
+		if num < end {
+			end = num
+		}
+		parts := result[start:end]
+		gbranch := "master"
+		gcommit := fmt.Sprintf("machine sync at %v", synctime.String())
+		gaction := []*gitlab.CommitAction{}
+		for _, item := range parts {
+			// new and deleted -> we will not upload
+			if item.Gitlab == nil && item.Deleted {
+				continue
+			}
+
+			// check for attachment and upload if necessary
+			itemType, err := item.GetType()
+			if err != nil {
+				return emperror.Wrapf(err, "cannot get item type of %v.%v", group.Id, item.Key)
+			}
+			if itemType == "attachment" && item.Data.MD5 != "" && !item.Deleted {
+				folder, err := group.GetAttachmentFolder()
+				if err != nil {
+					return emperror.Wrapf(err, "cannot get attachment folder")
+				}
+				filename := fmt.Sprintf("%s/%s", folder, item.Key)
+				content, err := ioutil.ReadFile(filename)
+				if err != nil {
+					return emperror.Wrapf(err, "cannot read %v", filename)
+				}
+				if err := item.UploadAttachmentGitlab(content); err != nil {
+					return emperror.Wrapf(err, "cannot upload filedata for %v.%v", group.Id, item.Key)
+				}
+			}
+			data, err := json.Marshal(item.Data)
+			if err != nil {
+				return emperror.Wrapf(err, "cannot marshall data %v", item.Data)
+			}
+			var prettyJSON bytes.Buffer
+			err = json.Indent(&prettyJSON, data, "", "\t")
+			if err != nil {
+				return emperror.Wrapf(err, "cannot pretty json")
+			}
+
+			action := gitlab.CommitAction{
+				Content:prettyJSON.String(),
+			}
+			if item.Gitlab == nil {
+				action.Action = "create"
+			} else if item.Deleted {
+				action.Action = "delete"
+			} else {
+				action.Action = "update"
+			}
+
+			var fname string
+			if string(item.Data.ParentItem) != "" {
+				fname = fmt.Sprintf("%v/items/%v/%v.json", item.group.Id, string(item.Data.ParentItem), item.Key)
+			} else {
+				fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
+			}
+			action.FilePath = fname
+			gaction = append(gaction, &action)
+		}
+		opt := gitlab.CreateCommitOptions{
+			Branch:        &gbranch,
+			CommitMessage: &gcommit,
+			StartBranch:   nil,
+			Actions:       gaction,
+			AuthorEmail:   nil,
+			AuthorName:    nil,
+		}
+		group.zot.logger.Infof("committing %v items of %v to gitlab [%v:%v]", len(gaction), num, start, end)
+		_, _, err := group.zot.git.Commits.CreateCommit(group.zot.gitProject.ID, &opt)
+		if err != nil {
+			return emperror.Wrapf(err, "cannot commit")
+		}
+		sqlstr := fmt.Sprintf("UPDATE %s.items SET gitlab=$1 WHERE library=$2 AND key=$3", group.zot.dbSchema)
+		for _, item := range parts {
+			t := sql.NullTime{
+				Time:  synctime,
+				Valid: !item.Deleted,
+			}
+			params := []interface{}{
+				t,
+				group.Id,
+				item.Key,
+			}
+			if _, err := group.zot.db.Exec(sqlstr, params...); err != nil {
+				return emperror.Wrapf(err, "cannot update gitlab sync time for %v.%v", group.Id, item.Key)
+			}
+		}
+	}
+	return nil
+}
+
 func (group *Group) SyncItems() (int64, int64, error) {
-	var num int64
-	var num2 int64
-	var num3 int64
+	var counter int64
 	var err error
 	var lastModifiedVersion int64
 
 	if group.CanUpload() {
-		num, err = group.syncModifiedItems()
+		counter, err = group.syncModifiedItems()
 		if err != nil {
 			return 0, 0, err
 		}
 	}
 
 	if group.CanDownload() {
+		var num2 int64
 		num2, lastModifiedVersion, err = group.syncItems(true)
 		if err != nil {
 			return 0, 0, err
 		}
+		counter += num2
 		var h int64
+		var num3 int64
 		num3, h, err = group.syncItems(false)
 		if err != nil {
 			return 0, 0, err
 		}
+		counter += num3
 		if h > lastModifiedVersion {
 			lastModifiedVersion = h
 		}
 	}
-	counter := num + num2 + num3
 	if counter > 0 {
 		group.zot.logger.Infof("refreshing materialized view item_type_hier")
 		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.zot.dbSchema)
@@ -396,11 +523,16 @@ func (group *Group) SyncItems() (int64, int64, error) {
 		}
 	}
 
+	err = group.syncItemsGitlab()
+	if err != nil {
+		group.zot.logger.Errorf("cannot sync: %v", err)
+	}
+
 	return counter, lastModifiedVersion, nil
 }
 
 func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items"+
+	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items"+
 		" WHERE library=$1 AND key=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
@@ -416,7 +548,7 @@ func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 }
 
 func (group *Group) GetItemByOldidLocal(oldid string) (*Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5 FROM %s.items WHERE library=$1 AND oldid=$2", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND oldid=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		oldid,
@@ -468,10 +600,11 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 	var datastr sql.NullString
 	var sync string
 	var md5str sql.NullString
+	var gitlab sql.NullTime
 	switch rowss.(type) {
 	case *sql.Row:
 		row := rowss.(*sql.Row)
-		if err := row.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
+		if err := row.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, nil
 			}
@@ -479,7 +612,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 		}
 	case *sql.Rows:
 		rows := rowss.(*sql.Rows)
-		if err := rows.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str); err != nil {
+		if err := rows.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
 			return nil, emperror.Wrapf(err, "cannot scan row")
 		}
 	default:
@@ -487,6 +620,9 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 	}
 	if md5str.Valid {
 		item.MD5 = md5str.String
+	}
+	if gitlab.Valid {
+		item.Gitlab = &gitlab.Time
 	}
 	item.Status = SyncStatusId[sync]
 	if datastr.Valid {

@@ -1,15 +1,58 @@
 package zotero
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/xanzy/go-gitlab"
 	"gopkg.in/resty.v1"
+	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
+
+func (group *Group) collectionFromRow(rowss interface{}) (*Collection, error) {
+
+	coll := Collection{}
+	var datastr sql.NullString
+	var sync string
+	var gitlab sql.NullTime
+	switch rowss.(type) {
+	case *sql.Row:
+		row := rowss.(*sql.Row)
+		if err := row.Scan(&coll.Key, &coll.Version, &datastr, &coll.Deleted, &sync, &gitlab); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, nil
+			}
+			return nil, emperror.Wrapf(err, "cannot scan row")
+		}
+	case *sql.Rows:
+		rows := rowss.(*sql.Rows)
+		if err := rows.Scan(&coll.Key, &coll.Version, &datastr, &coll.Deleted, &sync, &gitlab); err != nil {
+			return nil, emperror.Wrapf(err, "cannot scan row")
+		}
+	default:
+		return nil, errors.New(fmt.Sprintf("unknown row type: %v", reflect.TypeOf(rowss).String()))
+	}
+	if gitlab.Valid {
+		coll.Gitlab = &gitlab.Time
+	}
+	coll.Status = SyncStatusId[sync]
+	if datastr.Valid {
+		if err := json.Unmarshal([]byte(datastr.String), &coll.Data); err != nil {
+			return nil, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
+		}
+	} else {
+		return nil, errors.New(fmt.Sprintf("collection has no data %v.%v", group.Id, coll.Key))
+	}
+	coll.group = group
+
+	return &coll, nil
+}
 
 func (group *Group) CreateCollectionLocal(collectionData *CollectionData) (*Collection, error) {
 	collectionData.Key = CreateKey()
@@ -272,6 +315,11 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 			return 0, 0, err
 		}
 	}
+
+	if err := group.syncCollectionsGitlab(); err != nil {
+		group.zot.logger.Errorf("cannot sync collections to gitlab: %v", err)
+	}
+
 	counter := num + num2
 	if counter > 0 {
 		group.zot.logger.Infof("refreshing materialized view collection_name_hier")
@@ -332,6 +380,105 @@ func (group *Group) syncCollections() (int64, int64, error) {
 		}
 	}
 	return counter, lastModifiedVersion, nil
+}
+
+func (group *Group) syncCollectionsGitlab() error {
+	synctime := time.Now()
+	sqlstr := fmt.Sprintf("SELECT key, version, data, deleted, sync, gitlab"+
+		" FROM %s.collections"+
+		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.zot.dbSchema)
+	rows, err := group.zot.db.Query(sqlstr, group.Id)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, group.Id)
+	}
+
+	result := []Collection{}
+	for rows.Next() {
+		coll, err := group.collectionFromRow(rows)
+		if err != nil {
+			rows.Close()
+			return emperror.Wrapf(err, "cannot scan row")
+		}
+		result = append(result, *coll)
+	}
+	rows.Close()
+
+	num := int64(len(result))
+	slices := num / 20
+	if num%20 > 0 {
+		slices++
+	}
+	for i := int64(0); i < slices; i++ {
+		start := i * 20
+		end := i*20 + 20
+		if num < end {
+			end = num
+		}
+		parts := result[start:end]
+		gbranch := "master"
+		gcommit := fmt.Sprintf("machine sync at %v", synctime.String())
+		gaction := []*gitlab.CommitAction{}
+		for _, coll := range parts {
+			// new and deleted -> we will not upload
+			if coll.Gitlab == nil && coll.Deleted {
+				continue
+			}
+
+			data, err := json.Marshal(coll.Data)
+			if err != nil {
+				return emperror.Wrapf(err, "cannot marshall data %v", coll.Data)
+			}
+			var prettyJSON bytes.Buffer
+			err = json.Indent(&prettyJSON, data, "", "\t")
+			if err != nil {
+				return emperror.Wrapf(err, "cannot pretty json")
+			}
+
+			action := gitlab.CommitAction{
+				Content:prettyJSON.String(),
+			}
+			if coll.Gitlab == nil {
+				action.Action = "create"
+			} else if coll.Deleted {
+				action.Action = "delete"
+			} else {
+				action.Action = "update"
+			}
+
+			fname := fmt.Sprintf("%v/collections/%v.json", coll.group.Id, coll.Key)
+			action.FilePath = fname
+			gaction = append(gaction, &action)
+		}
+		opt := gitlab.CreateCommitOptions{
+			Branch:        &gbranch,
+			CommitMessage: &gcommit,
+			StartBranch:   nil,
+			Actions:       gaction,
+			AuthorEmail:   nil,
+			AuthorName:    nil,
+		}
+		group.zot.logger.Infof("committing %v items of %v to gitlab [%v:%v]", len(gaction), num, start, end)
+		_, _, err := group.zot.git.Commits.CreateCommit(group.zot.gitProject.ID, &opt)
+		if err != nil {
+			return emperror.Wrapf(err, "cannot commit")
+		}
+		sqlstr := fmt.Sprintf("UPDATE %s.items SET gitlab=$1 WHERE library=$2 AND key=$3", group.zot.dbSchema)
+		for _, item := range parts {
+			t := sql.NullTime{
+				Time:  synctime,
+				Valid: !item.Deleted,
+			}
+			params := []interface{}{
+				t,
+				group.Id,
+				item.Key,
+			}
+			if _, err := group.zot.db.Exec(sqlstr, params...); err != nil {
+				return emperror.Wrapf(err, "cannot update gitlab sync time for %v.%v", group.Id, item.Key)
+			}
+		}
+	}
+	return nil
 }
 
 func (group *Group) GetCollectionByNameLocal(name string, parentKey string) (*Collection, error) {

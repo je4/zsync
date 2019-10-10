@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"time"
 )
 
 type CollectionData struct {
@@ -32,6 +33,7 @@ type Collection struct {
 	Status  SyncStatus     `json:"-"`
 	Trashed bool           `json:"-"`
 	Deleted bool           `json:"-"`
+	Gitlab  *time.Time     `json:"-"`
 }
 
 func (collection *Collection) UpdateLocal() error {
