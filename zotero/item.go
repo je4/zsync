@@ -1,6 +1,7 @@
 package zotero
 
 import (
+	"bytes"
 	"crypto/md5"
 	"database/sql"
 	"encoding/base64"
@@ -61,6 +62,13 @@ type ItemDataPerson struct {
 	CreatorType string `json:"creatorType"`
 	FirstName   string `json:"firstName"`
 	LastName    string `json:"lastName"`
+}
+
+type ItemGitlab struct {
+	LibraryId int64       `json:libraryid`
+	Key       string      `json:"id"`
+	Data      ItemGeneric `json:"data"`
+	Meta      ItemMeta    `json:"meta"`
 }
 
 func (res *ItemCollectionCreateResult) checkSuccess(id int64) (string, error) {
@@ -199,11 +207,11 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 			return "", errors.New(fmt.Sprintf("invalid checksum: %v != %v", md5str, item.Data.MD5))
 		}
 	*/
-/** gitlab sync not here
+	/** gitlab sync not here
 	if err := item.UploadAttachmentGitlab(body); err != nil {
 		return "", emperror.Wrapf(err, "cannot upload attachment binary")
 	}
- */
+	*/
 
 	return md5str, nil
 }
@@ -451,7 +459,7 @@ func (item *Item) UpdateLocal() error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
-/** gitlab sync not here
+	/** gitlab sync not here
 	var prettyJSON bytes.Buffer
 	err = json.Indent(&prettyJSON, data, "", "\t")
 	if err != nil {
@@ -468,7 +476,38 @@ func (item *Item) UpdateLocal() error {
 		return emperror.Wrapf(err, "update on gitlab failed")
 	}
 
-*/
+	*/
+	return nil
+}
+
+func (item *Item) uploadGitlab() error {
+
+	glItem := ItemGitlab{
+		LibraryId: item.group.Id,
+		Key:       item.Key,
+		Data:      item.Data,
+		Meta:      item.Meta,
+	}
+
+	data, err := json.Marshal(glItem)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot marshall data %v", glItem)
+	}
+
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
+		return emperror.Wrapf(err, "cannot pretty json")
+	}
+	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.group.Id, item.Key, item.Version)
+	var fname string
+	if string(item.Data.ParentItem) != "" {
+		fname = fmt.Sprintf("%v/items/%v/%v.json", item.group.Id, string(item.Data.ParentItem), item.Key)
+	} else {
+		fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
+	}
+	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
+		return emperror.Wrapf(err, "update on gitlab failed")
+	}
 	return nil
 }
 

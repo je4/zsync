@@ -460,22 +460,31 @@ func (group *Group) syncCollectionsGitlab() error {
 		group.zot.logger.Infof("committing %v items of %v to gitlab [%v:%v]", len(gaction), num, start, end)
 		_, _, err := group.zot.git.Commits.CreateCommit(group.zot.gitProject.ID, &opt)
 		if err != nil {
-			return emperror.Wrapf(err, "cannot commit")
+			// thats very bad. let's try with the single file method and update fallback
+			group.zot.logger.Errorf("error committing to gitlab. fallback to single coll commit: %v", err)
+			for _, coll := range parts {
+				if err := coll.uploadGitlab(); err != nil {
+					return emperror.Wrapf(err, "cannot upload collection %v.%v", group.Id, coll.Key)
+				}
+			}
+			//return emperror.Wrapf(err, "cannot commit")
 		}
-		sqlstr := fmt.Sprintf("UPDATE %s.items SET gitlab=$1 WHERE library=$2 AND key=$3", group.zot.dbSchema)
-		for _, item := range parts {
+		sqlstr = fmt.Sprintf("UPDATE %s.collections SET gitlab=$1 WHERE library=$2 AND key=$3", group.zot.dbSchema)
+		for _, coll := range parts {
 			t := sql.NullTime{
 				Time:  synctime,
-				Valid: !item.Deleted,
+				Valid: !coll.Deleted,
 			}
 			params := []interface{}{
 				t,
 				group.Id,
-				item.Key,
+				coll.Key,
 			}
-			if _, err := group.zot.db.Exec(sqlstr, params...); err != nil {
-				return emperror.Wrapf(err, "cannot update gitlab sync time for %v.%v", group.Id, item.Key)
+			resp, err := group.zot.db.Exec(sqlstr, params...)
+			if err != nil {
+				return emperror.Wrapf(err, "cannot update gitlab sync time for %v.%v", group.Id, coll.Key)
 			}
+			group.zot.logger.Debugf("%v", resp)
 		}
 	}
 	return nil

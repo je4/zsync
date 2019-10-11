@@ -395,7 +395,7 @@ func (group *Group) syncItemsGitlab() error {
 		}
 		parts := result[start:end]
 		gbranch := "master"
-		gcommit := fmt.Sprintf("machine sync at %v", synctime.String())
+		gcommit := fmt.Sprintf("#%v machine sync  at %v", synctime.String())
 		gaction := []*gitlab.CommitAction{}
 		for _, item := range parts {
 			// new and deleted -> we will not upload

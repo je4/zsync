@@ -36,6 +36,39 @@ type Collection struct {
 	Gitlab  *time.Time     `json:"-"`
 }
 
+type CollectionGitlab struct {
+	LibraryId int64          `json:"libraryid"`
+	Key       string         `json:"key"`
+	Meta      CollectionMeta `json:"meta,omitempty"`
+	Data      CollectionData `json:"data,omitempty"`
+}
+
+func (collection *Collection) uploadGitlab() error {
+
+	glColl := CollectionGitlab{
+		LibraryId: collection.group.Id,
+		Key:       collection.Key,
+		Data:      collection.Data,
+		Meta:      collection.Meta,
+	}
+
+	data, err := json.Marshal(glColl)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot marshall data %v", glColl)
+	}
+
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
+		return emperror.Wrapf(err, "cannot pretty json")
+	}
+	gcommit := fmt.Sprintf("%v - %v.%v v%v", collection.Data.Name, collection.group.Id, collection.Key, collection.Version)
+	fname := fmt.Sprintf("%v/collections/%v.json", collection.group.Id, collection.Key)
+	if err := collection.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
+		return emperror.Wrapf(err, "update on gitlab failed")
+	}
+	return nil
+}
+
 func (collection *Collection) UpdateLocal() error {
 	collection.group.zot.logger.Infof("Updating Collection [#%s]", collection.Key)
 	data, err := json.Marshal(collection.Data)
