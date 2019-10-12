@@ -316,10 +316,6 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 		}
 	}
 
-	if err := group.syncCollectionsGitlab(); err != nil {
-		group.zot.logger.Errorf("cannot sync collections to gitlab: %v", err)
-	}
-
 	counter := num + num2
 	if counter > 0 {
 		group.zot.logger.Infof("refreshing materialized view collection_name_hier")
@@ -329,6 +325,11 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
 	}
+
+	if err := group.syncCollectionsGitlab(); err != nil {
+		group.zot.logger.Errorf("cannot sync collections to gitlab: %v", err)
+	}
+
 
 	return counter, lastModifiedVersion, nil
 }
@@ -399,6 +400,9 @@ func (group *Group) syncCollectionsGitlab() error {
 			rows.Close()
 			return emperror.Wrapf(err, "cannot scan row")
 		}
+		if (coll.Deleted || coll.Trashed) && coll.Gitlab == nil {
+			continue
+		}
 		result = append(result, *coll)
 	}
 	rows.Close()
@@ -439,7 +443,7 @@ func (group *Group) syncCollectionsGitlab() error {
 			}
 			if coll.Gitlab == nil {
 				action.Action = "create"
-			} else if coll.Deleted {
+			} else if coll.Deleted || coll.Trashed {
 				action.Action = "delete"
 			} else {
 				action.Action = "update"
@@ -473,7 +477,7 @@ func (group *Group) syncCollectionsGitlab() error {
 		for _, coll := range parts {
 			t := sql.NullTime{
 				Time:  synctime,
-				Valid: !coll.Deleted,
+				Valid: !(coll.Deleted || coll.Trashed),
 			}
 			params := []interface{}{
 				t,

@@ -137,6 +137,11 @@ func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
 		logger.Errorf("cannot delete unknown groups: %v", err)
 	}
 
+
+	if err := zot.SyncGroupsGitlab(); err != nil {
+		logger.Errorf("cannot sync groups to gitlab: %v", err)
+	}
+
 }
 
 func main() {

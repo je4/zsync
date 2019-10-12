@@ -1,6 +1,7 @@
 package zotero
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -304,6 +305,23 @@ func (zot *Zotero) DeleteCollectionDB(key string) error {
 	return nil
 }
 
+func (zot *Zotero) deleteGitlab(filename string, branch string, commit string) error {
+	if zot.git == nil {
+		return nil
+	}
+	gopt := gitlab.DeleteFileOptions{
+		Branch:        &branch,
+		AuthorEmail:   nil,
+		AuthorName:    nil,
+		CommitMessage: &commit,
+	}
+	_, err := zot.git.RepositoryFiles.DeleteFile(zot.gitProject.ID, filename, &gopt)
+	if err != nil {
+		return emperror.Wrapf(err, "canot delete file %v", filename)
+	}
+	return nil
+}
+
 func (zot *Zotero) uploadGitlab(filename string, branch string, commit string, enc string, data string) error {
 	if zot.git == nil {
 		return nil
@@ -352,5 +370,155 @@ func (zot *Zotero) uploadGitlab(filename string, branch string, commit string, e
 		}
 	}
 	zot.logger.Debugf("uploading %v to gitlab done (%vbytes) - %v", commit, len(data), fileinfo.String())
+	return nil
+}
+
+func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
+
+	group := Group{}
+	var datastr sql.NullString
+	var gitlab sql.NullTime
+	switch rowss.(type) {
+	case *sql.Row:
+		row := rowss.(*sql.Row)
+		if err := row.Scan(&group.Id, &group.Version, &datastr, &group.Deleted, &gitlab, &group.CollectionVersion, &group.ItemVersion, &group.TagVersion); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, nil
+			}
+			return nil, emperror.Wrapf(err, "cannot scan row")
+		}
+	case *sql.Rows:
+		rows := rowss.(*sql.Rows)
+		if err := rows.Scan(&group.Id, &group.Version, &datastr, &group.Deleted, &gitlab, &group.CollectionVersion, &group.ItemVersion, &group.TagVersion); err != nil {
+			return nil, emperror.Wrapf(err, "cannot scan row")
+		}
+	default:
+		return nil, errors.New(fmt.Sprintf("unknown row type: %v", reflect.TypeOf(rowss).String()))
+	}
+	if gitlab.Valid {
+		group.Gitlab = &gitlab.Time
+	}
+	if datastr.Valid {
+		if err := json.Unmarshal([]byte(datastr.String), &group.Data); err != nil {
+			return nil, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
+		}
+	} else {
+		return nil, errors.New(fmt.Sprintf("group has no data %v", group.Id))
+	}
+
+	return &group, nil
+}
+
+func (zot *Zotero) SyncGroupsGitlab() error {
+	synctime := time.Now()
+	sqlstr := fmt.Sprintf("SELECT id, version, data, deleted, gitlab, itemversion, collectionversion, tagversion"+
+		" FROM %s.groups"+
+		" WHERE (gitlab < modified OR gitlab is null)", zot.dbSchema)
+	rows, err := zot.db.Query(sqlstr)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s", sqlstr)
+	}
+
+	result := []Group{}
+	for rows.Next() {
+		group, err := zot.groupFromRow(rows)
+		if err != nil {
+			continue
+		}
+		result = append(result, *group)
+	}
+	rows.Close()
+
+	num := int64(len(result))
+	slices := num / 20
+	if num%20 > 0 {
+		slices++
+	}
+	for i := int64(0); i < slices; i++ {
+		start := i * 20
+		end := i*20 + 20
+		if num < end {
+			end = num
+		}
+		parts := result[start:end]
+		gbranch := "master"
+		gcommit := fmt.Sprintf("machine sync at %v", synctime.String())
+		gaction := []*gitlab.CommitAction{}
+		for _, group := range parts {
+			// new and deleted -> we will not upload
+			if group.Gitlab == nil && group.Deleted {
+				continue
+			}
+
+			glGroup := GroupGitlab{
+				Id:                group.Id,
+				Data:              group.Data,
+				CollectionVersion: group.CollectionVersion,
+				ItemVersion:       group.ItemVersion,
+				TagVersion:        group.TagVersion,
+			}
+
+			data, err := json.Marshal(glGroup)
+			if err != nil {
+				return emperror.Wrapf(err, "cannot marshall data %v", group.Data)
+			}
+			var prettyJSON bytes.Buffer
+			err = json.Indent(&prettyJSON, data, "", "\t")
+			if err != nil {
+				return emperror.Wrapf(err, "cannot pretty json")
+			}
+
+			action := gitlab.CommitAction{
+				Content: prettyJSON.String(),
+			}
+			if group.Gitlab == nil {
+				action.Action = "create"
+			} else if group.Deleted {
+				action.Action = "delete"
+			} else {
+				action.Action = "update"
+			}
+
+			fname := fmt.Sprintf("%v.json", group.Id)
+			action.FilePath = fname
+			gaction = append(gaction, &action)
+		}
+		opt := gitlab.CreateCommitOptions{
+			Branch:        &gbranch,
+			CommitMessage: &gcommit,
+			StartBranch:   nil,
+			Actions:       gaction,
+			AuthorEmail:   nil,
+			AuthorName:    nil,
+		}
+		zot.logger.Infof("committing %v items of %v to gitlab [%v:%v]", len(gaction), num, start, end)
+		_, _, err := zot.git.Commits.CreateCommit(zot.gitProject.ID, &opt)
+		if err != nil {
+			// thats very bad. let's try with the single file method and update fallback
+			zot.logger.Errorf("error committing to gitlab. fallback to single group commit: %v", err)
+			for _, group := range parts {
+				if err := group.uploadGitlab(); err != nil {
+					return emperror.Wrapf(err, "cannot upload group %v", group.Id)
+				}
+			}
+			//return emperror.Wrapf(err, "cannot commit")
+		}
+		sqlstr = fmt.Sprintf("UPDATE %s.groups SET gitlab=$1 WHERE id=$2", zot.dbSchema)
+		for _, group := range parts {
+			t := sql.NullTime{
+				Time:  synctime,
+				Valid: !group.Deleted,
+			}
+			params := []interface{}{
+				t,
+				group.Id,
+			}
+			resp, err := zot.db.Exec(sqlstr, params...)
+			if err != nil {
+				return emperror.Wrapf(err, "cannot update gitlab sync time for %v", group.Id)
+			}
+			zot.logger.Debugf("%v", resp)
+		}
+	}
 	return nil
 }

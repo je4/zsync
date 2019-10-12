@@ -378,6 +378,9 @@ func (group *Group) syncItemsGitlab() error {
 			rows.Close()
 			return emperror.Wrapf(err, "cannot scan row")
 		}
+		if (item.Deleted || item.Trashed) && item.Gitlab == nil {
+			continue
+		}
 		result = append(result, *item)
 	}
 	rows.Close()
@@ -437,7 +440,7 @@ func (group *Group) syncItemsGitlab() error {
 			}
 			if item.Gitlab == nil {
 				action.Action = "create"
-			} else if item.Deleted {
+			} else if item.Deleted || item.Trashed {
 				action.Action = "delete"
 			} else {
 				action.Action = "update"
@@ -469,7 +472,7 @@ func (group *Group) syncItemsGitlab() error {
 		for _, item := range parts {
 			t := sql.NullTime{
 				Time:  synctime,
-				Valid: !item.Deleted,
+				Valid: !(item.Deleted || item.Trashed),
 			}
 			params := []interface{}{
 				t,

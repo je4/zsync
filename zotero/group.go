@@ -49,6 +49,42 @@ type Group struct {
 	CollectionVersion int64         `json:"-"`
 	TagVersion        int64         `json:"-"`
 	Modified          bool          `json:"-"`
+	Gitlab            *time.Time    `json:"-"`
+}
+
+type GroupGitlab struct {
+	Id                int64     `json:"id"`
+	Data              GroupData `json:"data,omitempty"`
+	CollectionVersion int64     `json:"collectionversion"`
+	ItemVersion       int64     `json:"itemversion"`
+	TagVersion        int64     `json:tagversion`
+}
+
+func (group *Group) uploadGitlab() error {
+
+	glGroup := GroupGitlab{
+		Id:                group.Id,
+		Data:              group.Data,
+		CollectionVersion: group.CollectionVersion,
+		ItemVersion:       group.ItemVersion,
+		TagVersion:        group.TagVersion,
+	}
+
+	data, err := json.Marshal(glGroup)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot marshall data %v", glGroup)
+	}
+
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
+		return emperror.Wrapf(err, "cannot pretty json")
+	}
+	gcommit := fmt.Sprintf("%v - %v.%v v%v", group.Data.Name, group.Id, group.Version)
+	fname := fmt.Sprintf("%v.json", group.Id)
+	if err := group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
+		return emperror.Wrapf(err, "update on gitlab failed")
+	}
+	return nil
 }
 
 func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
@@ -77,7 +113,7 @@ func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
 func (zot *Zotero) CreateEmptyGroupLocal(groupId int64) (bool, SyncDirection, error) {
 	active := false
 	direction := SyncDirection_BothLocal
-	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,lastmodified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
+	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,modified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
 	_, err := zot.db.Exec(sqlstr, groupId)
 	if err != nil {
 		return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
@@ -115,7 +151,7 @@ func (group *Group) GetLibrary() *Library {
 }
 
 func (group *Group) UpdateLocal() error {
-	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=$1, created=$2, lastmodified=$3, data=$4, deleted=$5,"+
+	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=$1, created=$2, modified=$3, data=$4, deleted=$5,"+
 		" itemversion=$6, collectionversion=$7, tagversion=$8"+
 		" WHERE id=$9", group.zot.dbSchema)
 	data, err := json.Marshal(group.Data)
@@ -145,7 +181,7 @@ func (group *Group) UpdateLocal() error {
 	}
 	gcommit := fmt.Sprintf("%v - %v v%v", group.Data.Name, group.Id, group.Version)
 	var fname string
-		fname = fmt.Sprintf("%v.json", group.Id)
+	fname = fmt.Sprintf("%v.json", group.Id)
 	if err := group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
 		return emperror.Wrapf(err, "update on gitlab failed")
 	}
@@ -164,7 +200,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 		zot:     zot,
 	}
 	zot.logger.Debugf("loading group #%v from database", groupId)
-	sqlstr := fmt.Sprintf("SELECT version, created, lastmodified, data, active, direction, tags,"+
+	sqlstr := fmt.Sprintf("SELECT version, created, modified, data, active, direction, tags,"+
 		" itemversion, collectionversion, tagversion"+
 		" FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
 	row := zot.db.QueryRow(sqlstr, groupId)
