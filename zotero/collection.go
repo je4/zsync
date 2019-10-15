@@ -39,8 +39,8 @@ type Collection struct {
 type CollectionGitlab struct {
 	LibraryId int64          `json:"libraryid"`
 	Key       string         `json:"key"`
-	Meta      CollectionMeta `json:"meta,omitempty"`
 	Data      CollectionData `json:"data,omitempty"`
+	Meta      CollectionMeta `json:"meta,omitempty"`
 }
 
 func (collection *Collection) uploadGitlab() error {
@@ -81,11 +81,16 @@ func (collection *Collection) UpdateLocal() error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall data %v", collection.Data)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, deleted=$4, modified=NOW() WHERE key=$5", collection.group.zot.dbSchema)
+	meta, err := json.Marshal(collection.Meta)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot marshall meta %v", collection.Meta)
+	}
+	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, meta=$4, deleted=$5, modified=NOW() WHERE key=$6", collection.group.zot.dbSchema)
 	params := []interface{}{
 		collection.Version,
 		SyncStatusString[collection.Status],
 		data,
+		meta,
 		collection.Deleted,
 		collection.Key,
 	}

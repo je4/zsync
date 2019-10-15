@@ -19,12 +19,13 @@ func (group *Group) collectionFromRow(rowss interface{}) (*Collection, error) {
 
 	coll := Collection{}
 	var datastr sql.NullString
+	var metastr sql.NullString
 	var sync string
 	var gitlab sql.NullTime
 	switch rowss.(type) {
 	case *sql.Row:
 		row := rowss.(*sql.Row)
-		if err := row.Scan(&coll.Key, &coll.Version, &datastr, &coll.Deleted, &sync, &gitlab); err != nil {
+		if err := row.Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, nil
 			}
@@ -32,7 +33,7 @@ func (group *Group) collectionFromRow(rowss interface{}) (*Collection, error) {
 		}
 	case *sql.Rows:
 		rows := rowss.(*sql.Rows)
-		if err := rows.Scan(&coll.Key, &coll.Version, &datastr, &coll.Deleted, &sync, &gitlab); err != nil {
+		if err := rows.Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
 			return nil, emperror.Wrapf(err, "cannot scan row")
 		}
 	default:
@@ -48,6 +49,11 @@ func (group *Group) collectionFromRow(rowss interface{}) (*Collection, error) {
 		}
 	} else {
 		return nil, errors.New(fmt.Sprintf("collection has no data %v.%v", group.Id, coll.Key))
+	}
+	if metastr.Valid {
+		if err := json.Unmarshal([]byte(metastr.String), &coll.Meta); err != nil {
+			return nil, emperror.Wrapf(err, "cannot ummarshall meta %s", metastr.String)
+		}
 	}
 	coll.group = group
 
@@ -385,7 +391,7 @@ func (group *Group) syncCollections() (int64, int64, error) {
 
 func (group *Group) syncCollectionsGitlab() error {
 	synctime := time.Now()
-	sqlstr := fmt.Sprintf("SELECT key, version, data, deleted, sync, gitlab"+
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, deleted, sync, gitlab"+
 		" FROM %s.collections"+
 		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.zot.dbSchema)
 	rows, err := group.zot.db.Query(sqlstr, group.Id)
@@ -420,15 +426,23 @@ func (group *Group) syncCollectionsGitlab() error {
 		}
 		parts := result[start:end]
 		gbranch := "master"
-		gcommit := fmt.Sprintf("machine sync at %v", synctime.String())
 		gaction := []*gitlab.CommitAction{}
+		var creations int64
+		var deletions int64
+		var updates int64
 		for _, coll := range parts {
 			// new and deleted -> we will not upload
 			if coll.Gitlab == nil && coll.Deleted {
 				continue
 			}
 
-			data, err := json.Marshal(coll.Data)
+			cg := CollectionGitlab{
+				LibraryId: group.Id,
+				Key:       coll.Key,
+				Data:      coll.Data,
+				Meta:      coll.Meta,
+			}
+			data, err := json.Marshal(cg)
 			if err != nil {
 				return emperror.Wrapf(err, "cannot marshall data %v", coll.Data)
 			}
@@ -443,16 +457,21 @@ func (group *Group) syncCollectionsGitlab() error {
 			}
 			if coll.Gitlab == nil {
 				action.Action = "create"
+				creations++
 			} else if coll.Deleted || coll.Trashed {
 				action.Action = "delete"
+				deletions++
 			} else {
 				action.Action = "update"
+				updates++
 			}
 
 			fname := fmt.Sprintf("%v/collections/%v.json", coll.group.Id, coll.Key)
 			action.FilePath = fname
 			gaction = append(gaction, &action)
 		}
+		gcommit := fmt.Sprintf("#%v/%v machine sync creation:%v / deletion:%v / update:%v  at %v",
+			i+1, slices, creations, deletions, updates, synctime.String())
 		opt := gitlab.CreateCommitOptions{
 			Branch:        &gbranch,
 			CommitMessage: &gcommit,
@@ -461,7 +480,7 @@ func (group *Group) syncCollectionsGitlab() error {
 			AuthorEmail:   nil,
 			AuthorName:    nil,
 		}
-		group.zot.logger.Infof("committing %v items of %v to gitlab [%v:%v]", len(gaction), num, start, end)
+		group.zot.logger.Infof("committing items %v to %v of %v to gitlab", start, end, num)
 		_, _, err := group.zot.git.Commits.CreateCommit(group.zot.gitProject.ID, &opt)
 		if err != nil {
 			// thats very bad. let's try with the single file method and update fallback

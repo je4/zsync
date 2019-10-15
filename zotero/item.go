@@ -133,9 +133,20 @@ func (item *Item) GetType() (string, error) {
 func (item *Item) UploadGitlab() error {
 	item.group.zot.logger.Infof("uploading %v to gitlab", item.Data.Title)
 
-	data, err := json.Marshal(item.Data)
+	ig := ItemGitlab{
+		LibraryId: item.group.ItemVersion,
+		Key:       item.Key,
+		Data:      item.Data,
+		Meta:      item.Meta,
+	}
+	data, err := json.Marshal(ig)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshal data")
+	}
+	var prettyJSON bytes.Buffer
+	err = json.Indent(&prettyJSON, data, "", "\t")
+	if err != nil {
+		return emperror.Wrapf(err, "cannot pretty json")
 	}
 
 	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.group.Id, item.Key, item.Version)
@@ -145,7 +156,7 @@ func (item *Item) UploadGitlab() error {
 	} else {
 		fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
 	}
-	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", string(data)); err != nil {
+	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
 		return emperror.Wrapf(err, "update on gitlab failed")
 	}
 	return nil
@@ -508,7 +519,8 @@ func (item *Item) uploadGitlab() error {
 
 func (item *Item) getChildrenLocal() (*[]Item, error) {
 	item.group.zot.logger.Infof("get children of  item [#%s]", item.Key)
-	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.trashed, i.deleted, i.sync, i.md5, i.gitlab FROM %s.items i, %s.item_type_hier ith"+
+	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.meta, i.trashed, i.deleted, i.sync, i.md5, i.gitlab" +
+		" FROM %s.items i, %s.item_type_hier ith"+
 		" WHERE i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.group.zot.dbSchema, item.group.zot.dbSchema)
 	params := []interface{}{
 		item.group.Id,

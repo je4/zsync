@@ -224,7 +224,7 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 		params = append(params, val)
 		pstr = append(pstr, fmt.Sprintf("$%v", len(params)))
 	}
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", group.zot.dbSchema, strings.Join(pstr, ","))
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", group.zot.dbSchema, strings.Join(pstr, ","))
 	rows, err := group.zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return &[]Item{}, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
@@ -288,7 +288,9 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 
 func (group *Group) syncModifiedItems() (int64, error) {
 	var counter int64
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab" +
+		" FROM %s.items" +
+		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		"new",
@@ -363,7 +365,7 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 
 func (group *Group) syncItemsGitlab() error {
 	synctime := time.Now()
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab"+
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab"+
 		" FROM %s.items"+
 		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.zot.dbSchema)
 	rows, err := group.zot.db.Query(sqlstr, group.Id)
@@ -398,8 +400,10 @@ func (group *Group) syncItemsGitlab() error {
 		}
 		parts := result[start:end]
 		gbranch := "master"
-		gcommit := fmt.Sprintf("#%v machine sync  at %v", synctime.String())
 		gaction := []*gitlab.CommitAction{}
+		var creations int64
+		var deletions int64
+		var updates int64
 		for _, item := range parts {
 			// new and deleted -> we will not upload
 			if item.Gitlab == nil && item.Deleted {
@@ -425,7 +429,14 @@ func (group *Group) syncItemsGitlab() error {
 					return emperror.Wrapf(err, "cannot upload filedata for %v.%v", group.Id, item.Key)
 				}
 			}
-			data, err := json.Marshal(item.Data)
+			ig := ItemGitlab{
+				LibraryId: item.group.ItemVersion,
+				Key:       item.Key,
+				Data:      item.Data,
+				Meta:      item.Meta,
+			}
+
+			data, err := json.Marshal(ig)
 			if err != nil {
 				return emperror.Wrapf(err, "cannot marshall data %v", item.Data)
 			}
@@ -440,10 +451,13 @@ func (group *Group) syncItemsGitlab() error {
 			}
 			if item.Gitlab == nil {
 				action.Action = "create"
+				creations++
 			} else if item.Deleted || item.Trashed {
 				action.Action = "delete"
+				deletions++
 			} else {
 				action.Action = "update"
+				updates++
 			}
 
 			var fname string
@@ -455,6 +469,8 @@ func (group *Group) syncItemsGitlab() error {
 			action.FilePath = fname
 			gaction = append(gaction, &action)
 		}
+		gcommit := fmt.Sprintf("#%v/%v machine sync creation:%v / deletion:%v / update:%v  at %v",
+			i+1, slices, creations, deletions, updates, synctime.String())
 		opt := gitlab.CreateCommitOptions{
 			Branch:        &gbranch,
 			CommitMessage: &gcommit,
@@ -463,7 +479,7 @@ func (group *Group) syncItemsGitlab() error {
 			AuthorEmail:   nil,
 			AuthorName:    nil,
 		}
-		group.zot.logger.Infof("committing %v items of %v to gitlab [%v:%v]", len(gaction), num, start, end)
+		group.zot.logger.Infof("committing item %v to %v of %v to gitlab",start, end, num)
 		_, _, err := group.zot.git.Commits.CreateCommit(group.zot.gitProject.ID, &opt)
 		if err != nil {
 			return emperror.Wrapf(err, "cannot commit")
@@ -535,7 +551,7 @@ func (group *Group) SyncItems() (int64, int64, error) {
 }
 
 func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items"+
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items"+
 		" WHERE library=$1 AND key=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
@@ -551,7 +567,7 @@ func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 }
 
 func (group *Group) GetItemByOldidLocal(oldid string) (*Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND oldid=$2", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND oldid=$2", group.zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		oldid,
@@ -601,13 +617,14 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 
 	item := Item{}
 	var datastr sql.NullString
+	var metastr sql.NullString
 	var sync string
 	var md5str sql.NullString
 	var gitlab sql.NullTime
 	switch rowss.(type) {
 	case *sql.Row:
 		row := rowss.(*sql.Row)
-		if err := row.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
+		if err := row.Scan(&item.Key, &item.Version, &datastr, &metastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, nil
 			}
@@ -615,7 +632,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 		}
 	case *sql.Rows:
 		rows := rowss.(*sql.Rows)
-		if err := rows.Scan(&item.Key, &item.Version, &datastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
+		if err := rows.Scan(&item.Key, &item.Version, &datastr, &metastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
 			return nil, emperror.Wrapf(err, "cannot scan row")
 		}
 	default:
@@ -637,6 +654,13 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 		}
 	} else {
 		return nil, errors.New(fmt.Sprintf("item has no data %v.%v", group.Id, item.Key))
+	}
+	if metastr.Valid {
+		if err := json.Unmarshal([]byte(metastr.String), &item.Meta); err != nil {
+			return nil, emperror.Wrapf(err, "cannot ummarshall meta %s", metastr.String)
+		}
+	} else {
+		return nil, errors.New(fmt.Sprintf("item has no meta %v.%v", group.Id, item.Key))
 	}
 	item.group = group
 

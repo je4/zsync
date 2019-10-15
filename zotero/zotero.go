@@ -425,6 +425,7 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 		if err != nil {
 			continue
 		}
+		group.zot = zot
 		result = append(result, *group)
 	}
 	rows.Close()
@@ -442,8 +443,10 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 		}
 		parts := result[start:end]
 		gbranch := "master"
-		gcommit := fmt.Sprintf("machine sync at %v", synctime.String())
 		gaction := []*gitlab.CommitAction{}
+		var creations int64
+		var deletions int64
+		var updates int64
 		for _, group := range parts {
 			// new and deleted -> we will not upload
 			if group.Gitlab == nil && group.Deleted {
@@ -473,16 +476,21 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 			}
 			if group.Gitlab == nil {
 				action.Action = "create"
+				creations++
 			} else if group.Deleted {
 				action.Action = "delete"
+				deletions++
 			} else {
 				action.Action = "update"
+				updates++
 			}
 
 			fname := fmt.Sprintf("%v.json", group.Id)
 			action.FilePath = fname
 			gaction = append(gaction, &action)
 		}
+		gcommit := fmt.Sprintf("#%v/%v machine sync creation:%v / deletion:%v / update:%v  at %v",
+			i+1, slices, creations, deletions, updates, synctime.String())
 		opt := gitlab.CreateCommitOptions{
 			Branch:        &gbranch,
 			CommitMessage: &gcommit,
@@ -491,7 +499,7 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 			AuthorEmail:   nil,
 			AuthorName:    nil,
 		}
-		zot.logger.Infof("committing %v items of %v to gitlab [%v:%v]", len(gaction), num, start, end)
+		zot.logger.Infof("committing groups %v to %v of %v to gitlab", start, end, num)
 		_, _, err := zot.git.Commits.CreateCommit(zot.gitProject.ID, &opt)
 		if err != nil {
 			// thats very bad. let's try with the single file method and update fallback

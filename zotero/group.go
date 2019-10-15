@@ -79,10 +79,16 @@ func (group *Group) uploadGitlab() error {
 	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
 		return emperror.Wrapf(err, "cannot pretty json")
 	}
-	gcommit := fmt.Sprintf("%v - %v.%v v%v", group.Data.Name, group.Id, group.Version)
+	gcommit := fmt.Sprintf("%v - %v v%v", group.Data.Name, group.Id, group.Version)
 	fname := fmt.Sprintf("%v.json", group.Id)
-	if err := group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
-		return emperror.Wrapf(err, "update on gitlab failed")
+	if group.Deleted {
+		if err := group.zot.deleteGitlab(fname, "master", gcommit); err != nil {
+			return emperror.Wrapf(err, "update on gitlab failed")
+		}
+	} else {
+		if err := group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
+			return emperror.Wrapf(err, "update on gitlab failed")
+		}
 	}
 	return nil
 }
