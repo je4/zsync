@@ -615,7 +615,7 @@ func (group *Group) TryDeleteItemLocal(key string, lastModifiedVersion int64) er
 
 func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 
-	item := Item{}
+	item := &Item{}
 	var datastr sql.NullString
 	var metastr sql.NullString
 	var sync string
@@ -624,7 +624,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 	switch rowss.(type) {
 	case *sql.Row:
 		row := rowss.(*sql.Row)
-		if err := row.Scan(&item.Key, &item.Version, &datastr, &metastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
+		if err := row.Scan(&(item.Key), &(item.Version), &datastr, &metastr, &(item.Trashed), &(item.Deleted), &sync, &md5str, &gitlab); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, nil
 			}
@@ -632,7 +632,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 		}
 	case *sql.Rows:
 		rows := rowss.(*sql.Rows)
-		if err := rows.Scan(&item.Key, &item.Version, &datastr, &metastr, &item.Trashed, &item.Deleted, &sync, &md5str, &gitlab); err != nil {
+		if err := rows.Scan(&(item.Key), &(item.Version), &datastr, &metastr, &(item.Trashed), &(item.Deleted), &sync, &md5str, &gitlab); err != nil {
 			return nil, emperror.Wrapf(err, "cannot scan row")
 		}
 	default:
@@ -646,7 +646,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 	}
 	item.Status = SyncStatusId[sync]
 	if datastr.Valid {
-		if err := json.Unmarshal([]byte(datastr.String), &item.Data); err != nil {
+		if err := json.Unmarshal([]byte(datastr.String), &(item.Data)); err != nil {
 			return nil, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
 		}
 		if item.Data.Collections == nil {
@@ -656,7 +656,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 		return nil, errors.New(fmt.Sprintf("item has no data %v.%v", group.Id, item.Key))
 	}
 	if metastr.Valid {
-		if err := json.Unmarshal([]byte(metastr.String), &item.Meta); err != nil {
+		if err := json.Unmarshal([]byte(metastr.String), &(item.Meta)); err != nil {
 			return nil, emperror.Wrapf(err, "cannot ummarshall meta %s", metastr.String)
 		}
 	} else {
@@ -664,5 +664,5 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 	}
 	item.group = group
 
-	return &item, nil
+	return item, nil
 }

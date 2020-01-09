@@ -115,6 +115,7 @@ func (group *Group) TryDeleteCollectionLocal(key string, lastModifiedVersion int
 		coll.Version = lastModifiedVersion
 		coll.Status = SyncStatus_Synced
 	}
+	group.zot.logger.Debugf("Collection: %v", coll)
 	if err := coll.UpdateLocal(); err != nil {
 		return emperror.Wrapf(err, "cannot update collection %v", key)
 	}
@@ -336,7 +337,6 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 		group.zot.logger.Errorf("cannot sync collections to gitlab: %v", err)
 	}
 
-
 	return counter, lastModifiedVersion, nil
 }
 
@@ -453,7 +453,7 @@ func (group *Group) syncCollectionsGitlab() error {
 			}
 
 			action := gitlab.CommitAction{
-				Content:prettyJSON.String(),
+				Content: prettyJSON.String(),
 			}
 			if coll.Gitlab == nil {
 				action.Action = "create"
@@ -569,6 +569,7 @@ func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 		Links:   nil,
 		Meta:    CollectionMeta{},
 		Data:    CollectionData{},
+		group:   group,
 		Status:  SyncStatus_New,
 	}
 
