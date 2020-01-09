@@ -562,7 +562,7 @@ func (group *Group) GetCollectionByNameLocal(name string, parentKey string) (*Co
 
 func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 
-	coll := Collection{
+	coll := &Collection{
 		Key:     "",
 		Version: 0,
 		Library: Library{},
@@ -583,19 +583,19 @@ func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 	var metastr sql.NullString
 	var sync string
 	if err := group.zot.db.QueryRow(sqlstr, params...).
-		Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync); err != nil {
+		Scan(&(coll.Key), &(coll.Version), &datastr, &metastr, &(coll.Deleted), &sync); err != nil {
 		if IsEmptyResult(err) {
 			return nil, nil
 		}
 		return nil, emperror.Wrapf(err, "cannot get collection: %v - %v", sqlstr, params)
 	}
 	coll.Status = SyncStatusId[sync]
-	if err := json.Unmarshal([]byte(datastr.String), &coll.Data); err != nil {
+	if err := json.Unmarshal([]byte(datastr.String), &(coll.Data)); err != nil {
 		return nil, emperror.Wrapf(err, "cannot unmarshall collection data - %v", datastr)
 	}
-	if err := json.Unmarshal([]byte(metastr.String), &coll.Meta); err != nil {
+	if err := json.Unmarshal([]byte(metastr.String), &(coll.Meta)); err != nil {
 		return nil, emperror.Wrapf(err, "cannot unmarshall collection metadata - %v", metastr)
 	}
 
-	return &coll, nil
+	return coll, nil
 }
