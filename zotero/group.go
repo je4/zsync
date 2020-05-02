@@ -162,7 +162,7 @@ func (group *Group) UpdateLocal() error {
 		" WHERE id=$9", group.zot.dbSchema)
 	data, err := json.Marshal(group.Data)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshal group data")
+		return emperror.Wrapf(err, "cannot marshal Group data")
 	}
 
 	params := []interface{}{
@@ -205,7 +205,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 		Active:  zot.newGroupActive,
 		zot:     zot,
 	}
-	zot.logger.Debugf("loading group #%v from database", groupId)
+	zot.logger.Debugf("loading Group #%v from database", groupId)
 	sqlstr := fmt.Sprintf("SELECT version, created, modified, data, active, direction, tags,"+
 		" itemversion, collectionversion, tagversion"+
 		" FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
@@ -230,7 +230,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 		// just no data
 		active, direction, err := zot.CreateEmptyGroupLocal(groupId)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot create empty group %v", groupId)
+			return nil, emperror.Wrapf(err, "cannot create empty Group %v", groupId)
 		}
 		group.Active = active
 		group.direction = direction
@@ -240,7 +240,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 	if jsonstr.Valid {
 		err = json.Unmarshal([]byte(jsonstr.String), &group.Data)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot unmarshall group data %s", jsonstr)
+			return nil, emperror.Wrapf(err, "cannot unmarshall Group data %s", jsonstr)
 		}
 	}
 	return group, nil
@@ -314,20 +314,20 @@ func (group *Group) Sync() (err error) {
 
 	_, collectionVersion, err := group.SyncCollections()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync collections of group %v", group.Id)
+		return emperror.Wrapf(err, "cannot sync collections of Group %v", group.Id)
 	}
 	_, itemVersion, err := group.SyncItems()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync items of group %v", group.Id)
+		return emperror.Wrapf(err, "cannot sync items of Group %v", group.Id)
 	}
 	_, tagVersion, err := group.SyncTags()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync tags of group %v", group.Id)
+		return emperror.Wrapf(err, "cannot sync tags of Group %v", group.Id)
 	}
 
 	_, err = group.SyncDeleted()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync tags of group %v", group.Id)
+		return emperror.Wrapf(err, "cannot sync tags of Group %v", group.Id)
 	}
 
 	// change to new version if everything was ok

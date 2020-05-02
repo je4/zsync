@@ -55,7 +55,10 @@ func (group *Group) collectionFromRow(rowss interface{}) (*Collection, error) {
 			return nil, emperror.Wrapf(err, "cannot ummarshall meta %s", metastr.String)
 		}
 	}
-	coll.group = group
+	coll.Group = group
+	if coll.Data.Name == "" {
+		coll.Data.Name = coll.Key
+	}
 
 	return &coll, nil
 }
@@ -68,7 +71,7 @@ func (group *Group) CreateCollectionLocal(collectionData *CollectionData) (*Coll
 		Library: *group.GetLibrary(),
 		Meta:    CollectionMeta{},
 		Data:    *collectionData,
-		group:   group,
+		Group:   group,
 	}
 	jsonstr, err := json.Marshal(collectionData)
 	if err != nil {
@@ -251,13 +254,13 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 	group.zot.CheckBackoff(resp.Header())
 	result := []Collection{}
 	for _, coll := range collections {
-		if coll.Library.Type != "group" {
+		if strings.ToLower(coll.Library.Type) != "group" {
 			return nil, 0, errors.New(fmt.Sprintf("unknown library type %v for collection %v", coll.Library.Type, coll.Key))
 		}
 		if coll.Library.Id != group.Id {
-			return nil, 0, errors.New(fmt.Sprintf("wrong library id %v for collection %v - current group is %v", coll.Library.Id, coll.Key, group.Id))
+			return nil, 0, errors.New(fmt.Sprintf("wrong library id %v for collection %v - current Group is %v", coll.Library.Id, coll.Key, group.Id))
 		}
-		coll.group = group
+		coll.Group = group
 		result = append(result, coll)
 	}
 	return &result, lastModifiedVersion, nil
@@ -293,9 +296,13 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 		} else {
 			return 0, emperror.Wrapf(err, "item has no data %v.%v", group.Id, collection.Key)
 		}
-		collection.group = group
+		collection.Group = group
+		if collection.Data.Name == "" {
+			collection.Data.Name = collection.Key
+		}
 		if err := collection.UpdateCloud(); err != nil {
-			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", group.Id, collection.Key)
+			group.zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, collection.Key, err)
+//			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", group.Id, collection.Key)
 		}
 		counter++
 	}
@@ -341,7 +348,7 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 }
 
 func (group *Group) syncCollections() (int64, int64, error) {
-	group.zot.logger.Infof("Syncing collections of group #%v", group.Id)
+	group.zot.logger.Infof("Syncing collections of Group #%v", group.Id)
 	var counter int64
 	objectList, lastModifiedVersion, err := group.GetCollectionsVersionCloud(group.CollectionVersion)
 	if err != nil {
@@ -466,7 +473,7 @@ func (group *Group) syncCollectionsGitlab() error {
 				updates++
 			}
 
-			fname := fmt.Sprintf("%v/collections/%v.json", coll.group.Id, coll.Key)
+			fname := fmt.Sprintf("%v/collections/%v.json", coll.Group.Id, coll.Key)
 			action.FilePath = fname
 			gaction = append(gaction, &action)
 		}
@@ -569,7 +576,7 @@ func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 		Links:   nil,
 		Meta:    CollectionMeta{},
 		Data:    CollectionData{},
-		group:   group,
+		Group:   group,
 		Status:  SyncStatus_New,
 	}
 

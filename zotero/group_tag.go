@@ -69,7 +69,7 @@ func (group *Group) SyncTags() (int64, int64, error) {
 	if !group.CanDownload() || !group.syncTags {
 		return 0, 0, nil
 	}
-	group.zot.logger.Infof("Syncing tags of group #%v", group.Id)
+	group.zot.logger.Infof("Syncing tags of Group #%v", group.Id)
 	var counter int64
 	tagList, lastModifiedVersion, err := group.GetTagsVersionCloud(group.Version)
 	if err != nil {
@@ -81,6 +81,6 @@ func (group *Group) SyncTags() (int64, int64, error) {
 		}
 	}
 
-	group.zot.logger.Infof("Syncing tags of group #%v done. %v tags changed", group.Id, counter)
+	group.zot.logger.Infof("Syncing tags of Group #%v done. %v tags changed", group.Id, counter)
 	return counter, lastModifiedVersion, nil
 }

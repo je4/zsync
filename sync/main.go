@@ -19,6 +19,11 @@ var _logformat = logging.MustStringFormatter(
 	`%{time:2006-01-02T15:04:05.000} %{module}::%{shortfunc} > %{level:.5s} - %{message}`,
 )
 
+//
+//  XBYUCYUR 2f1180d8-6582-4143-8bba-e82c9f724023
+//
+
+
 func CreateLogger(module string, logfile string, loglevel string) (log *logging.Logger, lf *os.File) {
 	log = logging.MustGetLogger(module)
 	var err error
@@ -77,7 +82,7 @@ func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
 		}
 	*/
 
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, gl, glproject, logger)
+	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, gl, glproject, logger, false)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
@@ -94,6 +99,9 @@ func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
 
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
+		if groupId != 2476895 {
+			continue
+		}
 		groupIds = append(groupIds, groupId)
 		group, err := zot.LoadGroupLocal(groupId)
 		if err != nil {

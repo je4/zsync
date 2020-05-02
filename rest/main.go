@@ -85,7 +85,17 @@ func main() {
 
 	rand.Seed(time.Now().Unix())
 
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, logger)
+	zot, err := zotero.NewZotero(cfg.Endpoint,
+		cfg.Apikey,
+		db,
+		cfg.DB.Schema,
+		cfg.Attachmentfolder,
+		cfg.NewGroupActive,
+		nil,
+		nil,
+		logger,
+		false,
+	)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return

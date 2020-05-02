@@ -373,16 +373,17 @@ func (item *Item) uploadFileCloud() error {
 	return nil
 }
 
-func (item *Item) UpdateCloud() error {
+func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 	item.group.zot.logger.Infof("Creating Zotero Item [#%s]", item.Key)
 
+	item.Version = *lastModifiedVersion
 	item.Data.Version = item.Version
 	if item.Deleted {
 		endpoint := fmt.Sprintf("/groups/%v/%v/items", item.group.Id, item.Key)
 		item.group.zot.logger.Infof("rest call: DELETE %s", endpoint)
 		resp, err := item.group.zot.client.R().
 			SetHeader("Accept", "application/json").
-			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", item.Version)).
+			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", item.group.ItemVersion)).
 			Delete(endpoint)
 		if err != nil {
 			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
@@ -399,9 +400,14 @@ func (item *Item) UpdateCloud() error {
 		endpoint := fmt.Sprintf("/groups/%v/items", item.group.Id)
 		item.group.zot.logger.Infof("rest call: POST %s", endpoint)
 		items := []ItemGeneric{item.Data}
-		resp, err := item.group.zot.client.R().
+		req := item.group.zot.client.R().
 			SetHeader("Accept", "application/json").
-			SetBody(items).
+			SetBody(items)
+
+		if item.Status == SyncStatus_Modified {
+			req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion))
+		}
+		resp, err := req.
 			Post(endpoint)
 		if err != nil {
 			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
@@ -411,9 +417,21 @@ func (item *Item) UpdateCloud() error {
 		if err := json.Unmarshal(jsonstr, &result); err != nil {
 			return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
 		}
+		*lastModifiedVersion += int64(len(result.Unchanged)) + int64(len(result.Success)) + int64(len(result.Failed))
+
 		successKey, err := result.checkSuccess(0)
 		if err != nil {
 			return emperror.Wrapf(err, "could not create item #%v.%v", item.group.Id, item.Key)
+		}
+
+
+		for _, i := range result.Successful {
+			i.group = item.group
+			i.UpdateLocal()
+			//item.group.zot.logger.Infof( "%v: %v", key, i)
+			if item.group.ItemVersion < i.Version {
+				item.group.ItemVersion = i.Version
+			}
 		}
 		if successKey != item.Key {
 			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, item.Key))

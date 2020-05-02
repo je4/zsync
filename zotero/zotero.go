@@ -47,9 +47,10 @@ type ItemCollectionCreateResultFailed struct {
 }
 
 type ItemCollectionCreateResult struct {
-	Success   map[string]string                           `json:"success"`
-	Unchanged map[string]string                           `json:"unchanged"`
-	Failed    map[string]ItemCollectionCreateResultFailed `json:"failed"`
+	Success    map[string]string                           `json:"success"`
+	Unchanged  map[string]string                           `json:"unchanged"`
+	Failed     map[string]ItemCollectionCreateResultFailed `json:"failed"`
+	Successful map[string]Item                             `json:"successful"`
 }
 
 type Deletions struct {
@@ -59,6 +60,29 @@ type Deletions struct {
 	Tags        []string `json:"tags"`
 	Settings    []string `json:"settings"`
 }
+
+// Relations are empty array or string map
+type RelationList map[string]string
+
+func (rl *RelationList) UnmarshalJSON(data []byte) error {
+	var i interface{}
+	if err := json.Unmarshal(data, &i); err != nil {
+		return err
+	}
+	switch d := i.(type) {
+	case map[string]interface{}:
+		*rl = RelationList{}
+		for key, val := range d {
+			(*rl)[key], _ = val.(string)
+		}
+	case []interface{}:
+		if len(d) > 0 {
+			return errors.New( fmt.Sprintf("invalid object list for type RelationList - %s", string(data)))
+		}
+	}
+	return nil
+}
+
 
 // zotero returns single item lists as string
 type ZoteroStringList []string
@@ -120,7 +144,7 @@ func IsUniqueViolation(err error, constraint string) bool {
 	return pqErr.Code == "23505"
 }
 
-func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attachmentFolder string, newGroupActive bool, git *gitlab.Client, gitProject *gitlab.Project, logger *logging.Logger) (*Zotero, error) {
+func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attachmentFolder string, newGroupActive bool, git *gitlab.Client, gitProject *gitlab.Project, logger *logging.Logger, dbOnly bool) (*Zotero, error) {
 	burl, err := url.Parse(baseUrl)
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot create url from %s", baseUrl)
@@ -136,9 +160,11 @@ func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attac
 		git:              git,
 		gitProject:       gitProject,
 	}
-	err = zot.Init()
-	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot init zotero")
+	if !dbOnly {
+		err = zot.Init()
+		if err != nil {
+			return nil, emperror.Wrapf(err, "cannot init zotero")
+		}
 	}
 	return zot, err
 }
@@ -403,7 +429,7 @@ func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
 			return nil, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
 		}
 	} else {
-		return nil, errors.New(fmt.Sprintf("group has no data %v", group.Id))
+		return nil, errors.New(fmt.Sprintf("Group has no data %v", group.Id))
 	}
 
 	return &group, nil
@@ -503,10 +529,10 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 		_, _, err := zot.git.Commits.CreateCommit(zot.gitProject.ID, &opt)
 		if err != nil {
 			// thats very bad. let's try with the single file method and update fallback
-			zot.logger.Errorf("error committing to gitlab. fallback to single group commit: %v", err)
+			zot.logger.Errorf("error committing to gitlab. fallback to single Group commit: %v", err)
 			for _, group := range parts {
 				if err := group.uploadGitlab(); err != nil {
-					return emperror.Wrapf(err, "cannot upload group %v", group.Id)
+					return emperror.Wrapf(err, "cannot upload Group %v", group.Id)
 				}
 			}
 			//return emperror.Wrapf(err, "cannot commit")
