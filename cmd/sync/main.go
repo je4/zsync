@@ -6,7 +6,8 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"github.com/xanzy/go-gitlab"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/zotero"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"math/rand"
 	"os"
@@ -52,12 +53,14 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
+func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Logger) {
 
+	var err error
 	var gl *gitlab.Client
 	var glproject *gitlab.Project
 	if cfg.Gitlab.Active {
 		gl = gitlab.NewClient(nil, cfg.Gitlab.Token)
+		//gl, err = gitlab.NewClient(cfg.Gitlab.Token)
 		gl.SetBaseURL(cfg.Gitlab.Url)
 		opt := &gitlab.ListProjectsOptions{Search: gitlab.String("zotero")}
 		projects, _, err := gl.Projects.ListProjects(opt)
@@ -82,7 +85,7 @@ func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
 		}
 	*/
 
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, gl, glproject, logger, false)
+	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, fs, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, gl, glproject, logger, false)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
@@ -99,7 +102,7 @@ func sync(cfg *Config, db *sql.DB, logger *logging.Logger) {
 
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
-		if groupId != 2476895 {
+		if groupId != 1510019 {
 			continue
 		}
 		groupIds = append(groupIds, groupId)
@@ -173,6 +176,12 @@ func main() {
 	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
 	defer lf.Close()
 
+
+	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
+	if err != nil {
+		log.Fatalf("cannot conntct to s3 instance: %v", err)
+	}
+
 	rand.Seed(time.Now().Unix())
 
 	sleep, err := time.ParseDuration(cfg.SyncSleep)
@@ -197,7 +206,7 @@ func main() {
 
 	}()
 	for {
-		sync(&cfg, db, logger)
+		sync(&cfg, db, fs, logger)
 		logger.Infof("sleeping %v", cfg.SyncSleep)
 		select {
 		case <-c1:

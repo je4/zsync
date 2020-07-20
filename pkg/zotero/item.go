@@ -9,9 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
-	"io/ioutil"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -184,11 +183,11 @@ func (item *Item) UploadAttachmentGitlab(data []byte) error {
 }
 
 func (item *Item) DownloadAttachmentCloud() (string, error) {
-	folder, err := item.group.GetAttachmentFolder()
+	bucket, err := item.group.GetFolder()
 	if err != nil {
 		return "", emperror.Wrapf(err, "cannot get attachment folder")
 	}
-	filename := fmt.Sprintf("%s/%s", folder, item.Key)
+//	filename := fmt.Sprintf("%s/%s", folder, item.Key)
 	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.group.Id, item.Key)
 
 	item.group.zot.logger.Infof("rest call: %s", endpoint)
@@ -204,13 +203,18 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 			break
 		}
 	}
-	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		return "", emperror.Wrapf(err, "cannot create %v", filename)
-	}
-	defer f.Close()
+
 	body := resp.Body()
-	f.Write(body)
+	contentType := 	resp.Header().Get("Content-type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+//	_, err = item.group.zot.s3.PutObject(context.Background(), bucket, item.Key, bytes.NewReader(body), int64(len(body)), minio.PutObjectOptions{ContentType:contentType})
+	if err := item.group.zot.fs.FilePut(bucket, item.Key, body, filesystem.FilePutOptions{ContentType: contentType}); err != nil {
+		return "", emperror.Wrap(err, "cannot put file")
+	}
+
 	md5str := resp.Header().Get("ETag")
 	md5str = strings.Trim(md5str, "\"")
 	if md5str == "" {
@@ -234,28 +238,19 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 }
 
 func (item *Item) uploadFileCloud() error {
-	attachmentFolder, err := item.group.GetAttachmentFolder()
+	bucket, err := item.group.GetFolder()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get attachment folder")
 	}
-	attachmentFile := fmt.Sprintf("%s/%s", attachmentFolder, item.Key)
 
-	finfo, err := os.Stat(attachmentFile)
+	data, err := item.group.zot.fs.FileGet(bucket, item.Key, filesystem.FileGetOptions{})
 	if err != nil {
-		// no file no error
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return emperror.Wrapf(err, "cannot get file info for %v", attachmentFile)
+		return emperror.Wrapf(err, "cannot get content of %v/%v", bucket, item.Key)
 	}
 
-	attachmentBytes, err := ioutil.ReadFile(attachmentFile)
-	if err != nil {
-		return emperror.Wrapf(err, "cannot read %v", attachmentFile)
-	}
-	md5str := fmt.Sprintf("%x", md5.Sum(attachmentBytes))
+	md5str := fmt.Sprintf("%x", md5.Sum(data))
 	if md5str == "" {
-		return errors.New(fmt.Sprintf("cannot create md5 of %v", attachmentFile))
+		return errors.New(fmt.Sprintf("cannot create md5 of %v/%v", bucket, item.Key))
 	}
 	if md5str == item.MD5 {
 		// no change, do nothing
@@ -274,12 +269,16 @@ func (item *Item) uploadFileCloud() error {
 		h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
 	}
 	item.group.zot.logger.Infof("rest call: POST %s", endpoint)
+	info, err := item.group.zot.fs.FileStat(bucket, item.Key, filesystem.FileStatOptions{})
+	if err != nil {
+		return emperror.Wrapf(err, "cannot stat file")
+	}
 	resp, err := h.
 		SetFormData(map[string]string{
 			"md5":      fmt.Sprintf("%s", md5str),
 			"filename": item.Key,
-			"filesize": fmt.Sprintf("%v", finfo.Size()),
-			"mtime":    fmt.Sprintf("%v", finfo.ModTime().UnixNano()/int64(time.Millisecond)),
+			"filesize": fmt.Sprintf("%v", info.Size()),
+			"mtime":    fmt.Sprintf("%v", info.ModTime().UnixNano()/int64(time.Millisecond)),
 		}).
 		Post(endpoint)
 	if err != nil {
@@ -337,7 +336,7 @@ func (item *Item) uploadFileCloud() error {
 	item.group.zot.logger.Infof("rest call: POST %s", endpoint)
 	resp, err = resty.New().R().
 		SetHeader("Content-Type", contenttype).
-		SetBody(append([]byte(prefix), append(attachmentBytes, []byte(suffix)...)...)).
+		SetBody(append([]byte(prefix), append(data, []byte(suffix)...)...)).
 		Post(endpoint)
 	if err != nil {
 		return emperror.Wrapf(err, "error uploading file to %v", endpoint)

@@ -19,6 +19,13 @@ type Cfg_gitlab struct {
 	Active  bool   `toml:"active"`
 }
 
+type S3 struct {
+	Endpoint        string `toml:"endpoint"`
+	AccessKeyId     string `toml:"accessKeyId"`
+	SecretAccessKey string `toml:"secretAccessKey"`
+	UseSSL          bool   `toml:"useSSL"`
+}
+
 type Config struct {
 	Service              string
 	Listen               string
@@ -36,6 +43,7 @@ type Config struct {
 	GroupCacheExpiration string       `toml:"groupcacheexpiration"`
 	SyncSleep            string       `toml:"syncsleep"`
 	Gitlab               Cfg_gitlab   `tomal:"gitlab"`
+	S3                   S3           `toml:"s3"`
 }
 
 func LoadConfig(filepath string) Config {

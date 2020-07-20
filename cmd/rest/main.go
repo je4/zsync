@@ -10,7 +10,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/mash/go-accesslog"
 	"github.com/op/go-logging"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/zotero"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"math/rand"
 	"net/http"

@@ -10,6 +10,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/op/go-logging"
 	"github.com/xanzy/go-gitlab"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"net/http"
 	"net/url"
@@ -31,6 +32,7 @@ type Zotero struct {
 	CurrentKey       *ApiKey
 	git              *gitlab.Client
 	gitProject       *gitlab.Project
+	fs               filesystem.FileSystem
 }
 
 type Library struct {
@@ -77,12 +79,11 @@ func (rl *RelationList) UnmarshalJSON(data []byte) error {
 		}
 	case []interface{}:
 		if len(d) > 0 {
-			return errors.New( fmt.Sprintf("invalid object list for type RelationList - %s", string(data)))
+			return errors.New(fmt.Sprintf("invalid object list for type RelationList - %s", string(data)))
 		}
 	}
 	return nil
 }
-
 
 // zotero returns single item lists as string
 type ZoteroStringList []string
@@ -144,7 +145,7 @@ func IsUniqueViolation(err error, constraint string) bool {
 	return pqErr.Code == "23505"
 }
 
-func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attachmentFolder string, newGroupActive bool, git *gitlab.Client, gitProject *gitlab.Project, logger *logging.Logger, dbOnly bool) (*Zotero, error) {
+func NewZotero(baseUrl string, apiKey string, db *sql.DB, fs filesystem.FileSystem, dbSchema string, attachmentFolder string, newGroupActive bool, git *gitlab.Client, gitProject *gitlab.Project, logger *logging.Logger, dbOnly bool) (*Zotero, error) {
 	burl, err := url.Parse(baseUrl)
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot create url from %s", baseUrl)
@@ -154,6 +155,7 @@ func NewZotero(baseUrl string, apiKey string, db *sql.DB, dbSchema string, attac
 		apiKey:           apiKey,
 		logger:           logger,
 		db:               db,
+		fs:               fs,
 		dbSchema:         dbSchema,
 		attachmentFolder: attachmentFolder,
 		newGroupActive:   newGroupActive,

@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +50,7 @@ type Group struct {
 	TagVersion        int64         `json:"-"`
 	Modified          bool          `json:"-"`
 	Gitlab            *time.Time    `json:"-"`
+	Folder            string        `json:"-"`
 }
 
 type GroupGitlab struct {
@@ -246,14 +247,22 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 	return group, nil
 }
 
-func (group *Group) GetAttachmentFolder() (string, error) {
-	folder := fmt.Sprintf("%s/%v", group.zot.attachmentFolder, group.Id)
-	if _, err := os.Stat(folder); err != nil {
-		if err := os.Mkdir(folder, 0777); err != nil {
-			return "", emperror.Wrapf(err, "cannot create %s", folder)
+func (group *Group) GetFolder() (string, error) {
+	if group.Folder == "" {
+		// create bucket
+		bucket := fmt.Sprintf("zotero-%v", group.Id)
+		found, err := group.zot.fs.FolderExists( bucket)
+		if err != nil {
+			return "", emperror.Wrap(err, "cannot check bucket existence")
 		}
+		if !found {
+			if err := group.zot.fs.FolderCreate(bucket, filesystem.FolderCreateOptions{ObjectLocking: true}); err != nil {
+				return "", emperror.Wrapf(err, "cannot create bucket %s", bucket)
+			}
+		}
+		group.Folder = bucket
 	}
-	return folder, nil
+	return group.Folder, nil
 }
 
 func (group *Group) SyncDeleted() (int64, error) {

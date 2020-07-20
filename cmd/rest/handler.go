@@ -6,7 +6,7 @@ import (
 	"github.com/bluele/gcache"
 	"github.com/goph/emperror"
 	"github.com/op/go-logging"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/zotero"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"net/http"
 	"strconv"

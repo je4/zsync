@@ -349,6 +349,7 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 
 func (group *Group) syncCollections() (int64, int64, error) {
 	group.zot.logger.Infof("Syncing collections of Group #%v", group.Id)
+
 	var counter int64
 	objectList, lastModifiedVersion, err := group.GetCollectionsVersionCloud(group.CollectionVersion)
 	if err != nil {

@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"github.com/goph/emperror"
 	"github.com/xanzy/go-gitlab"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
-	"io/ioutil"
 	"reflect"
 	"strconv"
 	"strings"
@@ -424,14 +424,13 @@ func (group *Group) syncItemsGitlab() error {
 				return emperror.Wrapf(err, "cannot get item type of %v.%v", group.Id, item.Key)
 			}
 			if itemType == "attachment" && item.Data.MD5 != "" && !item.Deleted {
-				folder, err := group.GetAttachmentFolder()
+				folder, err := group.GetFolder()
 				if err != nil {
 					return emperror.Wrapf(err, "cannot get attachment folder")
 				}
-				filename := fmt.Sprintf("%s/%s", folder, item.Key)
-				content, err := ioutil.ReadFile(filename)
+				content, err := group.zot.fs.FileGet(folder, item.Key, filesystem.FileGetOptions{})
 				if err != nil {
-					return emperror.Wrapf(err, "cannot read %v", filename)
+					return emperror.Wrapf(err, "cannot read %v/&v", folder, item.Key)
 				}
 				if err := item.UploadAttachmentGitlab(content); err != nil {
 					return emperror.Wrapf(err, "cannot upload filedata for %v.%v", group.Id, item.Key)

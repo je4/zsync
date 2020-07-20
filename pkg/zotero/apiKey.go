@@ -13,14 +13,14 @@ type AccessElements struct {
 }
 
 type Access struct {
-	User AccessElements `json:"user,omitempty"`
+	User   AccessElements            `json:"user,omitempty"`
 	Groups map[string]AccessElements `json:"groups,omitempty"`
 }
 
 type ApiKey struct {
-	UserId int64 `json:"userId"`
+	UserId   int64  `json:"userId"`
 	Username string `json:"username"`
-	Access Access `json:"access"`
+	Access   Access `json:"access"`
 }
 
 func (zot *Zotero) getCurrentKey() (*ApiKey, error) {
