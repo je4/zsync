@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"strconv"
@@ -129,7 +130,7 @@ func (item *Item) GetType() (string, error) {
 	return item.Data.ItemType, nil
 }
 
-func (item *Item) UploadGitlab() error {
+func (item *Item) UploadGitlab() (gitlab.EventTypeValue, error) {
 	item.group.zot.logger.Infof("uploading %v to gitlab", item.Data.Title)
 
 	ig := ItemGitlab{
@@ -140,12 +141,12 @@ func (item *Item) UploadGitlab() error {
 	}
 	data, err := json.Marshal(ig)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshal data")
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshal data")
 	}
 	var prettyJSON bytes.Buffer
 	err = json.Indent(&prettyJSON, data, "", "\t")
 	if err != nil {
-		return emperror.Wrapf(err, "cannot pretty json")
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
 	}
 
 	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.group.Id, item.Key, item.Version)
@@ -155,13 +156,14 @@ func (item *Item) UploadGitlab() error {
 	} else {
 		fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
 	}
-	if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
-		return emperror.Wrapf(err, "update on gitlab failed")
+	event, err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
+	if err != nil {
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 	}
-	return nil
+	return event, nil
 }
 
-func (item *Item) UploadAttachmentGitlab(data []byte) error {
+func (item *Item) UploadAttachmentGitlab(data []byte) (gitlab.EventTypeValue, error) {
 	item.group.zot.logger.Infof("uploading %v to gitlab (%vbytes)", item.Data.Title, len(data))
 	gcommit := fmt.Sprintf("%v (%vbytes) - %v.%v v%v", item.Data.Title, len(data), item.group.Id, item.Key, item.Version)
 	var fname string
@@ -170,16 +172,20 @@ func (item *Item) UploadAttachmentGitlab(data []byte) error {
 	} else {
 		fname = fmt.Sprintf("%v/items/%v.bin", item.group.Id, item.Key)
 	}
+	var event gitlab.EventTypeValue
+	var err error
 	if item.Deleted || item.Trashed {
-		if err := item.group.zot.deleteGitlab(fname, "master", gcommit); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = item.group.zot.deleteGitlab(fname, "master", gcommit)
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	} else {
-		if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "base64", base64.StdEncoding.EncodeToString(data)); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = item.group.zot.uploadGitlab(fname, "master", gcommit, "base64", base64.StdEncoding.EncodeToString(data))
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	}
-	return nil
+	return event, nil
 }
 
 func (item *Item) DownloadAttachmentCloud() (string, error) {
@@ -496,7 +502,7 @@ func (item *Item) UpdateLocal() error {
 	return nil
 }
 
-func (item *Item) uploadGitlab() error {
+func (item *Item) uploadGitlab() (gitlab.EventTypeValue, error) {
 
 	glItem := ItemGitlab{
 		LibraryId: item.group.Id,
@@ -507,12 +513,12 @@ func (item *Item) uploadGitlab() error {
 
 	data, err := json.Marshal(glItem)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshall data %v", glItem)
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshall data %v", glItem)
 	}
 
 	var prettyJSON bytes.Buffer
 	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
-		return emperror.Wrapf(err, "cannot pretty json")
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
 	}
 	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.group.Id, item.Key, item.Version)
 	var fname string
@@ -522,16 +528,19 @@ func (item *Item) uploadGitlab() error {
 		fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
 	}
 
+	var event gitlab.EventTypeValue
 	if item.Deleted || item.Trashed {
-		if err := item.group.zot.deleteGitlab(fname, "master", gcommit); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = item.group.zot.deleteGitlab(fname, "master", gcommit)
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	} else {
-		if err := item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = item.group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	}
-	return nil
+	return event, nil
 }
 
 func (item *Item) getChildrenLocal() (*[]Item, error) {

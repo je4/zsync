@@ -35,6 +35,7 @@ type Zotero struct {
 	fs               filesystem.FileSystem
 }
 
+
 type Library struct {
 	Type  string      `json:"type"`
 	Id    int64       `json:"id"`
@@ -333,9 +334,9 @@ func (zot *Zotero) DeleteCollectionDB(key string) error {
 	return nil
 }
 
-func (zot *Zotero) deleteGitlab(filename string, branch string, commit string) error {
+func (zot *Zotero) deleteGitlab(filename string, branch string, commit string) (gitlab.EventTypeValue, error) {
 	if zot.git == nil {
-		return nil
+		return gitlab.DestroyedEventType, nil
 	}
 	gopt := gitlab.DeleteFileOptions{
 		Branch:        &branch,
@@ -345,14 +346,14 @@ func (zot *Zotero) deleteGitlab(filename string, branch string, commit string) e
 	}
 	_, err := zot.git.RepositoryFiles.DeleteFile(zot.gitProject.ID, filename, &gopt)
 	if err != nil {
-		return emperror.Wrapf(err, "canot delete file %v", filename)
+		return gitlab.DestroyedEventType, emperror.Wrapf(err, "canot delete file %v", filename)
 	}
-	return nil
+	return gitlab.DestroyedEventType, nil
 }
 
-func (zot *Zotero) uploadGitlab(filename string, branch string, commit string, enc string, data string) error {
+func (zot *Zotero) uploadGitlab(filename string, branch string, commit string, enc string, data string) (gitlab.EventTypeValue, error) {
 	if zot.git == nil {
-		return nil
+		return gitlab.CreatedEventType, nil
 	}
 	zot.logger.Infof("uploading %v to gitlab (%vbytes)", commit, len(data))
 
@@ -374,13 +375,13 @@ func (zot *Zotero) uploadGitlab(filename string, branch string, commit string, e
 	if err != nil {
 		glErr, ok := err.(*gitlab.ErrorResponse)
 		if !ok {
-			return emperror.Wrapf(err, "upload on gitlab failed")
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "upload on gitlab failed")
 		}
 		if glErr.Response.StatusCode != http.StatusBadRequest {
-			return emperror.Wrapf(err, "upload on gitlab failed")
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "upload on gitlab failed")
 		}
 		if !strings.Contains(glErr.Message, "file with this name already exists") {
-			return emperror.Wrapf(err, "upload on gitlab failed")
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "upload on gitlab failed")
 		}
 		zot.logger.Debugf("%v already exists. updating...", filename)
 
@@ -394,11 +395,12 @@ func (zot *Zotero) uploadGitlab(filename string, branch string, commit string, e
 		}
 		fileinfo, _, err = zot.git.RepositoryFiles.UpdateFile(zot.gitProject.ID, filename, &gopt)
 		if err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
+		return gitlab.UpdatedEventType, nil
 	}
 	zot.logger.Debugf("uploading %v to gitlab done (%vbytes) - %v", commit, len(data), fileinfo.String())
-	return nil
+	return gitlab.CreatedEventType, nil
 }
 
 func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
@@ -533,7 +535,7 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 			// thats very bad. let's try with the single file method and update fallback
 			zot.logger.Errorf("error committing to gitlab. fallback to single Group commit: %v", err)
 			for _, group := range parts {
-				if err := group.uploadGitlab(); err != nil {
+				if _, err := group.uploadGitlab(); err != nil {
 					return emperror.Wrapf(err, "cannot upload Group %v", group.Id)
 				}
 			}

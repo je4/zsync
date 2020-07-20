@@ -10,6 +10,7 @@ import (
 	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -423,6 +424,7 @@ func (group *Group) syncItemsGitlab() error {
 			if err != nil {
 				return emperror.Wrapf(err, "cannot get item type of %v.%v", group.Id, item.Key)
 			}
+//			var event gitlab.EventTypeValue
 			if itemType == "attachment" && item.Data.MD5 != "" && !item.Deleted {
 				folder, err := group.GetFolder()
 				if err != nil {
@@ -432,7 +434,8 @@ func (group *Group) syncItemsGitlab() error {
 				if err != nil {
 					return emperror.Wrapf(err, "cannot read %v/&v", folder, item.Key)
 				}
-				if err := item.UploadAttachmentGitlab(content); err != nil {
+				_, err = item.UploadAttachmentGitlab(content)
+				if err != nil {
 					return emperror.Wrapf(err, "cannot upload filedata for %v.%v", group.Id, item.Key)
 				}
 			}
@@ -452,10 +455,23 @@ func (group *Group) syncItemsGitlab() error {
 			if err != nil {
 				return emperror.Wrapf(err, "cannot pretty json")
 			}
-
 			action := gitlab.CommitAction{
 				Content: prettyJSON.String(),
 			}
+			/*
+			switch event {
+			case gitlab.CreatedEventType:
+				action.Action = "create"
+				creations++
+			case gitlab.DestroyedEventType:
+				action.Action = "delete"
+				deletions++
+			case gitlab.UpdatedEventType:
+				action.Action = "update"
+				updates++
+			}
+			 */
+
 			if item.Gitlab == nil {
 				action.Action = "create"
 				creations++
@@ -474,7 +490,36 @@ func (group *Group) syncItemsGitlab() error {
 				fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
 			}
 			action.FilePath = fname
-			gaction = append(gaction, &action)
+
+			ref := "master"
+			opts := &gitlab.GetFileMetaDataOptions{Ref: &ref}
+			_, resp, err := group.zot.git.RepositoryFiles.GetFileMetaData(group.zot.gitProject.ID, fname, opts )
+			if err != nil {
+				if errResp, ok := err.(*gitlab.ErrorResponse); ok {
+					if errResp.Response.StatusCode != http.StatusNotFound {
+						return emperror.Wrapf(err, "cannot check existence of %v", fname)
+					}
+				} else {
+					return emperror.Wrapf(err, "cannot check existence of %v", fname)
+				}
+			}
+			if resp.StatusCode == http.StatusNotFound {
+				switch action.Action {
+				case "delete":
+					action.Action = ""
+				case "update":
+					action.Action = "create"
+				}
+			} else {
+				switch action.Action {
+				case "create":
+					action.Action = "update"
+				}
+			}
+
+			if action.Action != "" {
+				gaction = append(gaction, &action)
+			}
 		}
 		gcommit := fmt.Sprintf("#%v/%v machine sync creation:%v / deletion:%v / update:%v  at %v",
 			i+1, slices, creations, deletions, updates, synctime.String())

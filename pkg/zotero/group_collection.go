@@ -494,7 +494,8 @@ func (group *Group) syncCollectionsGitlab() error {
 			// thats very bad. let's try with the single file method and update fallback
 			group.zot.logger.Errorf("error committing to gitlab. fallback to single coll commit: %v", err)
 			for _, coll := range parts {
-				if err := coll.uploadGitlab(); err != nil {
+				_, err := coll.uploadGitlab()
+				if err != nil {
 					return emperror.Wrapf(err, "cannot upload collection %v.%v", group.Id, coll.Key)
 				}
 			}

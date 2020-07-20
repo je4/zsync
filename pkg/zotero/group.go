@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"strconv"
@@ -61,8 +62,7 @@ type GroupGitlab struct {
 	TagVersion        int64     `json:tagversion`
 }
 
-func (group *Group) uploadGitlab() error {
-
+func (group *Group) uploadGitlab() (gitlab.EventTypeValue, error) {
 	glGroup := GroupGitlab{
 		Id:                group.Id,
 		Data:              group.Data,
@@ -73,25 +73,28 @@ func (group *Group) uploadGitlab() error {
 
 	data, err := json.Marshal(glGroup)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshall data %v", glGroup)
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshall data %v", glGroup)
 	}
 
 	var prettyJSON bytes.Buffer
 	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
-		return emperror.Wrapf(err, "cannot pretty json")
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
 	}
 	gcommit := fmt.Sprintf("%v - %v v%v", group.Data.Name, group.Id, group.Version)
 	fname := fmt.Sprintf("%v.json", group.Id)
+	var event gitlab.EventTypeValue
 	if group.Deleted {
-		if err := group.zot.deleteGitlab(fname, "master", gcommit); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = group.zot.deleteGitlab(fname, "master", gcommit)
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	} else {
-		if err := group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	}
-	return nil
+	return event, nil
 }
 
 func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
@@ -189,7 +192,8 @@ func (group *Group) UpdateLocal() error {
 	gcommit := fmt.Sprintf("%v - %v v%v", group.Data.Name, group.Id, group.Version)
 	var fname string
 	fname = fmt.Sprintf("%v.json", group.Id)
-	if err := group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
+	_, err = group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
+	if err != nil {
 		return emperror.Wrapf(err, "update on gitlab failed")
 	}
 

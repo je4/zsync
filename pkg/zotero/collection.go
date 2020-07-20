@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/xanzy/go-gitlab"
 	"time"
 )
 
@@ -43,7 +44,7 @@ type CollectionGitlab struct {
 	Meta      CollectionMeta `json:"meta,omitempty"`
 }
 
-func (collection *Collection) uploadGitlab() error {
+func (collection *Collection) uploadGitlab() (gitlab.EventTypeValue, error) {
 	glColl := CollectionGitlab{
 		LibraryId: collection.Group.Id,
 		Key:       collection.Key,
@@ -53,25 +54,28 @@ func (collection *Collection) uploadGitlab() error {
 
 	data, err := json.Marshal(glColl)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshall data %v", glColl)
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshall data %v", glColl)
 	}
 
 	var prettyJSON bytes.Buffer
 	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
-		return emperror.Wrapf(err, "cannot pretty json")
+		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
 	}
 	gcommit := fmt.Sprintf("%v - %v.%v v%v", collection.Data.Name, collection.Group.Id, collection.Key, collection.Version)
 	fname := fmt.Sprintf("%v/collections/%v.json", collection.Group.Id, collection.Key)
+	var event gitlab.EventTypeValue
 	if collection.Deleted || collection.Trashed {
-		if err := collection.Group.zot.deleteGitlab(fname, "master", gcommit); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = collection.Group.zot.deleteGitlab(fname, "master", gcommit)
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	} else {
-		if err := collection.Group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String()); err != nil {
-			return emperror.Wrapf(err, "update on gitlab failed")
+		event, err = collection.Group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
+		if err != nil {
+			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	}
-	return nil
+	return event, nil
 }
 
 func (collection *Collection) UpdateLocal() error {
