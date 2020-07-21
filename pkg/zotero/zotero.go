@@ -439,6 +439,21 @@ func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
 	return &group, nil
 }
 
+func (zot *Zotero) gitlabCheck(path, ref string) (bool, error) {
+	opts := &gitlab.GetFileMetaDataOptions{Ref: &ref}
+	_, resp, err := zot.git.RepositoryFiles.GetFileMetaData(zot.gitProject.ID, path, opts )
+	if err != nil {
+		if errResp, ok := err.(*gitlab.ErrorResponse); ok {
+			if errResp.Response.StatusCode != http.StatusNotFound {
+				return false, emperror.Wrapf(err, "cannot check existence of %v", path)
+			}
+		} else {
+			return false, emperror.Wrapf(err, "cannot check existence of %v", path)
+		}
+	}
+	return resp.StatusCode != http.StatusNotFound, nil
+}
+
 func (zot *Zotero) SyncGroupsGitlab() error {
 	synctime := time.Now()
 	sqlstr := fmt.Sprintf("SELECT id, version, data, deleted, gitlab, itemversion, collectionversion, tagversion"+
@@ -517,7 +532,29 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 
 			fname := fmt.Sprintf("%v.json", group.Id)
 			action.FilePath = fname
-			gaction = append(gaction, &action)
+
+			found, err := group.zot.gitlabCheck(fname, "master")
+			if err != nil {
+				return emperror.Wrapf(err, "cannot check gitlab for %v", fname)
+			}
+
+			if !found {
+				switch action.Action {
+				case "delete":
+					action.Action = ""
+				case "update":
+					action.Action = "create"
+				}
+			} else {
+				switch action.Action {
+				case "create":
+					action.Action = "update"
+				}
+			}
+
+			if action.Action != "" {
+				gaction = append(gaction, &action)
+			}
 		}
 		gcommit := fmt.Sprintf("#%v/%v machine sync creation:%v / deletion:%v / update:%v  at %v",
 			i+1, slices, creations, deletions, updates, synctime.String())

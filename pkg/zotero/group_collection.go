@@ -476,7 +476,28 @@ func (group *Group) syncCollectionsGitlab() error {
 
 			fname := fmt.Sprintf("%v/collections/%v.json", coll.Group.Id, coll.Key)
 			action.FilePath = fname
-			gaction = append(gaction, &action)
+
+			found, err := group.zot.gitlabCheck(fname, "master")
+			if err != nil {
+				return emperror.Wrapf(err, "cannot check gitlab for %v", fname)
+			}
+			if !found {
+				switch action.Action {
+				case "delete":
+					action.Action = ""
+				case "update":
+					action.Action = "create"
+				}
+			} else {
+				switch action.Action {
+				case "create":
+					action.Action = "update"
+				}
+			}
+
+			if action.Action != "" {
+				gaction = append(gaction, &action)
+			}
 		}
 		gcommit := fmt.Sprintf("#%v/%v machine sync creation:%v / deletion:%v / update:%v  at %v",
 			i+1, slices, creations, deletions, updates, synctime.String())

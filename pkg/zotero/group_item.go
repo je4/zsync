@@ -10,7 +10,6 @@ import (
 	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
-	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -491,19 +490,12 @@ func (group *Group) syncItemsGitlab() error {
 			}
 			action.FilePath = fname
 
-			ref := "master"
-			opts := &gitlab.GetFileMetaDataOptions{Ref: &ref}
-			_, resp, err := group.zot.git.RepositoryFiles.GetFileMetaData(group.zot.gitProject.ID, fname, opts )
+			found, err := group.zot.gitlabCheck(fname, "master")
 			if err != nil {
-				if errResp, ok := err.(*gitlab.ErrorResponse); ok {
-					if errResp.Response.StatusCode != http.StatusNotFound {
-						return emperror.Wrapf(err, "cannot check existence of %v", fname)
-					}
-				} else {
-					return emperror.Wrapf(err, "cannot check existence of %v", fname)
-				}
+				return emperror.Wrapf(err, "cannot check gitlab for %v", fname)
 			}
-			if resp.StatusCode == http.StatusNotFound {
+
+			if !found {
 				switch action.Action {
 				case "delete":
 					action.Action = ""

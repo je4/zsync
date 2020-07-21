@@ -102,9 +102,11 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
+		/*
 		if groupId != 1510019 {
 			continue
 		}
+		 */
 		groupIds = append(groupIds, groupId)
 		group, err := zot.LoadGroupLocal(groupId)
 		if err != nil {
