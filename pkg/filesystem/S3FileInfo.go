@@ -2,7 +2,7 @@ package filesystem
 
 import (
 	"fmt"
-	"github.com/minio/minio-go"
+	"github.com/minio/minio-go/v7"
 	"os"
 	"time"
 )

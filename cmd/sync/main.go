@@ -128,7 +128,7 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 		// check whether version is newer online...
 		if group.Version < version ||
 			group.Deleted ||
-			group.Modified {
+			group.IsModified {
 			newGroup, err := zot.GetGroupCloud(groupId)
 			if err != nil {
 				logger.Errorf("cannot get group %v: %v", groupId, err)

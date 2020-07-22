@@ -17,13 +17,13 @@ import (
 )
 
 func (group *Group) DeleteItemLocal(key string) error {
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET deleted=true WHERE key=$1 AND library=$2", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("UPDATE %s.items SET deleted=true WHERE key=$1 AND library=$2", group.Zot.dbSchema)
 
 	params := []interface{}{
 		key,
 		group.Id,
 	}
-	if _, err := group.zot.db.Exec(sqlstr, params...); err != nil {
+	if _, err := group.Zot.db.Exec(sqlstr, params...); err != nil {
 		return emperror.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
 	return nil
@@ -37,7 +37,7 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 		Library: *group.GetLibrary(),
 		Meta:    *itemMeta,
 		Data:    *itemData,
-		group:   group,
+		Group:   group,
 		OldId:   oldId,
 		Status:  SyncStatus_New,
 	}
@@ -52,7 +52,7 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 	if oldId == "" {
 		oid.Valid = false
 	}
-	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, data, oldid) VALUES( $1, $2, $3, $4, $5, $6)", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, data, oldid) VALUES( $1, $2, $3, $4, $5, $6)", group.Zot.dbSchema)
 	params := []interface{}{
 		item.Key,
 		0,
@@ -61,7 +61,7 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 		string(jsonstr),
 		oid,
 	}
-	_, err = group.zot.db.Exec(sqlstr, params...)
+	_, err = group.Zot.db.Exec(sqlstr, params...)
 	if IsUniqueViolation(err, "items_oldid_constraint") {
 		item2, err := group.GetItemByOldidLocal(oldId)
 		if err != nil {
@@ -79,7 +79,7 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
-	if item.group.zot.git != nil {
+	if item.Group.Zot.git != nil {
 		gcontent := string(jsonstr)
 		var gusername string
 		if itemMeta != nil {
@@ -93,11 +93,11 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 			Content:       &gcontent,
 			CommitMessage: &itemMeta.CreatorSummary,
 		}
-		fileinfo, _, err := item.group.zot.git.RepositoryFiles.CreateFile(item.group.zot.gitProject.ID, fmt.Sprintf("%v/%v", item.group.Id, item.Key), &gopt)
+		fileinfo, _, err := item.Group.Zot.git.RepositoryFiles.CreateFile(item.Group.Zot.gitProject.ID, fmt.Sprintf("%v/%v", item.Group.Id, item.Key), &gopt)
 		if err != nil {
 			return nil, emperror.Wrapf(err, "upload to gitlab failed")
 		}
-		item.group.zot.logger.Debugf("upload to gitlab done: %v", fileinfo.String())
+		item.Group.Zot.logger.Debugf("upload to gitlab done: %v", fileinfo.String())
 	}
 	return item, nil
 }
@@ -110,14 +110,14 @@ func (group *Group) CreateEmptyItemLocal(itemId string, oldId string) error {
 	if oldId == "" {
 		oid.Valid = false
 	}
-	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, oldid) VALUES( $1, 0, $2, $3, $4)", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, oldid) VALUES( $1, 0, $2, $3, $4)", group.Zot.dbSchema)
 	params := []interface{}{
 		itemId,
 		group.Id,
 		"incomplete",
 		oid,
 	}
-	_, err := group.zot.db.Exec(sqlstr, params...)
+	_, err := group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -125,7 +125,7 @@ func (group *Group) CreateEmptyItemLocal(itemId string, oldId string) error {
 }
 
 func (group *Group) GetItemVersionLocal(itemId string, oldId string) (int64, SyncStatus, error) {
-	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.items WHERE library=$1 AND key=$2", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.items WHERE library=$1 AND key=$2", group.Zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		itemId,
@@ -133,7 +133,7 @@ func (group *Group) GetItemVersionLocal(itemId string, oldId string) (int64, Syn
 	var version int64
 	var syncstr string
 	var sync SyncStatus
-	err := group.zot.db.QueryRow(sqlstr, params...).Scan(&version, &syncstr)
+	err := group.Zot.db.QueryRow(sqlstr, params...).Scan(&version, &syncstr)
 	switch {
 	case err == sql.ErrNoRows:
 		if err := group.CreateEmptyItemLocal(itemId, oldId); err != nil {
@@ -170,8 +170,8 @@ func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map
 	start := int64(0)
 	var lastModifiedVersion int64
 	for {
-		group.zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
-		call := group.zot.client.R().
+		group.Zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
+		call := group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
 			SetQueryParam("format", "versions").
@@ -184,7 +184,7 @@ func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map
 			if err != nil {
 				return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 			}
-			if !group.zot.CheckRetry(resp.Header()) {
+			if !group.Zot.CheckRetry(resp.Header()) {
 				break
 			}
 		}
@@ -197,11 +197,11 @@ func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map
 		if err != nil {
 			return nil, 0, emperror.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
 		}
-		h, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+		h, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-IsModified-Version"), 10, 64)
 		if h > lastModifiedVersion {
 			lastModifiedVersion = h
 		}
-		group.zot.CheckBackoff(resp.Header())
+		group.Zot.CheckBackoff(resp.Header())
 		for key, version := range *objects {
 			(*totalObjects)[key] = version
 		}
@@ -225,8 +225,8 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 		params = append(params, val)
 		pstr = append(pstr, fmt.Sprintf("$%v", len(params)))
 	}
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", group.zot.dbSchema, strings.Join(pstr, ","))
-	rows, err := group.zot.db.Query(sqlstr, params...)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", group.Zot.dbSchema, strings.Join(pstr, ","))
+	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return &[]Item{}, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -243,6 +243,26 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 	return &result, nil
 }
 
+func (group *Group) IterateItemsAllLocal(f func (item *Item) error) error {
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1", group.Zot.dbSchema)
+	rows, err := group.Zot.db.Query(sqlstr, group.Id)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s", sqlstr)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		item, err := group.itemFromRow(rows)
+		if err != nil {
+			return emperror.Wrapf(err, "cannot scan row")
+		}
+		if err := f(item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 	if len(objectKeys) == 0 {
 		return &[]Item{}, nil
@@ -252,9 +272,9 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 	}
 
 	endpoint := fmt.Sprintf("/groups/%v/items", group.Id)
-	group.zot.logger.Infof("rest call: %s", endpoint)
+	group.Zot.logger.Infof("rest call: %s", endpoint)
 
-	call := group.zot.client.R().
+	call := group.Zot.client.R().
 		SetHeader("Accept", "application/json").
 		SetQueryParam("itemKey", strings.Join(objectKeys, ",")).
 		SetQueryParam("includeTrashed", "1")
@@ -265,20 +285,20 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 		if err != nil {
 			return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 		}
-		if !group.zot.CheckRetry(resp.Header()) {
+		if !group.Zot.CheckRetry(resp.Header()) {
 			break
 		}
 	}
-	group.zot.logger.Debugf("status: #%v ", resp.StatusCode())
+	group.Zot.logger.Debugf("status: #%v ", resp.StatusCode())
 	rawBody := resp.Body()
 	items := []Item{}
 	if err := json.Unmarshal(rawBody, &items); err != nil {
 		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	group.zot.CheckBackoff(resp.Header())
+	group.Zot.CheckBackoff(resp.Header())
 	result := []Item{}
 	for _, item := range items {
-		item.group = group
+		item.Group = group
 		if item.Data.Collections == nil {
 			item.Data.Collections = []string{}
 		}
@@ -291,13 +311,13 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 	var counter int64
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab"+
 		" FROM %s.items"+
-		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
+		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.Zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		"new",
 		"modified",
 	}
-	rows, err := group.zot.db.Query(sqlstr, params...)
+	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return 0, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -309,8 +329,8 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 		}
 
 		if err := item.UpdateCloud(&lastModifiedVersion); err != nil {
-			group.zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
-			//return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", group.Id, item.Key)
+			group.Zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
+			//return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", Group.Id, item.Key)
 		}
 		counter++
 	}
@@ -318,7 +338,7 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 }
 
 func (group *Group) syncItems(trashed bool) (int64, int64, error) {
-	group.zot.logger.Infof("Syncing items of Group #%v", group.Id)
+	group.Zot.logger.Infof("Syncing items of Group #%v", group.Id)
 	var counter int64
 
 	objectList, lastModifiedVersion, err := group.GetItemsVersionCloud(group.ItemVersion, trashed)
@@ -332,7 +352,7 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 			return counter, 0, emperror.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
 		}
 		if sync != SyncStatus_Synced && sync != SyncStatus_Incomplete {
-			group.zot.logger.Errorf("item %v not synced. please handle conflict", itemid)
+			group.Zot.logger.Errorf("item %v not synced. please handle conflict", itemid)
 			continue
 			//return counter, lastModifiedVersion, errors.New(fmt.Sprintf("item %v not synced. please handle conflict", itemid))
 		}
@@ -352,31 +372,31 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 		if err != nil {
 			return counter, 0, emperror.Wrapf(err, "cannot get items")
 		}
-		group.zot.logger.Infof("%v items", len(*items))
+		group.Zot.logger.Infof("%v items", len(*items))
 		for _, item := range *items {
-			group.zot.logger.Infof("Item %v of %v", counter, numItems)
+			group.Zot.logger.Infof("Item %v of %v", counter, numItems)
 			item.Status = SyncStatus_Synced
 			item.Trashed = trashed
 			if err := item.UpdateLocal(); err != nil {
-				group.zot.logger.Errorf("cannot update item: %v", err)
+				group.Zot.logger.Errorf("cannot update item: %v", err)
 				//return counter, 0, emperror.Wrapf(err, "cannot update items")
 			}
 			counter++
 		}
 	}
-	group.zot.logger.Infof("Syncing items of Group #%v done. %v items changed", group.Id, counter)
+	group.Zot.logger.Infof("Syncing items of Group #%v done. %v items changed", group.Id, counter)
 	return counter, lastModifiedVersion, nil
 }
 
 func (group *Group) syncItemsGitlab() error {
-	if group.zot.git == nil {
+	if group.Zot.git == nil {
 		return nil
 	}
 	synctime := time.Now()
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab"+
 		" FROM %s.items"+
-		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.zot.dbSchema)
-	rows, err := group.zot.db.Query(sqlstr, group.Id)
+		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.Zot.dbSchema)
+	rows, err := group.Zot.db.Query(sqlstr, group.Id)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, group.Id)
 	}
@@ -429,7 +449,7 @@ func (group *Group) syncItemsGitlab() error {
 				if err != nil {
 					return emperror.Wrapf(err, "cannot get attachment folder")
 				}
-				content, err := group.zot.fs.FileGet(folder, item.Key, filesystem.FileGetOptions{})
+				content, err := group.Zot.fs.FileGet(folder, item.Key, filesystem.FileGetOptions{})
 				if err != nil {
 					return emperror.Wrapf(err, "cannot read %v/&v", folder, item.Key)
 				}
@@ -439,7 +459,7 @@ func (group *Group) syncItemsGitlab() error {
 				}
 			}
 			ig := ItemGitlab{
-				LibraryId: item.group.ItemVersion,
+				LibraryId: item.Group.ItemVersion,
 				Key:       item.Key,
 				Data:      item.Data,
 				Meta:      item.Meta,
@@ -484,13 +504,13 @@ func (group *Group) syncItemsGitlab() error {
 
 			var fname string
 			if string(item.Data.ParentItem) != "" {
-				fname = fmt.Sprintf("%v/items/%v/%v.json", item.group.Id, string(item.Data.ParentItem), item.Key)
+				fname = fmt.Sprintf("%v/items/%v/%v.json", item.Group.Id, string(item.Data.ParentItem), item.Key)
 			} else {
-				fname = fmt.Sprintf("%v/items/%v.json", item.group.Id, item.Key)
+				fname = fmt.Sprintf("%v/items/%v.json", item.Group.Id, item.Key)
 			}
 			action.FilePath = fname
 
-			found, err := group.zot.gitlabCheck(fname, "master")
+			found, err := group.Zot.gitlabCheck(fname, "master")
 			if err != nil {
 				return emperror.Wrapf(err, "cannot check gitlab for %v", fname)
 			}
@@ -523,17 +543,17 @@ func (group *Group) syncItemsGitlab() error {
 			AuthorEmail:   nil,
 			AuthorName:    nil,
 		}
-		group.zot.logger.Infof("committing item %v to %v of %v to gitlab", start, end, num)
-		_, _, err := group.zot.git.Commits.CreateCommit(group.zot.gitProject.ID, &opt)
+		group.Zot.logger.Infof("committing item %v to %v of %v to gitlab", start, end, num)
+		_, _, err := group.Zot.git.Commits.CreateCommit(group.Zot.gitProject.ID, &opt)
 		if err != nil {
 			fps := []string{}
 			for _, action := range opt.Actions {
 				fps = append(fps, action.FilePath)
 			}
-			group.zot.logger.Errorf("cannot commit files %v: %v", fps, err)
+			group.Zot.logger.Errorf("cannot commit files %v: %v", fps, err)
 			//return emperror.Wrapf(err, "cannot commit")
 		} else {
-			sqlstr := fmt.Sprintf("UPDATE %s.items SET gitlab=$1 WHERE library=$2 AND key=$3", group.zot.dbSchema)
+			sqlstr := fmt.Sprintf("UPDATE %s.items SET gitlab=$1 WHERE library=$2 AND key=$3", group.Zot.dbSchema)
 			for _, item := range parts {
 				t := sql.NullTime{
 					Time:  synctime,
@@ -544,7 +564,7 @@ func (group *Group) syncItemsGitlab() error {
 					group.Id,
 					item.Key,
 				}
-				if _, err := group.zot.db.Exec(sqlstr, params...); err != nil {
+				if _, err := group.Zot.db.Exec(sqlstr, params...); err != nil {
 					return emperror.Wrapf(err, "cannot update gitlab sync time for %v.%v", group.Id, item.Key)
 				}
 			}
@@ -586,9 +606,9 @@ func (group *Group) SyncItems() (int64, int64, error) {
 	}
 
 	if counter > 0 {
-		group.zot.logger.Infof("refreshing materialized view item_type_hier")
-		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.zot.dbSchema)
-		_, err := group.zot.db.Exec(sqlstr)
+		group.Zot.logger.Infof("refreshing materialized view item_type_hier")
+		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
+		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
 			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
@@ -596,7 +616,7 @@ func (group *Group) SyncItems() (int64, int64, error) {
 
 	err = group.syncItemsGitlab()
 	if err != nil {
-		group.zot.logger.Errorf("cannot sync: %v", err)
+		group.Zot.logger.Errorf("cannot sync: %v", err)
 	}
 
 	return counter, lastModifiedVersion, nil
@@ -604,13 +624,13 @@ func (group *Group) SyncItems() (int64, int64, error) {
 
 func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items"+
-		" WHERE library=$1 AND key=$2", group.zot.dbSchema)
+		" WHERE library=$1 AND key=$2", group.Zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		key,
 	}
 
-	item, err := group.itemFromRow(group.zot.db.QueryRow(sqlstr, params...))
+	item, err := group.itemFromRow(group.Zot.db.QueryRow(sqlstr, params...))
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -619,12 +639,12 @@ func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 }
 
 func (group *Group) GetItemByOldidLocal(oldid string) (*Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND oldid=$2", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND oldid=$2", group.Zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		oldid,
 	}
-	item, err := group.itemFromRow(group.zot.db.QueryRow(sqlstr, params...))
+	item, err := group.itemFromRow(group.Zot.db.QueryRow(sqlstr, params...))
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -718,9 +738,9 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 			ParsedDate:     "",
 			NumChildren:    0,
 		}
-		//return nil, errors.New(fmt.Sprintf("item has no meta %v.%v", group.Id, item.Key))
+		//return nil, errors.New(fmt.Sprintf("item has no meta %v.%v", Group.Id, item.Key))
 	}
-	item.group = group
+	item.Group = group
 	item.Data.ItemDataBase.Key = item.Key
 	item.Data.ItemDataBase.Version = item.Version
 

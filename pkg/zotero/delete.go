@@ -16,9 +16,9 @@ type Delete struct {
 
 func (group *Group) GetDeleted(sinceVersion int64) (collections *[]string, items *[]string, tags *[]string, err error) {
 		endpoint := fmt.Sprintf("/groups/%v/deleted", group.Id)
-	group.zot.logger.Infof("rest call: %s", endpoint)
+	group.Zot.logger.Infof("rest call: %s", endpoint)
 
-	resp, err := group.zot.client.R().
+	resp, err := group.Zot.client.R().
 		SetHeader("Accept", "application/json").
 		SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
 		Get(endpoint)

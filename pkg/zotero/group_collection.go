@@ -77,7 +77,7 @@ func (group *Group) CreateCollectionLocal(collectionData *CollectionData) (*Coll
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot marshall collection data %v", collectionData)
 	}
-	sqlstr := fmt.Sprintf("INSERT INTO %s.collections (key, version, library, sync, data, deleted) VALUES( $1, $2, $3, $4, $5, false)", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("INSERT INTO %s.collections (key, version, library, sync, data, deleted) VALUES( $1, $2, $3, $4, $5, false)", group.Zot.dbSchema)
 	params := []interface{}{
 		coll.Key,
 		0,
@@ -85,7 +85,7 @@ func (group *Group) CreateCollectionLocal(collectionData *CollectionData) (*Coll
 		"new",
 		string(jsonstr),
 	}
-	_, err = group.zot.db.Exec(sqlstr, params...)
+	_, err = group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -118,7 +118,7 @@ func (group *Group) TryDeleteCollectionLocal(key string, lastModifiedVersion int
 		coll.Version = lastModifiedVersion
 		coll.Status = SyncStatus_Synced
 	}
-	group.zot.logger.Debugf("Collection: %v", coll)
+	group.Zot.logger.Debugf("Collection: %v", coll)
 	if err := coll.UpdateLocal(); err != nil {
 		return emperror.Wrapf(err, "cannot update collection %v", key)
 	}
@@ -126,13 +126,13 @@ func (group *Group) TryDeleteCollectionLocal(key string, lastModifiedVersion int
 }
 
 func (group *Group) CreateEmptyCollectionLocal(collectionId string) error {
-	sqlstr := fmt.Sprintf("INSERT INTO %s.collections (key, version, library, sync) VALUES( $1, 0, $2, $3)", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("INSERT INTO %s.collections (key, version, library, sync) VALUES( $1, 0, $2, $3)", group.Zot.dbSchema)
 	params := []interface{}{
 		collectionId,
 		group.Id,
 		SyncStatusString[SyncStatus_New],
 	}
-	_, err := group.zot.db.Exec(sqlstr, params...)
+	_, err := group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -140,14 +140,14 @@ func (group *Group) CreateEmptyCollectionLocal(collectionId string) error {
 }
 
 func (group *Group) GetCollectionVersionLocal(collectionId string) (int64, SyncStatus, error) {
-	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.collections WHERE key=$1", group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.collections WHERE key=$1", group.Zot.dbSchema)
 	params := []interface{}{
 		collectionId,
 	}
 	var version int64
 	var sync string
 	var status SyncStatus
-	err := group.zot.db.QueryRow(sqlstr, params...).Scan(&version, &sync)
+	err := group.Zot.db.QueryRow(sqlstr, params...).Scan(&version, &sync)
 	switch {
 	case err == sql.ErrNoRows:
 		if err := group.CreateEmptyCollectionLocal(collectionId); err != nil {
@@ -172,9 +172,9 @@ func (group *Group) GetCollectionsVersionCloud(sinceVersion int64) (*map[string]
 	start := int64(0)
 	for {
 
-		group.zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
+		group.Zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
 
-		call := group.zot.client.R().
+		call := group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
 			SetQueryParam("format", "versions").
@@ -187,7 +187,7 @@ func (group *Group) GetCollectionsVersionCloud(sinceVersion int64) (*map[string]
 			if err != nil {
 				return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 			}
-			if !group.zot.CheckRetry(resp.Header()) {
+			if !group.Zot.CheckRetry(resp.Header()) {
 				break
 			}
 		}
@@ -200,12 +200,12 @@ func (group *Group) GetCollectionsVersionCloud(sinceVersion int64) (*map[string]
 		if err := json.Unmarshal(rawBody, objects); err != nil {
 			return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 		}
-		h, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+		h, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-IsModified-Version"), 10, 64)
 		if h > lastModifiedVersion {
 			lastModifiedVersion = h
 		}
 
-		group.zot.CheckBackoff(resp.Header())
+		group.Zot.CheckBackoff(resp.Header())
 		for key, version := range *objects {
 			(*totalObjects)[key] = version
 		}
@@ -227,9 +227,9 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 	}
 
 	endpoint := fmt.Sprintf("/groups/%v/collections", group.Id)
-	group.zot.logger.Infof("rest call: %s", endpoint)
+	group.Zot.logger.Infof("rest call: %s", endpoint)
 
-	call := group.zot.client.R().
+	call := group.Zot.client.R().
 		SetHeader("Accept", "application/json").
 		SetQueryParam("collectionKey", strings.Join(objectKeys, ","))
 
@@ -240,7 +240,7 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 		if err != nil {
 			return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
 		}
-		if !group.zot.CheckRetry(resp.Header()) {
+		if !group.Zot.CheckRetry(resp.Header()) {
 			break
 		}
 	}
@@ -249,12 +249,12 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 	if err := json.Unmarshal(rawBody, &collections); err != nil {
 		return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	lastModifiedVersion, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+	lastModifiedVersion, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-IsModified-Version"), 10, 64)
 
-	group.zot.CheckBackoff(resp.Header())
+	group.Zot.CheckBackoff(resp.Header())
 	result := []Collection{}
 	for _, coll := range collections {
-		if strings.ToLower(coll.Library.Type) != "group" {
+		if strings.ToLower(coll.Library.Type) != "Group" {
 			return nil, 0, errors.New(fmt.Sprintf("unknown library type %v for collection %v", coll.Library.Type, coll.Key))
 		}
 		if coll.Library.Id != group.Id {
@@ -270,13 +270,13 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 	var counter int64
 	sqlstr := fmt.Sprintf("SELECT key, version, data, deleted, sync"+
 		" FROM %s.collections"+
-		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.zot.dbSchema)
+		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.Zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 		"new",
 		"modified",
 	}
-	rows, err := group.zot.db.Query(sqlstr, params...)
+	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return 0, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -301,8 +301,8 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 			collection.Data.Name = collection.Key
 		}
 		if err := collection.UpdateCloud(); err != nil {
-			group.zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, collection.Key, err)
-//			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", group.Id, collection.Key)
+			group.Zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, collection.Key, err)
+//			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", Group.Id, collection.Key)
 		}
 		counter++
 	}
@@ -332,23 +332,23 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 
 	counter := num + num2
 	if counter > 0 {
-		group.zot.logger.Infof("refreshing materialized view collection_name_hier")
-		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA", group.zot.dbSchema)
-		_, err := group.zot.db.Exec(sqlstr)
+		group.Zot.logger.Infof("refreshing materialized view collection_name_hier")
+		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA", group.Zot.dbSchema)
+		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
 			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
 	}
 
 	if err := group.syncCollectionsGitlab(); err != nil {
-		group.zot.logger.Errorf("cannot sync collections to gitlab: %v", err)
+		group.Zot.logger.Errorf("cannot sync collections to gitlab: %v", err)
 	}
 
 	return counter, lastModifiedVersion, nil
 }
 
 func (group *Group) syncCollections() (int64, int64, error) {
-	group.zot.logger.Infof("Syncing collections of Group #%v", group.Id)
+	group.Zot.logger.Infof("Syncing collections of Group #%v", group.Id)
 
 	var counter int64
 	objectList, lastModifiedVersion, err := group.GetCollectionsVersionCloud(group.CollectionVersion)
@@ -384,7 +384,7 @@ func (group *Group) syncCollections() (int64, int64, error) {
 			if h > lastModifiedVersion {
 				lastModifiedVersion = h
 			}
-			group.zot.logger.Infof("%v collections", len(*colls))
+			group.Zot.logger.Infof("%v collections", len(*colls))
 			for _, coll := range *colls {
 				coll.Status = SyncStatus_Synced
 				if err := coll.UpdateLocal(); err != nil {
@@ -398,11 +398,15 @@ func (group *Group) syncCollections() (int64, int64, error) {
 }
 
 func (group *Group) syncCollectionsGitlab() error {
+	if !group.Zot.UseGitlab() {
+		group.Zot.logger.Infof("no gitlab sync for Group %v", group.Id)
+		return nil
+	}
 	synctime := time.Now()
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, deleted, sync, gitlab"+
 		" FROM %s.collections"+
-		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.zot.dbSchema)
-	rows, err := group.zot.db.Query(sqlstr, group.Id)
+		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.Zot.dbSchema)
+	rows, err := group.Zot.db.Query(sqlstr, group.Id)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, group.Id)
 	}
@@ -477,7 +481,7 @@ func (group *Group) syncCollectionsGitlab() error {
 			fname := fmt.Sprintf("%v/collections/%v.json", coll.Group.Id, coll.Key)
 			action.FilePath = fname
 
-			found, err := group.zot.gitlabCheck(fname, "master")
+			found, err := group.Zot.gitlabCheck(fname, "master")
 			if err != nil {
 				return emperror.Wrapf(err, "cannot check gitlab for %v", fname)
 			}
@@ -509,11 +513,11 @@ func (group *Group) syncCollectionsGitlab() error {
 			AuthorEmail:   nil,
 			AuthorName:    nil,
 		}
-		group.zot.logger.Infof("committing items %v to %v of %v to gitlab", start, end, num)
-		_, _, err := group.zot.git.Commits.CreateCommit(group.zot.gitProject.ID, &opt)
+		group.Zot.logger.Infof("committing items %v to %v of %v to gitlab", start, end, num)
+		_, _, err := group.Zot.git.Commits.CreateCommit(group.Zot.gitProject.ID, &opt)
 		if err != nil {
 			// thats very bad. let's try with the single file method and update fallback
-			group.zot.logger.Errorf("error committing to gitlab. fallback to single coll commit: %v", err)
+			group.Zot.logger.Errorf("error committing to gitlab. fallback to single coll commit: %v", err)
 			for _, coll := range parts {
 				_, err := coll.uploadGitlab()
 				if err != nil {
@@ -522,7 +526,7 @@ func (group *Group) syncCollectionsGitlab() error {
 			}
 			//return emperror.Wrapf(err, "cannot commit")
 		}
-		sqlstr = fmt.Sprintf("UPDATE %s.collections SET gitlab=$1 WHERE library=$2 AND key=$3", group.zot.dbSchema)
+		sqlstr = fmt.Sprintf("UPDATE %s.collections SET gitlab=$1 WHERE library=$2 AND key=$3", group.Zot.dbSchema)
 		for _, coll := range parts {
 			t := sql.NullTime{
 				Time:  synctime,
@@ -533,11 +537,11 @@ func (group *Group) syncCollectionsGitlab() error {
 				group.Id,
 				coll.Key,
 			}
-			resp, err := group.zot.db.Exec(sqlstr, params...)
+			resp, err := group.Zot.db.Exec(sqlstr, params...)
 			if err != nil {
 				return emperror.Wrapf(err, "cannot update gitlab sync time for %v.%v", group.Id, coll.Key)
 			}
-			group.zot.logger.Debugf("%v", resp)
+			group.Zot.logger.Debugf("%v", resp)
 		}
 	}
 	return nil
@@ -557,7 +561,7 @@ func (group *Group) GetCollectionByNameLocal(name string, parentKey string) (*Co
 
 	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync"+
 		" FROM %s.collections cs, %s.collection_name_hier cnh"+
-		" WHERE cs.key=cnh.key AND cs.library=$1 AND cnh.name=$2", group.zot.dbSchema, group.zot.dbSchema)
+		" WHERE cs.key=cnh.key AND cs.library=$1 AND cnh.name=$2", group.Zot.dbSchema, group.Zot.dbSchema)
 
 	params := []interface{}{
 		group.Id,
@@ -572,7 +576,7 @@ func (group *Group) GetCollectionByNameLocal(name string, parentKey string) (*Co
 	var datastr sql.NullString
 	var metastr sql.NullString
 	var sync string
-	if err := group.zot.db.QueryRow(sqlstr, params...).
+	if err := group.Zot.db.QueryRow(sqlstr, params...).
 		Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync); err != nil {
 		if IsEmptyResult(err) {
 			return nil, nil
@@ -604,7 +608,7 @@ func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 	}
 
 	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync"+
-		" FROM %s.collections cs WHERE cs.library=$1 AND cs.key=$2", group.zot.dbSchema)
+		" FROM %s.collections cs WHERE cs.library=$1 AND cs.key=$2", group.Zot.dbSchema)
 
 	params := []interface{}{
 		group.Id,
@@ -613,7 +617,7 @@ func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 	var datastr sql.NullString
 	var metastr sql.NullString
 	var sync string
-	if err := group.zot.db.QueryRow(sqlstr, params...).
+	if err := group.Zot.db.QueryRow(sqlstr, params...).
 		Scan(&(coll.Key), &(coll.Version), &datastr, &metastr, &(coll.Deleted), &sync); err != nil {
 		if IsEmptyResult(err) {
 			return nil, nil

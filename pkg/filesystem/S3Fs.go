@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"github.com/goph/emperror"
-	"github.com/minio/minio-go"
-	"github.com/minio/minio-go/pkg/credentials"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"io"
 	"net/http"
 	"os"
@@ -99,6 +99,20 @@ func (fs *S3Fs) FilePut(folder, name string, data []byte, opts FilePutOptions) e
 		name,
 		bytes.NewReader(data),
 		int64(len(data)),
+		minio.PutObjectOptions{ContentType: opts.ContentType, Progress: opts.Progress},
+	); err != nil {
+		return emperror.Wrapf(err, "cannot put %v/%v", folder, name)
+	}
+	return nil
+}
+
+func (fs *S3Fs) FileWrite(folder, name string, r io.Reader, size int64, opts FilePutOptions) error {
+	if _, err := fs.s3.PutObject(
+		context.Background(),
+		folder,
+		name,
+		r,
+		size,
 		minio.PutObjectOptions{ContentType: opts.ContentType, Progress: opts.Progress},
 	); err != nil {
 		return emperror.Wrapf(err, "cannot put %v/%v", folder, name)

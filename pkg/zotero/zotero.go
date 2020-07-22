@@ -207,6 +207,14 @@ func (zot *Zotero) CheckRetry(header http.Header) bool {
 	return retryAfter > 0
 }
 
+func (zot *Zotero) GetFS() filesystem.FileSystem {
+	return zot.fs
+}
+
+func (zot *Zotero) UseGitlab() bool {
+	return zot.git != nil
+}
+
 func (zot *Zotero) CheckBackoff(header http.Header) bool {
 	var err error
 	backoff := int64(0)
@@ -318,7 +326,7 @@ func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	zot.CheckBackoff(resp.Header())
-	group.zot = zot
+	group.Zot = zot
 	return group, nil
 }
 
@@ -455,6 +463,10 @@ func (zot *Zotero) gitlabCheck(path, ref string) (bool, error) {
 }
 
 func (zot *Zotero) SyncGroupsGitlab() error {
+	if !zot.UseGitlab() {
+		zot.logger.Infof("no gitlab sync for groups")
+		return nil
+	}
 	synctime := time.Now()
 	sqlstr := fmt.Sprintf("SELECT id, version, data, deleted, gitlab, itemversion, collectionversion, tagversion"+
 		" FROM %s.groups"+
@@ -470,7 +482,7 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 		if err != nil {
 			continue
 		}
-		group.zot = zot
+		group.Zot = zot
 		result = append(result, *group)
 	}
 	rows.Close()
@@ -533,7 +545,7 @@ func (zot *Zotero) SyncGroupsGitlab() error {
 			fname := fmt.Sprintf("%v.json", group.Id)
 			action.FilePath = fname
 
-			found, err := group.zot.gitlabCheck(fname, "master")
+			found, err := group.Zot.gitlabCheck(fname, "master")
 			if err != nil {
 				return emperror.Wrapf(err, "cannot check gitlab for %v", fname)
 			}

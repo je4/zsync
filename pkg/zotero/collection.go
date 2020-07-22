@@ -65,12 +65,12 @@ func (collection *Collection) uploadGitlab() (gitlab.EventTypeValue, error) {
 	fname := fmt.Sprintf("%v/collections/%v.json", collection.Group.Id, collection.Key)
 	var event gitlab.EventTypeValue
 	if collection.Deleted || collection.Trashed {
-		event, err = collection.Group.zot.deleteGitlab(fname, "master", gcommit)
+		event, err = collection.Group.Zot.deleteGitlab(fname, "master", gcommit)
 		if err != nil {
 			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
 	} else {
-		event, err = collection.Group.zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
+		event, err = collection.Group.Zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
 		if err != nil {
 			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
 		}
@@ -79,7 +79,7 @@ func (collection *Collection) uploadGitlab() (gitlab.EventTypeValue, error) {
 }
 
 func (collection *Collection) UpdateLocal() error {
-	collection.Group.zot.logger.Infof("Updating Collection [#%s]", collection.Key)
+	collection.Group.Zot.logger.Infof("Updating Collection [#%s]", collection.Key)
 	data, err := json.Marshal(collection.Data)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall data %v", collection.Data)
@@ -88,7 +88,7 @@ func (collection *Collection) UpdateLocal() error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall meta %v", collection.Meta)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, meta=$4, deleted=$5, modified=NOW() WHERE key=$6", collection.Group.zot.dbSchema)
+	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, meta=$4, deleted=$5, modified=NOW() WHERE key=$6", collection.Group.Zot.dbSchema)
 	params := []interface{}{
 		collection.Version,
 		SyncStatusString[collection.Status],
@@ -97,7 +97,7 @@ func (collection *Collection) UpdateLocal() error {
 		collection.Deleted,
 		collection.Key,
 	}
-	_, err = collection.Group.zot.db.Exec(sqlstr, params...)
+	_, err = collection.Group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -105,13 +105,13 @@ func (collection *Collection) UpdateLocal() error {
 }
 
 func (collection *Collection) UpdateCloud() error {
-	collection.Group.zot.logger.Infof("Creating Zotero Collection [#%s]", collection.Key)
+	collection.Group.Zot.logger.Infof("Creating Zotero Collection [#%s]", collection.Key)
 
 	collection.Data.Version = collection.Version
 	if collection.Deleted {
 		endpoint := fmt.Sprintf("/groups/%v/collections/%v", collection.Group.Id, collection.Key)
-		collection.Group.zot.logger.Infof("rest call: DELETE %s", endpoint)
-		resp, err := collection.Group.zot.client.R().
+		collection.Group.Zot.logger.Infof("rest call: DELETE %s", endpoint)
+		resp, err := collection.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", collection.Version)).
 			Delete(endpoint)
@@ -128,9 +128,9 @@ func (collection *Collection) UpdateCloud() error {
 		}
 	} else {
 		endpoint := fmt.Sprintf("/groups/%v/collections", collection.Group.Id)
-		collection.Group.zot.logger.Infof("rest call: POST %s", endpoint)
+		collection.Group.Zot.logger.Infof("rest call: POST %s", endpoint)
 		collections := []CollectionData{collection.Data}
-		resp, err := collection.Group.zot.client.R().
+		resp, err := collection.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetBody(collections).
 			Post(endpoint)

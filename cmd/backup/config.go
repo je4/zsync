@@ -18,22 +18,15 @@ type S3 struct {
 	SecretAccessKey string `toml:"secretAccessKey"`
 	UseSSL          bool   `toml:"useSSL"`
 }
+
 type Config struct {
 	Service              string
-	Listen               string
-	TLS                  bool
-	CertChain            string
-	PrivateKey           string
-	Endpoint             string
-	Apikey               string
 	Logfile              string
 	Loglevel             string
 	AccessLog            string
-	NewGroupActive       bool `toml:"newgroupactive"`
-	Attachmentfolder     string
+	BackupPath           string
 	DB                   Cfg_database `toml:"database"`
 	GroupCacheExpiration string       `toml:"groupcacheexpiration"`
-	SyncSleep            string       `toml:"syncsleep"`
 	S3                   S3           `toml:"s3"`
 }
 

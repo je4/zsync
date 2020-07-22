@@ -3,10 +3,9 @@ package main
 import (
 	"fmt"
 	"github.com/gorilla/mux"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
-	"io"
 	"net/http"
-	"os"
 )
 
 func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
@@ -42,24 +41,19 @@ func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
 			respondWithError(w, http.StatusForbidden, fmt.Sprintf("item %v.%v is not an attachment", group.Id, key))
 			return
 		}
-		folder, err := group.GetAttachmentFolder()
+		folder, err := group.GetFolder()
 		if err != nil {
 			handlers.logger.Errorf("cannot get attachment folder")
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot get attachment folder"))
 			return
 		}
-		filename := fmt.Sprintf("%s/%s", folder, key)
-		f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-		if err != nil {
-			handlers.logger.Errorf("cannot create %v: %v", filename, err)
-			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot create %v: %v", filename, err))
-			return
+		fs := group.Zot.GetFS()
+		opts := filesystem.FilePutOptions{
+			ContentType: r.Header.Get("Content-Type"),
 		}
-		defer f.Close()
-		num, err := io.Copy(f, r.Body)
-		if err != nil {
-			handlers.logger.Errorf("cannot write %v: %v", filename, err)
-			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot write %v: %v", filename, err))
+		if err := fs.FileWrite(folder, key, r.Body, -1, opts); err != nil {
+			handlers.logger.Errorf("cannot write %v/%v: %v", folder, key, err)
+			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot write %v/%v: %v", folder, key, err))
 			return
 		}
 
@@ -70,6 +64,6 @@ func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
 			return
 		}
 
-		respondWithJSON(w, http.StatusOK, fmt.Sprintf("%v byte written to %v", num, filename))
+		respondWithJSON(w, http.StatusOK, fmt.Sprintf("data written to %v/%v", folder, key))
 	}
 }

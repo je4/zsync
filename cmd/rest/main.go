@@ -10,6 +10,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/mash/go-accesslog"
 	"github.com/op/go-logging"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"math/rand"
@@ -83,11 +84,19 @@ func main() {
 	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
 	defer lf.Close()
 
+	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
+	if err != nil {
+		log.Fatalf("cannot conntct to s3 instance: %v", err)
+	}
+
+
+
 	rand.Seed(time.Now().Unix())
 
 	zot, err := zotero.NewZotero(cfg.Endpoint,
 		cfg.Apikey,
 		db,
+		fs,
 		cfg.DB.Schema,
 		cfg.Attachmentfolder,
 		cfg.NewGroupActive,
