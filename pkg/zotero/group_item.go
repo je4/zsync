@@ -243,9 +243,17 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 	return &result, nil
 }
 
-func (group *Group) IterateItemsAllLocal(f func (item *Item) error) error {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1", group.Zot.dbSchema)
-	rows, err := group.Zot.db.Query(sqlstr, group.Id)
+func (group *Group) IterateItemsAllLocal(after *time.Time, f func(item *Item) error) error {
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab " +
+		"FROM %s.items WHERE library=$1", group.Zot.dbSchema)
+	params := []interface{}{
+		group.Id,
+	}
+	if after != nil {
+		sqlstr += " AND (gitlab IS NULL OR gitlab > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
+		params = append(params, after.Format("2006-01-02 15:04:05"))
+	}
+	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -257,6 +265,36 @@ func (group *Group) IterateItemsAllLocal(f func (item *Item) error) error {
 			return emperror.Wrapf(err, "cannot scan row")
 		}
 		if err := f(item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (group *Group) IterateCollectionsAllLocal(after *time.Time, f func(coll *Collection) error) error {
+	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, deleted, sync, gitlab"+
+		" FROM %s.collections"+
+		" WHERE library=$1", group.Zot.dbSchema)
+
+	params := []interface{}{
+		group.Id,
+	}
+	if after != nil {
+		sqlstr += " AND (gitlab IS NULL OR gitlab > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
+		params = append(params, after.Format("2006-01-02 15:04:05"))
+	}
+	rows, err := group.Zot.db.Query(sqlstr, params...)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s", sqlstr)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		coll, err := group.collectionFromRow(rows)
+		if err != nil {
+			return emperror.Wrapf(err, "cannot scan row")
+		}
+		if err := f(coll); err != nil {
 			return err
 		}
 	}

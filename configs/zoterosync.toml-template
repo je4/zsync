@@ -22,6 +22,10 @@ attachmentfolder = "//localhost/c$/temp/zotero"
 groupcacheexpiration = "10m"
 syncsleep = "60m"
 
+[backup]
+path = "C:/temp/zoterobackup"
+name = "Juergen Enge"
+email = "juergen@info-age.net"
 
 [database]
 #	servertype = "mysql"

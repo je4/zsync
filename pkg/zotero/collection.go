@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"github.com/goph/emperror"
 	"github.com/xanzy/go-gitlab"
+	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
+	"path/filepath"
 	"time"
 )
 
@@ -154,5 +156,35 @@ func (collection *Collection) UpdateCloud() error {
 	if err := collection.UpdateLocal(); err != nil {
 		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", collection.Group.Id, collection.Key))
 	}
+	return nil
+}
+
+func (collection *Collection) Backup(backupFs filesystem.FileSystem) error {
+	collection.Group.Zot.logger.Infof("storing %v to %v", collection.Data.Name, backupFs.String())
+	var fname string
+	var folder string
+	folder = filepath.Clean( fmt.Sprintf("%v/collections", collection.Group.Id))
+	fname = filepath.Clean(fmt.Sprintf("%v.json", collection.Key))
+
+	// write data to file
+	data := struct {
+		LibraryId int64       `json:"libraryid"`
+		Id        string      `json:"id"`
+		Data      interface{} `json:"data"`
+		Meta      interface{} `json:"meta"`
+	}{
+		LibraryId: collection.Group.Id,
+		Id:        collection.Key,
+		Data:      collection.Data,
+		Meta:      collection.Meta,
+	}
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return emperror.Wrapf(err, "cannot marshal data %v", data)
+	}
+	if err := backupFs.FilePut(folder, fname, b, filesystem.FilePutOptions{}); err != nil {
+		return emperror.Wrap(err, "cannot write data to file")
+	}
+
 	return nil
 }

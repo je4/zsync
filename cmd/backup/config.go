@@ -19,12 +19,18 @@ type S3 struct {
 	UseSSL          bool   `toml:"useSSL"`
 }
 
+type Backup struct {
+	Path  string
+	Name  string
+	Email string
+}
+
 type Config struct {
 	Service              string
 	Logfile              string
 	Loglevel             string
 	AccessLog            string
-	BackupPath           string
+	Backup               Backup
 	DB                   Cfg_database `toml:"database"`
 	GroupCacheExpiration string       `toml:"groupcacheexpiration"`
 	S3                   S3           `toml:"s3"`

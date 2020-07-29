@@ -4,6 +4,9 @@ go 1.14
 
 require (
 	github.com/BurntSushi/toml v0.3.1
+	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
+	github.com/go-git/go-git v4.7.0+incompatible
+	github.com/go-git/go-git/v5 v5.1.0
 	github.com/go-ini/ini v1.57.0 // indirect
 	github.com/goph/emperror v0.17.2
 	github.com/lib/pq v1.7.1
@@ -13,4 +16,5 @@ require (
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/xanzy/go-gitlab v0.33.0
 	gopkg.in/resty.v1 v1.12.0
+	gopkg.in/src-d/go-git.v4 v4.13.1 // indirect
 )

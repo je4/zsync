@@ -35,7 +35,6 @@ type Zotero struct {
 	fs               filesystem.FileSystem
 }
 
-
 type Library struct {
 	Type  string      `json:"type"`
 	Id    int64       `json:"id"`
@@ -449,7 +448,7 @@ func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
 
 func (zot *Zotero) gitlabCheck(path, ref string) (bool, error) {
 	opts := &gitlab.GetFileMetaDataOptions{Ref: &ref}
-	_, resp, err := zot.git.RepositoryFiles.GetFileMetaData(zot.gitProject.ID, path, opts )
+	_, resp, err := zot.git.RepositoryFiles.GetFileMetaData(zot.gitProject.ID, path, opts)
 	if err != nil {
 		if errResp, ok := err.(*gitlab.ErrorResponse); ok {
 			if errResp.Response.StatusCode != http.StatusNotFound {

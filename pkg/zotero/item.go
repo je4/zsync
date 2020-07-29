@@ -12,6 +12,7 @@ import (
 	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -130,6 +131,67 @@ func (item *Item) GetType() (string, error) {
 	return item.Data.ItemType, nil
 }
 
+func (item *Item) Backup(backupFs filesystem.FileSystem) error {
+	var fname string
+	var folder string
+	if string(item.Data.ParentItem) != "" {
+		folder = filepath.Clean(fmt.Sprintf("%v/items/%v", item.Group.Id, item.Data.ParentItem))
+	} else {
+		folder = filepath.Clean(fmt.Sprintf("%v/items", item.Group.Id))
+
+	}
+	fname = filepath.Clean(fmt.Sprintf("%v.json", item.Key))
+
+	item.Group.Zot.logger.Infof("storing %v to %v", item.Data.Title, fname)
+
+	// write data to file
+	data := struct {
+		LibraryId int64       `json:"libraryid"`
+		Id        string      `json:"id"`
+		Data      interface{} `json:"data"`
+		Meta      interface{} `json:"meta"`
+	}{
+		LibraryId: item.Group.Id,
+		Id:        item.Key,
+		Data:      item.Data,
+		Meta:      item.Meta,
+	}
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return emperror.Wrapf(err, "cannot marshal data %v", data)
+	}
+	if err := backupFs.FilePut(folder, fname, b, filesystem.FilePutOptions{}); err != nil {
+		return emperror.Wrap(err, "cannot store data in file")
+	}
+
+	itemType, err := item.GetType()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot get type of item %v/%v", item.Group.Id, item.Key)
+	}
+	if itemType == "attachment" && item.Data.MD5 != "" && !item.Deleted {
+		bucket, err := item.Group.GetFolder()
+		if err != nil {
+			return emperror.Wrapf(err, "cannot get attachment folder")
+		}
+
+		file, err := item.Group.Zot.fs.FileOpenRead(bucket, item.Key, filesystem.FileGetOptions{})
+		if err != nil {
+			return emperror.Wrapf(err, "cannot open file from %v/%v", bucket, item.Key)
+		}
+		defer file.Close()
+		if err := backupFs.FileWrite(
+			folder,
+			fmt.Sprintf("%v.bin", item.Key),
+			file,
+			-1,
+			filesystem.FilePutOptions{}); err != nil {
+			return emperror.Wrapf(err, "cannot write to %v/%v.bin", folder, item.Key)
+		}
+	}
+
+		return nil
+}
+
 func (item *Item) UploadGitlab() (gitlab.EventTypeValue, error) {
 	item.Group.Zot.logger.Infof("uploading %v to gitlab", item.Data.Title)
 
@@ -193,7 +255,7 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 	if err != nil {
 		return "", emperror.Wrapf(err, "cannot get attachment folder")
 	}
-//	filename := fmt.Sprintf("%s/%s", folder, item.Key)
+	//	filename := fmt.Sprintf("%s/%s", folder, item.Key)
 	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.Group.Id, item.Key)
 
 	item.Group.Zot.logger.Infof("rest call: %s", endpoint)
@@ -211,12 +273,12 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 	}
 
 	body := resp.Body()
-	contentType := 	resp.Header().Get("Content-type")
+	contentType := resp.Header().Get("Content-type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-//	_, err = item.Group.Zot.s3.PutObject(context.Background(), bucket, item.Key, bytes.NewReader(body), int64(len(body)), minio.PutObjectOptions{ContentType:contentType})
+	//	_, err = item.Group.Zot.s3.PutObject(context.Background(), bucket, item.Key, bytes.NewReader(body), int64(len(body)), minio.PutObjectOptions{ContentType:contentType})
 	if err := item.Group.Zot.fs.FilePut(bucket, item.Key, body, filesystem.FilePutOptions{ContentType: contentType}); err != nil {
 		return "", emperror.Wrap(err, "cannot put file")
 	}
@@ -429,7 +491,6 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			return emperror.Wrapf(err, "could not create item #%v.%v", item.Group.Id, item.Key)
 		}
 
-
 		for _, i := range result.Successful {
 			i.Group = item.Group
 			i.UpdateLocal()
@@ -545,7 +606,7 @@ func (item *Item) uploadGitlab() (gitlab.EventTypeValue, error) {
 
 func (item *Item) getChildrenLocal() (*[]Item, error) {
 	item.Group.Zot.logger.Infof("get children of  item [#%s]", item.Key)
-	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.meta, i.trashed, i.deleted, i.sync, i.md5, i.gitlab" +
+	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.meta, i.trashed, i.deleted, i.sync, i.md5, i.gitlab"+
 		" FROM %s.items i, %s.item_type_hier ith"+
 		" WHERE i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.Group.Zot.dbSchema, item.Group.Zot.dbSchema)
 	params := []interface{}{

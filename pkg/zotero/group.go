@@ -9,7 +9,7 @@ import (
 	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
-	"io/ioutil"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -170,11 +170,12 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 	}
 	zot.logger.Debugf("loading Group #%v from database", groupId)
 	sqlstr := fmt.Sprintf("SELECT version, created, modified, data, active, direction, tags,"+
-		" itemversion, collectionversion, tagversion"+
+		" itemversion, collectionversion, tagversion, gitlab"+
 		" FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
 	row := zot.db.QueryRow(sqlstr, groupId)
 	var jsonstr sql.NullString
 	var directionstr string
+	var gitlab sql.NullTime
 	err := row.Scan(&group.Version,
 		&group.Meta.Created,
 		&group.Meta.LastModified,
@@ -184,7 +185,8 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 		&group.syncTags,
 		&group.ItemVersion,
 		&group.CollectionVersion,
-		&group.TagVersion)
+		&group.TagVersion,
+		&gitlab)
 	if err != nil {
 		// error real error
 		if err != sql.ErrNoRows {
@@ -198,6 +200,9 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 		group.Active = active
 		group.direction = direction
 	} else {
+		if gitlab.Valid {
+			group.Gitlab = &gitlab.Time
+		}
 		group.direction = SyncDirectionId[directionstr]
 	}
 	if jsonstr.Valid {
@@ -235,14 +240,67 @@ func (zot *Zotero) LoadGroupsLocal() ([]*Group, error) {
 	return grps, nil
 }
 
-func (group *Group) BackupLocal(basepath string) error {
-	//now := time.Now()
+func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
+	now := time.Now()
 
-	group.IterateItemsAllLocal(func (item *Item) error {
-		group.Zot.logger.Infof("item #%v.%v - %v", item.Group.Id, item.Key, item.Data.Title)
+	folder := fmt.Sprintf("%v/%v", backupFs.String(), group.Id)
+	// create the folder
+	if !FolderExists(folder) {
+		if err := os.Mkdir(folder, 0755); err != nil {
+			return emperror.Wrapf(err, "cannot create folder %v", folder)
+		}
+	}
+
+	if err := group.IterateCollectionsAllLocal(group.Gitlab, func(coll *Collection) error {
+		group.Zot.logger.Infof("collection #%v.%v - %v", coll.Group.Id, coll.Key, coll.Data.Name)
+		if err := coll.Backup(backupFs); err != nil {
+			return emperror.Wrapf(err, "cannot backup collection #%v.%v", coll.Group.Id, coll.Key)
+		}
 		return nil
-	})
+	}); err != nil {
+		return emperror.Wrap(err, "cannot iterate collections")
+	}
+	sqlstr := fmt.Sprintf("UPDATE %s.collections SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') " +
+		"WHERE library=$2 AND (TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') > gitlab OR gitlab IS NULL)", group.Zot.dbSchema)
+	params := []interface{}{
+		now.Format("2006-01-02 15:04:05"),
+		group.Id,
+		now.Format("2006-01-02 15:04:05"),
+	}
+	if group.Gitlab != nil {
+		sqlstr += " AND (gitlab >= TO_TIMESTAMP($4, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)"
+		params = append(params, group.Gitlab.Format("2006-01-02 15:04:05"))
+	}
+	_, err := group.Zot.db.Exec(sqlstr, params...)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
+	}
 
+	if err := group.IterateItemsAllLocal(group.Gitlab, func(item *Item) error {
+		group.Zot.logger.Infof("item #%v.%v - %v", item.Group.Id, item.Key, item.Data.Title)
+		if err := item.Backup(backupFs); err != nil {
+			return emperror.Wrapf(err, "cannot backup item #%v.%v", item.Group.Id, item.Key)
+		}
+		return nil
+	}); err != nil {
+		return emperror.Wrap(err, "cannot iterate items")
+	}
+
+	sqlstr = fmt.Sprintf("UPDATE %s.items SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') " +
+		"WHERE library=$2 AND (gitlab <= TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)", group.Zot.dbSchema)
+	params = []interface{}{
+		now.Format("2006-01-02 15:04:05"),
+		group.Id,
+		now.Format("2006-01-02 15:04:05"),
+	}
+	if group.Gitlab != nil {
+		sqlstr += " AND (gitlab >= TO_TIMESTAMP($4, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)"
+		params = append(params, group.Gitlab.Format("2006-01-02 15:04:05"))
+	}
+	_, err = group.Zot.db.Exec(sqlstr, params...)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
+	}
 
 	if group.Gitlab != nil {
 		// modification local disk-version is older
@@ -251,12 +309,17 @@ func (group *Group) BackupLocal(basepath string) error {
 			if err != nil {
 				group.Zot.logger.Errorf("cannot marshal Group data of #%v", group.Id)
 			} else {
-				filename := path.Join(basepath, fmt.Sprintf("%v.json", group.Id))
-				if err := ioutil.WriteFile(filename, data, 0644); err != nil {
+				filename := path.Clean(fmt.Sprintf("%v.json", group.Id))
+				if err := backupFs.FilePut(folder, filename, data, filesystem.FilePutOptions{}); err != nil {
 					group.Zot.logger.Errorf("cannot write Group data of #%v to file %v", group.Id, filename)
 				}
 			}
 		}
+	}
+
+	sqlstr = fmt.Sprintf("UPDATE %s.groups SET gitlab=$1 WHERE id=$2", group.Zot.dbSchema)
+	if _, err := group.Zot.db.Exec(sqlstr, now, group.Id); err != nil {
+		return emperror.Wrapf(err, "cannot update timestamp for group #%v", group.Id)
 	}
 
 	return nil

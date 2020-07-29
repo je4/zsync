@@ -3,12 +3,14 @@ package main
 import (
 	"database/sql"
 	"flag"
+	"fmt"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"os"
+	"time"
 )
 
 var _logformat = logging.MustStringFormatter(
@@ -52,6 +54,12 @@ func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.L
 
 	var err error
 
+	backupFs, err := filesystem.NewGitFs(cfg.Backup.Path)
+	if err != nil {
+		panic(fmt.Sprintf("not a git repo: %v", cfg.Backup.Path))
+	}
+
+
 	zot, err := zotero.NewZotero("", "", db, fs, cfg.DB.Schema, "", false, nil, nil, logger, true)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
@@ -63,12 +71,16 @@ func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.L
 		logger.Errorf("cannot load groups: %v", err)
 		return
 	}
+
+
 	for _, grp := range grps {
-		if err := grp.BackupLocal(cfg.BackupPath); err != nil {
-			logger.Errorf("cannot backup group #%v: %v", grp.Id, err)
+		if grp.Id == 2474728 {
+			if err := grp.BackupLocal(backupFs); err != nil {
+				logger.Errorf("cannot backup group #%v: %v", grp.Id, err)
+			}
 		}
 	}
-
+	backupFs.Commit(time.Now().String(), cfg.Backup.Name, cfg.Backup.Email)
 }
 
 func main() {

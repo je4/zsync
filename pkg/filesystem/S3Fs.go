@@ -3,6 +3,7 @@ package filesystem
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/goph/emperror"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -28,6 +29,10 @@ func NewS3Fs(Endpoint string,
 		return nil, emperror.Wrap(err, "cannot conntct to s3 instance")
 	}
 	return &S3Fs{s3: s3}, nil
+}
+
+func (fs *S3Fs) String() string {
+	return fmt.Sprintf(fs.s3.EndpointURL().String())
 }
 
 func (fs *S3Fs) FileStat( folder, name string, opts FileStatOptions) (os.FileInfo, error) {
@@ -118,4 +123,42 @@ func (fs *S3Fs) FileWrite(folder, name string, r io.Reader, size int64, opts Fil
 		return emperror.Wrapf(err, "cannot put %v/%v", folder, name)
 	}
 	return nil
+}
+
+func (fs *S3Fs) FileRead(folder, name string, w io.Writer, size int64, opts FileGetOptions) error {
+	object, err := fs.s3.GetObject(
+		context.Background(),
+		folder,
+		name,
+		minio.GetObjectOptions{},
+		);
+	if err != nil {
+		return emperror.Wrapf(err, "cannot get object %v/%v", folder, name)
+	}
+	defer object.Close()
+	if size == -1 {
+		if _, err := io.Copy(w, object); err != nil {
+				return emperror.Wrapf(err, "cannot read from obect %v/%v", folder, name)
+		}
+	} else {
+		if _, err := io.CopyN(w, object, size); err != nil {
+			if err != io.ErrUnexpectedEOF && err != io.EOF {
+				return emperror.Wrapf(err, "cannot read from obect %v/%v", folder, name)
+			}
+		}
+	}
+	return nil
+}
+
+func (fs *S3Fs) FileOpenRead(folder, name string, opts FileGetOptions) (io.ReadCloser, error) {
+	object, err := fs.s3.GetObject(
+		context.Background(),
+		folder,
+		name,
+		minio.GetObjectOptions{},
+	);
+	if err != nil {
+		return nil, emperror.Wrapf(err, "cannot get object %v/%v", folder, name)
+	}
+	return object, nil
 }
