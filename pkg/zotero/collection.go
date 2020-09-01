@@ -1,12 +1,10 @@
 package zotero
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
-	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"path/filepath"
 	"time"
@@ -44,40 +42,6 @@ type CollectionGitlab struct {
 	Key       string         `json:"key"`
 	Data      CollectionData `json:"data,omitempty"`
 	Meta      CollectionMeta `json:"meta,omitempty"`
-}
-
-func (collection *Collection) uploadGitlab() (gitlab.EventTypeValue, error) {
-	glColl := CollectionGitlab{
-		LibraryId: collection.Group.Id,
-		Key:       collection.Key,
-		Data:      collection.Data,
-		Meta:      collection.Meta,
-	}
-
-	data, err := json.Marshal(glColl)
-	if err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshall data %v", glColl)
-	}
-
-	var prettyJSON bytes.Buffer
-	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
-	}
-	gcommit := fmt.Sprintf("%v - %v.%v v%v", collection.Data.Name, collection.Group.Id, collection.Key, collection.Version)
-	fname := fmt.Sprintf("%v/collections/%v.json", collection.Group.Id, collection.Key)
-	var event gitlab.EventTypeValue
-	if collection.Deleted || collection.Trashed {
-		event, err = collection.Group.Zot.deleteGitlab(fname, "master", gcommit)
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	} else {
-		event, err = collection.Group.Zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	}
-	return event, nil
 }
 
 func (collection *Collection) UpdateLocal() error {
@@ -163,7 +127,7 @@ func (collection *Collection) Backup(backupFs filesystem.FileSystem) error {
 	collection.Group.Zot.logger.Infof("storing %v to %v", collection.Data.Name, backupFs.String())
 	var fname string
 	var folder string
-	folder = filepath.Clean( fmt.Sprintf("%v/collections", collection.Group.Id))
+	folder = filepath.Clean(fmt.Sprintf("%v/collections", collection.Group.Id))
 	fname = filepath.Clean(fmt.Sprintf("%v.json", collection.Key))
 
 	// write data to file

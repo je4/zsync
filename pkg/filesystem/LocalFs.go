@@ -3,6 +3,7 @@ package filesystem
 import (
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/op/go-logging"
 	"io"
 	"io/ioutil"
 	"os"
@@ -11,8 +12,8 @@ import (
 
 type LocalFs struct {
 	basepath string
+	logger   *logging.Logger
 }
-
 
 func FileExists(filename string) bool {
 	info, err := os.Stat(filename)
@@ -30,18 +31,18 @@ func FolderExists(filename string) bool {
 	return info.IsDir()
 }
 
-func NewLocalFs(basepath string) (*LocalFs, error) {
+func NewLocalFs(basepath string, logger *logging.Logger) (*LocalFs, error) {
 	if !FolderExists(basepath) {
 		return nil, fmt.Errorf("path %v does not exists", basepath)
 	}
-	return &LocalFs{basepath: basepath}, nil
+	return &LocalFs{basepath: basepath, logger: logger}, nil
 }
 
 func (fs *LocalFs) String() string {
 	return fs.basepath
 }
 
-func (fs *LocalFs) FileStat( folder, name string, opts FileStatOptions) (os.FileInfo, error) {
+func (fs *LocalFs) FileStat(folder, name string, opts FileStatOptions) (os.FileInfo, error) {
 	path := filepath.Join(folder, name)
 	return os.Stat(filepath.Join(fs.basepath, path))
 }
@@ -55,11 +56,12 @@ func (fs *LocalFs) FolderExists(folder string) (bool, error) {
 	return FolderExists(filepath.Join(fs.basepath, folder)), nil
 }
 
-func (fs *LocalFs) FolderCreate( folder string, opts FolderCreateOptions) error {
+func (fs *LocalFs) FolderCreate(folder string, opts FolderCreateOptions) error {
 	path := filepath.Join(fs.basepath, folder)
 	if FolderExists(path) {
 		return nil
 	}
+	fs.logger.Debugf("create folder %v", path)
 	err := os.MkdirAll(path, 0755)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot create folder %v", path)
@@ -80,8 +82,9 @@ func (fs *LocalFs) FilePut(folder, name string, data []byte, opts FilePutOptions
 	if err := fs.FolderCreate(folder, FolderCreateOptions{}); err != nil {
 		return emperror.Wrapf(err, "cannot create folder %v", folder)
 	}
-	path := filepath.Join(folder, name)
-	if err := ioutil.WriteFile(filepath.Join(fs.basepath, path), data, 0644); err != nil {
+	path := filepath.Join(fs.basepath, filepath.Join(folder, name))
+	fs.logger.Debugf("writing data to: %v", path)
+	if err := ioutil.WriteFile(path, data, 0644); err != nil {
 		return emperror.Wrapf(err, "cannot write data to %v", path)
 	}
 	return nil
@@ -92,14 +95,14 @@ func (fs *LocalFs) FileWrite(folder, name string, r io.Reader, size int64, opts 
 		return emperror.Wrapf(err, "cannot create folder %v", folder)
 	}
 	path := filepath.Join(folder, name)
-	file, err := os.OpenFile(filepath.Join(fs.basepath, path), os.O_CREATE | os.O_WRONLY, 0644)
+	file, err := os.OpenFile(filepath.Join(fs.basepath, path), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot open file %v", path)
 	}
 	defer file.Close()
 	if size == -1 {
 		if _, err := io.Copy(file, r); err != nil {
-				return emperror.Wrapf(err, "cannot write to file %v", path)
+			return emperror.Wrapf(err, "cannot write to file %v", path)
 		}
 	} else {
 		if _, err := io.CopyN(file, r, size); err != nil {

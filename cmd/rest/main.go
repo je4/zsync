@@ -28,6 +28,7 @@ var _logformat = logging.MustStringFormatter(
 type alogger struct {
 	handle *os.File
 }
+
 func (l alogger) Log(record accesslog.LogRecord) {
 	//log.Println(record.Host+" ["+(time.Now().Format(time.RFC3339))+"] \""+record.Method+" "+record.Uri+" "+record.Protocol+"\" "+strconv.Itoa(record.Status)+" "+strconv.FormatInt(record.Size, 10))
 	if _, err := fmt.Fprintf(l.handle, "%s [%s] \"%s %s %s\" %d %d\n", record.Host, time.Now().Format(time.RFC3339), record.Method, record.Uri, record.Protocol, record.Status, record.Size); err != nil {
@@ -89,18 +90,15 @@ func main() {
 		log.Fatalf("cannot conntct to s3 instance: %v", err)
 	}
 
-
-
 	rand.Seed(time.Now().Unix())
 
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, fs, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, nil, nil, logger, false, )
+	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, fs, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, logger, false)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
 	}
 
 	logger.Infof("current key: %v", zot.CurrentKey)
-
 
 	groupVersions, err := zot.GetUserGroupVersions(zot.CurrentKey)
 	if err != nil {
@@ -150,7 +148,7 @@ func main() {
 			credentialsOk,
 			ignoreOptions,
 		)(router), l),
-		Addr:    cfg.Listen,
+		Addr: cfg.Listen,
 		// Good practice: enforce timeouts for servers you create!
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,

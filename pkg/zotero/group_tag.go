@@ -60,7 +60,11 @@ func (group *Group) GetTagsVersionCloud(sinceVersion int64) (*[]Tag, int64, erro
 	if err := json.Unmarshal(rawBody, tags); err != nil {
 		return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	lastModifiedVersion, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-IsModified-Version"), 10, 64)
+	limv := resp.RawResponse.Header.Get("Last-Modified-Version")
+	lastModifiedVersion, err := strconv.ParseInt(limv, 10, 64)
+	if err != nil {
+		return nil, 0, emperror.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
+	}
 
 	return tags, lastModifiedVersion, nil
 }

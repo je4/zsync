@@ -3,14 +3,12 @@ package main
 import (
 	"database/sql"
 	"flag"
-	"fmt"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"os"
-	"time"
 )
 
 var _logformat = logging.MustStringFormatter(
@@ -20,7 +18,6 @@ var _logformat = logging.MustStringFormatter(
 //
 //  XBYUCYUR 2f1180d8-6582-4143-8bba-e82c9f724023
 //
-
 
 func CreateLogger(module string, logfile string, loglevel string) (log *logging.Logger, lf *os.File) {
 	log = logging.MustGetLogger(module)
@@ -54,13 +51,12 @@ func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.L
 
 	var err error
 
-	backupFs, err := filesystem.NewGitFs(cfg.Backup.Path)
+	backupFs, err := filesystem.NewLocalFs(cfg.Backup.Path, logger)
 	if err != nil {
-		panic(fmt.Sprintf("not a git repo: %v", cfg.Backup.Path))
+		logger.Panicf("not a git repo: %v", cfg.Backup.Path)
 	}
 
-
-	zot, err := zotero.NewZotero("", "", db, fs, cfg.DB.Schema, "", false, nil, nil, logger, true)
+	zot, err := zotero.NewZotero("", "", db, fs, cfg.DB.Schema, "", false, logger, true)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
@@ -72,15 +68,12 @@ func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.L
 		return
 	}
 
-
 	for _, grp := range grps {
-		if grp.Id == 2474728 {
-			if err := grp.BackupLocal(backupFs); err != nil {
-				logger.Errorf("cannot backup group #%v: %v", grp.Id, err)
-			}
+		if err := grp.BackupLocal(backupFs); err != nil {
+			logger.Errorf("cannot backup group #%v: %v", grp.Id, err)
 		}
 	}
-	backupFs.Commit(time.Now().String(), cfg.Backup.Name, cfg.Backup.Email)
+	//backupFs.Commit(time.Now().String(), cfg.Backup.Name, cfg.Backup.Email)
 }
 
 func main() {
@@ -103,7 +96,6 @@ func main() {
 	}
 	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
 	defer lf.Close()
-
 
 	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
 	if err != nil {

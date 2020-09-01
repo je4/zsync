@@ -5,6 +5,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/goph/emperror"
+	"github.com/op/go-logging"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,15 +15,20 @@ import (
 type GitFs struct {
 	localFs *LocalFs
 	repo    *git.Repository
+	logger  *logging.Logger
 }
 
-func NewGitFs(basepath string) (*GitFs, error) {
+func NewGitFs(basepath string, logger *logging.Logger) (*GitFs, error) {
 	if !FolderExists(basepath) {
 		return nil, fmt.Errorf("path %v does not exists", basepath)
 	}
-	localfs := &LocalFs{basepath: basepath}
+	localfs, err := NewLocalFs(basepath, logger)
+	if err != nil {
+		return nil, emperror.Wrap(err, "cannot create local fs")
+	}
 	gitFs := &GitFs{
 		localFs: localfs,
+		logger:  logger,
 	}
 	if err := gitFs.Open(); err != nil {
 		return nil, emperror.Wrap(err, "cannot open gitfs")
@@ -34,7 +40,6 @@ func NewGitFs(basepath string) (*GitFs, error) {
 func (fs *GitFs) String() string {
 	return fs.localFs.basepath
 }
-
 
 func (fs *GitFs) Open() error {
 	var err error
@@ -98,7 +103,9 @@ func (fs *GitFs) FileWrite(folder, name string, r io.Reader, size int64, opts Fi
 		if err != nil {
 			return emperror.Wrapf(err, "cannot open worktree of %v", fs.localFs.basepath)
 		}
-		if _, err := w.Add(filepath.Join(folder, name)); err != nil {
+		fname := filepath.Join(folder, name)
+		fs.logger.Debugf("adding %v to git", fname)
+		if _, err := w.Add(fname); err != nil {
 			return emperror.Wrapf(err, "cannot add %v/%v/%v to repository", fs.localFs.basepath, folder, name)
 		}
 	}
@@ -120,11 +127,11 @@ func (fs *GitFs) Commit(msg, name, email string) error {
 		return emperror.Wrap(err, "cannot get worktree")
 	}
 	commit, err := w.Commit(msg, &git.CommitOptions{
-		Author:    &object.Signature{
+		Author: &object.Signature{
 			Name:  name,
 			Email: email,
 			When:  time.Now()},
-	});
+	})
 	if err != nil {
 		return emperror.Wrap(err, "cannot commit")
 	}

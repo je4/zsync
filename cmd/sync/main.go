@@ -5,7 +5,6 @@ import (
 	"flag"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
-	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
@@ -23,7 +22,6 @@ var _logformat = logging.MustStringFormatter(
 //
 //  XBYUCYUR 2f1180d8-6582-4143-8bba-e82c9f724023
 //
-
 
 func CreateLogger(module string, logfile string, loglevel string) (log *logging.Logger, lf *os.File) {
 	log = logging.MustGetLogger(module)
@@ -56,28 +54,6 @@ type ZotField struct {
 func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Logger) {
 
 	var err error
-	var gl *gitlab.Client
-	var glproject *gitlab.Project
-	if cfg.Gitlab.Active {
-		gl = gitlab.NewClient(nil, cfg.Gitlab.Token)
-		//gl, err = gitlab.NewClient(cfg.Gitlab.Token)
-		gl.SetBaseURL(cfg.Gitlab.Url)
-		opt := &gitlab.ListProjectsOptions{Search: gitlab.String("zotero")}
-		projects, _, err := gl.Projects.ListProjects(opt)
-		if err != nil {
-			logger.Fatalf("cannot list gitlab projects: %v", err)
-		}
-		for _, project := range projects {
-			if project.Path == cfg.Gitlab.Project {
-				glproject = project
-				break
-			}
-		}
-		if glproject == nil {
-			logger.Fatalf("cannot find zotero project on %v", cfg.Gitlab.Url)
-		}
-		logger.Infof("gitlab projekt #%v %v", glproject.ID, glproject.Name)
-	}
 	/*
 		nodes, _, err := gl.Repositories.ListTree(glproject.ID, nil)
 		for _, node := range nodes {
@@ -85,7 +61,7 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 		}
 	*/
 
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, fs, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, gl, glproject, logger, false)
+	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, fs, cfg.DB.Schema, cfg.Attachmentfolder, cfg.NewGroupActive, logger, false)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
@@ -103,11 +79,24 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
 		/*
-		if groupId != 1510019 {
-			continue
-		}
-		 */
+			if groupId != 1510019 {
+				continue
+			}
+		*/
 		groupIds = append(groupIds, groupId)
+
+		if len(cfg.Synconly) > 0 {
+			found := false
+			for _, sg := range cfg.Synconly {
+				if sg == groupId {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
 		group, err := zot.LoadGroupLocal(groupId)
 		if err != nil {
 			logger.Errorf("cannot load group %v: %v", groupId, err)
@@ -150,11 +139,6 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 		logger.Errorf("cannot delete unknown groups: %v", err)
 	}
 
-
-	if err := zot.SyncGroupsGitlab(); err != nil {
-		logger.Errorf("cannot sync groups to gitlab: %v", err)
-	}
-
 }
 
 func main() {
@@ -177,7 +161,6 @@ func main() {
 	}
 	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
 	defer lf.Close()
-
 
 	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
 	if err != nil {

@@ -1,18 +1,15 @@
 package zotero
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
-	"github.com/xanzy/go-gitlab"
 	"gopkg.in/resty.v1"
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func (group *Group) collectionFromRow(rowss interface{}) (*Collection, error) {
@@ -200,7 +197,11 @@ func (group *Group) GetCollectionsVersionCloud(sinceVersion int64) (*map[string]
 		if err := json.Unmarshal(rawBody, objects); err != nil {
 			return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 		}
-		h, _ := strconv.ParseInt(resp.RawResponse.Header.Get("Last-IsModified-Version"), 10, 64)
+		limv := resp.RawResponse.Header.Get("Last-Modified-Version")
+		h, err := strconv.ParseInt(limv, 10, 64)
+		if err != nil {
+			return nil, 0, emperror.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
+		}
 		if h > lastModifiedVersion {
 			lastModifiedVersion = h
 		}
@@ -249,7 +250,11 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 	if err := json.Unmarshal(rawBody, &collections); err != nil {
 		return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	lastModifiedVersion, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-IsModified-Version"), 10, 64)
+	limv := resp.RawResponse.Header.Get("Last-Modified-Version")
+	lastModifiedVersion, err := strconv.ParseInt(limv, 10, 64)
+	if err != nil {
+		return nil, 0, emperror.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
+	}
 
 	group.Zot.CheckBackoff(resp.Header())
 	result := []Collection{}
@@ -302,7 +307,7 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 		}
 		if err := collection.UpdateCloud(); err != nil {
 			group.Zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, collection.Key, err)
-//			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", Group.Id, collection.Key)
+			//			return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", Group.Id, collection.Key)
 		}
 		counter++
 	}
@@ -338,10 +343,6 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 		if err != nil {
 			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
-	}
-
-	if err := group.syncCollectionsGitlab(); err != nil {
-		group.Zot.logger.Errorf("cannot sync collections to gitlab: %v", err)
 	}
 
 	return counter, lastModifiedVersion, nil
@@ -395,156 +396,6 @@ func (group *Group) syncCollections() (int64, int64, error) {
 		}
 	}
 	return counter, lastModifiedVersion, nil
-}
-
-func (group *Group) syncCollectionsGitlab() error {
-	if !group.Zot.UseGitlab() {
-		group.Zot.logger.Infof("no gitlab sync for Group %v", group.Id)
-		return nil
-	}
-	synctime := time.Now()
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, deleted, sync, gitlab"+
-		" FROM %s.collections"+
-		" WHERE library=$1 AND (gitlab < modified OR gitlab is null)", group.Zot.dbSchema)
-	rows, err := group.Zot.db.Query(sqlstr, group.Id)
-	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, group.Id)
-	}
-
-	result := []Collection{}
-	for rows.Next() {
-		coll, err := group.collectionFromRow(rows)
-		if err != nil {
-			rows.Close()
-			return emperror.Wrapf(err, "cannot scan row")
-		}
-		if (coll.Deleted || coll.Trashed) && coll.Gitlab == nil {
-			continue
-		}
-		result = append(result, *coll)
-	}
-	rows.Close()
-
-	num := int64(len(result))
-	slices := num / 20
-	if num%20 > 0 {
-		slices++
-	}
-	for i := int64(0); i < slices; i++ {
-		start := i * 20
-		end := i*20 + 20
-		if num < end {
-			end = num
-		}
-		parts := result[start:end]
-		gbranch := "master"
-		gaction := []*gitlab.CommitAction{}
-		var creations int64
-		var deletions int64
-		var updates int64
-		for _, coll := range parts {
-			// new and deleted -> we will not upload
-			if coll.Gitlab == nil && coll.Deleted {
-				continue
-			}
-
-			cg := CollectionGitlab{
-				LibraryId: group.Id,
-				Key:       coll.Key,
-				Data:      coll.Data,
-				Meta:      coll.Meta,
-			}
-			data, err := json.Marshal(cg)
-			if err != nil {
-				return emperror.Wrapf(err, "cannot marshall data %v", coll.Data)
-			}
-			var prettyJSON bytes.Buffer
-			err = json.Indent(&prettyJSON, data, "", "\t")
-			if err != nil {
-				return emperror.Wrapf(err, "cannot pretty json")
-			}
-
-			action := gitlab.CommitAction{
-				Content: prettyJSON.String(),
-			}
-			if coll.Gitlab == nil {
-				action.Action = "create"
-				creations++
-			} else if coll.Deleted || coll.Trashed {
-				action.Action = "delete"
-				deletions++
-			} else {
-				action.Action = "update"
-				updates++
-			}
-
-			fname := fmt.Sprintf("%v/collections/%v.json", coll.Group.Id, coll.Key)
-			action.FilePath = fname
-
-			found, err := group.Zot.gitlabCheck(fname, "master")
-			if err != nil {
-				return emperror.Wrapf(err, "cannot check gitlab for %v", fname)
-			}
-			if !found {
-				switch action.Action {
-				case "delete":
-					action.Action = ""
-				case "update":
-					action.Action = "create"
-				}
-			} else {
-				switch action.Action {
-				case "create":
-					action.Action = "update"
-				}
-			}
-
-			if action.Action != "" {
-				gaction = append(gaction, &action)
-			}
-		}
-		gcommit := fmt.Sprintf("#%v/%v machine sync creation:%v / deletion:%v / update:%v  at %v",
-			i+1, slices, creations, deletions, updates, synctime.String())
-		opt := gitlab.CreateCommitOptions{
-			Branch:        &gbranch,
-			CommitMessage: &gcommit,
-			StartBranch:   nil,
-			Actions:       gaction,
-			AuthorEmail:   nil,
-			AuthorName:    nil,
-		}
-		group.Zot.logger.Infof("committing items %v to %v of %v to gitlab", start, end, num)
-		_, _, err := group.Zot.git.Commits.CreateCommit(group.Zot.gitProject.ID, &opt)
-		if err != nil {
-			// thats very bad. let's try with the single file method and update fallback
-			group.Zot.logger.Errorf("error committing to gitlab. fallback to single coll commit: %v", err)
-			for _, coll := range parts {
-				_, err := coll.uploadGitlab()
-				if err != nil {
-					return emperror.Wrapf(err, "cannot upload collection %v.%v", group.Id, coll.Key)
-				}
-			}
-			//return emperror.Wrapf(err, "cannot commit")
-		}
-		sqlstr = fmt.Sprintf("UPDATE %s.collections SET gitlab=$1 WHERE library=$2 AND key=$3", group.Zot.dbSchema)
-		for _, coll := range parts {
-			t := sql.NullTime{
-				Time:  synctime,
-				Valid: !(coll.Deleted || coll.Trashed),
-			}
-			params := []interface{}{
-				t,
-				group.Id,
-				coll.Key,
-			}
-			resp, err := group.Zot.db.Exec(sqlstr, params...)
-			if err != nil {
-				return emperror.Wrapf(err, "cannot update gitlab sync time for %v.%v", group.Id, coll.Key)
-			}
-			group.Zot.logger.Debugf("%v", resp)
-		}
-	}
-	return nil
 }
 
 func (group *Group) GetCollectionByNameLocal(name string, parentKey string) (*Collection, error) {

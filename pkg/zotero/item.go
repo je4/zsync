@@ -1,15 +1,12 @@
 package zotero
 
 import (
-	"bytes"
 	"crypto/md5"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
-	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"path/filepath"
@@ -142,8 +139,6 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 	}
 	fname = filepath.Clean(fmt.Sprintf("%v.json", item.Key))
 
-	item.Group.Zot.logger.Infof("storing %v to %v", item.Data.Title, fname)
-
 	// write data to file
 	data := struct {
 		LibraryId int64       `json:"libraryid"`
@@ -160,6 +155,8 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshal data %v", data)
 	}
+
+	item.Group.Zot.logger.Infof("storing #%v.%v to %v", item.Group.Id, item.Key, fname)
 	if err := backupFs.FilePut(folder, fname, b, filesystem.FilePutOptions{}); err != nil {
 		return emperror.Wrap(err, "cannot store data in file")
 	}
@@ -174,6 +171,14 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 			return emperror.Wrapf(err, "cannot get attachment folder")
 		}
 
+		item.Group.Zot.logger.Infof("copying %v/%v/%v --> %v/%v/%v",
+			item.Group.Zot.fs.String(),
+			bucket,
+			item.Key,
+			backupFs.String(),
+			folder,
+			fmt.Sprintf("%v.bin", item.Key),
+		)
 		file, err := item.Group.Zot.fs.FileOpenRead(bucket, item.Key, filesystem.FileGetOptions{})
 		if err != nil {
 			return emperror.Wrapf(err, "cannot open file from %v/%v", bucket, item.Key)
@@ -189,65 +194,7 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 		}
 	}
 
-		return nil
-}
-
-func (item *Item) UploadGitlab() (gitlab.EventTypeValue, error) {
-	item.Group.Zot.logger.Infof("uploading %v to gitlab", item.Data.Title)
-
-	ig := ItemGitlab{
-		LibraryId: item.Group.ItemVersion,
-		Key:       item.Key,
-		Data:      item.Data,
-		Meta:      item.Meta,
-	}
-	data, err := json.Marshal(ig)
-	if err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshal data")
-	}
-	var prettyJSON bytes.Buffer
-	err = json.Indent(&prettyJSON, data, "", "\t")
-	if err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
-	}
-
-	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.Group.Id, item.Key, item.Version)
-	var fname string
-	if string(item.Data.ParentItem) != "" {
-		fname = fmt.Sprintf("%v/items/%v/%v.json", item.Group.Id, string(item.Data.ParentItem), item.Key)
-	} else {
-		fname = fmt.Sprintf("%v/items/%v.json", item.Group.Id, item.Key)
-	}
-	event, err := item.Group.Zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
-	if err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-	}
-	return event, nil
-}
-
-func (item *Item) UploadAttachmentGitlab(data []byte) (gitlab.EventTypeValue, error) {
-	item.Group.Zot.logger.Infof("uploading %v to gitlab (%vbytes)", item.Data.Title, len(data))
-	gcommit := fmt.Sprintf("%v (%vbytes) - %v.%v v%v", item.Data.Title, len(data), item.Group.Id, item.Key, item.Version)
-	var fname string
-	if string(item.Data.ParentItem) != "" {
-		fname = fmt.Sprintf("%v/items/%v/%v.bin", item.Group.Id, string(item.Data.ParentItem), item.Key)
-	} else {
-		fname = fmt.Sprintf("%v/items/%v.bin", item.Group.Id, item.Key)
-	}
-	var event gitlab.EventTypeValue
-	var err error
-	if item.Deleted || item.Trashed {
-		event, err = item.Group.Zot.deleteGitlab(fname, "master", gcommit)
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	} else {
-		event, err = item.Group.Zot.uploadGitlab(fname, "master", gcommit, "base64", base64.StdEncoding.EncodeToString(data))
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	}
-	return event, nil
+	return nil
 }
 
 func (item *Item) DownloadAttachmentCloud() (string, error) {
@@ -561,47 +508,6 @@ func (item *Item) UpdateLocal() error {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	return nil
-}
-
-func (item *Item) uploadGitlab() (gitlab.EventTypeValue, error) {
-
-	glItem := ItemGitlab{
-		LibraryId: item.Group.Id,
-		Key:       item.Key,
-		Data:      item.Data,
-		Meta:      item.Meta,
-	}
-
-	data, err := json.Marshal(glItem)
-	if err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshall data %v", glItem)
-	}
-
-	var prettyJSON bytes.Buffer
-	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
-	}
-	gcommit := fmt.Sprintf("%v - %v.%v v%v", item.Data.Title, item.Group.Id, item.Key, item.Version)
-	var fname string
-	if string(item.Data.ParentItem) != "" {
-		fname = fmt.Sprintf("%v/items/%v/%v.json", item.Group.Id, string(item.Data.ParentItem), item.Key)
-	} else {
-		fname = fmt.Sprintf("%v/items/%v.json", item.Group.Id, item.Key)
-	}
-
-	var event gitlab.EventTypeValue
-	if item.Deleted || item.Trashed {
-		event, err = item.Group.Zot.deleteGitlab(fname, "master", gcommit)
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	} else {
-		event, err = item.Group.Zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	}
-	return event, nil
 }
 
 func (item *Item) getChildrenLocal() (*[]Item, error) {

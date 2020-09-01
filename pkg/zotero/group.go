@@ -1,15 +1,12 @@
 package zotero
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
-	"github.com/xanzy/go-gitlab"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
 	"gopkg.in/resty.v1"
-	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -62,46 +59,6 @@ type GroupGitlab struct {
 	CollectionVersion int64     `json:"collectionversion"`
 	ItemVersion       int64     `json:"itemversion"`
 	TagVersion        int64     `json:tagversion`
-}
-
-func (group *Group) uploadGitlab() (gitlab.EventTypeValue, error) {
-	if !group.Zot.UseGitlab() {
-		group.Zot.logger.Infof("no gitlab sync for Group %v", group.Id)
-		return gitlab.ClosedEventType, nil
-	}
-
-	glGroup := GroupGitlab{
-		Id:                group.Id,
-		Data:              group.Data,
-		CollectionVersion: group.CollectionVersion,
-		ItemVersion:       group.ItemVersion,
-		TagVersion:        group.TagVersion,
-	}
-
-	data, err := json.Marshal(glGroup)
-	if err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot marshall data %v", glGroup)
-	}
-
-	var prettyJSON bytes.Buffer
-	if err := json.Indent(&prettyJSON, data, "", "\t"); err != nil {
-		return gitlab.ClosedEventType, emperror.Wrapf(err, "cannot pretty json")
-	}
-	gcommit := fmt.Sprintf("%v - %v v%v", group.Data.Name, group.Id, group.Version)
-	fname := fmt.Sprintf("%v.json", group.Id)
-	var event gitlab.EventTypeValue
-	if group.Deleted {
-		event, err = group.Zot.deleteGitlab(fname, "master", gcommit)
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	} else {
-		event, err = group.Zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
-		if err != nil {
-			return gitlab.ClosedEventType, emperror.Wrapf(err, "update on gitlab failed")
-		}
-	}
-	return event, nil
 }
 
 func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
@@ -243,13 +200,7 @@ func (zot *Zotero) LoadGroupsLocal() ([]*Group, error) {
 func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	now := time.Now()
 
-	folder := fmt.Sprintf("%v/%v", backupFs.String(), group.Id)
-	// create the folder
-	if !FolderExists(folder) {
-		if err := os.Mkdir(folder, 0755); err != nil {
-			return emperror.Wrapf(err, "cannot create folder %v", folder)
-		}
-	}
+	folder := fmt.Sprintf("%v", group.Id)
 
 	if err := group.IterateCollectionsAllLocal(group.Gitlab, func(coll *Collection) error {
 		group.Zot.logger.Infof("collection #%v.%v - %v", coll.Group.Id, coll.Key, coll.Data.Name)
@@ -260,7 +211,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	}); err != nil {
 		return emperror.Wrap(err, "cannot iterate collections")
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.collections SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') " +
+	sqlstr := fmt.Sprintf("UPDATE %s.collections SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') "+
 		"WHERE library=$2 AND (TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') > gitlab OR gitlab IS NULL)", group.Zot.dbSchema)
 	params := []interface{}{
 		now.Format("2006-01-02 15:04:05"),
@@ -286,7 +237,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 		return emperror.Wrap(err, "cannot iterate items")
 	}
 
-	sqlstr = fmt.Sprintf("UPDATE %s.items SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') " +
+	sqlstr = fmt.Sprintf("UPDATE %s.items SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') "+
 		"WHERE library=$2 AND (gitlab <= TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)", group.Zot.dbSchema)
 	params = []interface{}{
 		now.Format("2006-01-02 15:04:05"),
@@ -302,22 +253,26 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 		return emperror.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 
+	storeGrp := group.Gitlab == nil
 	if group.Gitlab != nil {
 		// modification local disk-version is older
 		if group.Gitlab.Before(group.Meta.LastModified) {
-			data, err := json.MarshalIndent(group.Data, "", "  ")
-			if err != nil {
-				group.Zot.logger.Errorf("cannot marshal Group data of #%v", group.Id)
-			} else {
-				filename := path.Clean(fmt.Sprintf("%v.json", group.Id))
-				if err := backupFs.FilePut(folder, filename, data, filesystem.FilePutOptions{}); err != nil {
-					group.Zot.logger.Errorf("cannot write Group data of #%v to file %v", group.Id, filename)
-				}
+			storeGrp = true
+		}
+	}
+	if storeGrp {
+		data, err := json.MarshalIndent(group.Data, "", "  ")
+		if err != nil {
+			group.Zot.logger.Errorf("cannot marshal Group data of #%v", group.Id)
+		} else {
+			filename := path.Clean(fmt.Sprintf("%v.json", group.Id))
+			if err := backupFs.FilePut(folder, filename, data, filesystem.FilePutOptions{}); err != nil {
+				group.Zot.logger.Errorf("cannot write Group data of #%v to file %v", group.Id, filename)
 			}
 		}
 	}
 
-	sqlstr = fmt.Sprintf("UPDATE %s.groups SET gitlab=$1 WHERE id=$2", group.Zot.dbSchema)
+	sqlstr = fmt.Sprintf("UPDATE %s.groups SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') WHERE id=$2", group.Zot.dbSchema)
 	if _, err := group.Zot.db.Exec(sqlstr, now, group.Id); err != nil {
 		return emperror.Wrapf(err, "cannot update timestamp for group #%v", group.Id)
 	}
@@ -338,7 +293,7 @@ func (group *Group) UpdateLocal() error {
 	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=$1, created=$2, modified=$3, data=$4, deleted=$5,"+
 		" itemversion=$6, collectionversion=$7, tagversion=$8"+
 		" WHERE id=$9", group.Zot.dbSchema)
-	data, err := json.Marshal(group.Data)
+	data, err := json.MarshalIndent(group.Data, "", "  ")
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshal Group data")
 	}
@@ -357,18 +312,6 @@ func (group *Group) UpdateLocal() error {
 	_, err = group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
-	}
-	var prettyJSON bytes.Buffer
-	err = json.Indent(&prettyJSON, data, "", "\t")
-	if err != nil {
-		return emperror.Wrapf(err, "cannot pretty json")
-	}
-	gcommit := fmt.Sprintf("%v - %v v%v", group.Data.Name, group.Id, group.Version)
-	var fname string
-	fname = fmt.Sprintf("%v.json", group.Id)
-	_, err = group.Zot.uploadGitlab(fname, "master", gcommit, "", prettyJSON.String())
-	if err != nil {
-		return emperror.Wrapf(err, "update on gitlab failed")
 	}
 
 	return nil
@@ -412,9 +355,10 @@ func (group *Group) SyncDeleted() (int64, error) {
 			break
 		}
 	}
-	lastModifiedVersion, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-IsModified-Version"), 10, 64)
+	limv := resp.RawResponse.Header.Get("Last-Modified-Version")
+	lastModifiedVersion, err := strconv.ParseInt(limv, 10, 64)
 	if err != nil {
-		return 0, emperror.Wrapf(err, "cannot parse Last-IsModified-Version %v", resp.RawResponse.Header.Get("Last-IsModified-Version"))
+		return 0, emperror.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
 	}
 	rawBody := resp.Body()
 	deletions := Deletions{}

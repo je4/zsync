@@ -30,6 +30,7 @@ type Config struct {
 	Service              string
 	Listen               string
 	TLS                  bool
+	Synconly             []int64
 	CertChain            string
 	PrivateKey           string
 	Endpoint             string
