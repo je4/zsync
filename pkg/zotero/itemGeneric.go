@@ -4,7 +4,7 @@ type ItemGeneric struct {
 	ItemDataBase
 	NumPages             string `json:"numPages,omitempty"`             // # of Pages
 	NumberOfVolumes      string `json:"numberOfVolumes,omitempty"`      // # of Volumes
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Abstract
+	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
 	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
 	ApplicationNumber    string `json:"applicationNumber,omitempty"`    // Application Number
 	Archive              string `json:"archive,omitempty"`              // Archive
@@ -117,7 +117,7 @@ type ItemGeneric struct {
 type ItemArtwork struct {
 	ItemDataBase
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	ArtworkMedium   string `json:"artworkMedium,omitempty"`   // Medium
 	ArtworkSize     string `json:"artworkSize,omitempty"`     // Artwork Size
 	Date            string `json:"date,omitempty"`            // Date
@@ -136,7 +136,7 @@ type ItemArtwork struct {
 type ItemAudioRecording struct {
 	ItemDataBase
 	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Abstract
+	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
 	AudioRecordingFormat string `json:"audioRecordingFormat,omitempty"` // Format
 	SeriesTitle          string `json:"seriesTitle,omitempty"`          // Series Title
 	Volume               string `json:"volume,omitempty"`               // Volume
@@ -161,7 +161,7 @@ type ItemAudioRecording struct {
 type ItemBill struct {
 	ItemDataBase
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	BillNumber      string `json:"billNumber,omitempty"`      // Bill Number
 	Code            string `json:"code,omitempty"`            // Code
 	CodeVolume      string `json:"codeVolume,omitempty"`      // Code Volume
@@ -182,7 +182,7 @@ type ItemBill struct {
 type ItemBlogPost struct {
 	ItemDataBase
 	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Abstract
+	AbstractNote string `json:"abstractNote,omitempty"` // Note
 	BlogTitle    string `json:"blogTitle,omitempty"`    // Blog Title
 	WebsiteType  string `json:"websiteType,omitempty"`  // Website Type
 	Date         string `json:"date,omitempty"`         // Date
@@ -197,7 +197,7 @@ type ItemBlogPost struct {
 type ItemBook struct {
 	ItemDataBase
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	Series          string `json:"series,omitempty"`          // Series
 	SeriesNumber    string `json:"seriesNumber,omitempty"`    // Series Number
 	Volume          string `json:"volume,omitempty"`          // Volume
@@ -223,7 +223,7 @@ type ItemBook struct {
 type ItemBookSection struct {
 	ItemDataBase
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	BookTitle       string `json:"bookTitle,omitempty"`       // Book Title
 	Series          string `json:"series,omitempty"`          // Series
 	SeriesNumber    string `json:"seriesNumber,omitempty"`    // Series Number
@@ -250,7 +250,7 @@ type ItemBookSection struct {
 type ItemCase struct {
 	ItemDataBase
 	CaseName       string `json:"caseName,omitempty"`       // Case Name
-	AbstractNote   string `json:"abstractNote,omitempty"`   // Abstract
+	AbstractNote   string `json:"abstractNote,omitempty"`   // Note
 	Reporter       string `json:"reporter,omitempty"`       // Reporter
 	ReporterVolume string `json:"reporterVolume,omitempty"` // Reporter Volume
 	Court          string `json:"court,omitempty"`          // Court
@@ -269,7 +269,7 @@ type ItemCase struct {
 type ItemComputerProgram struct {
 	ItemDataBase
 	Title               string `json:"title,omitempty"`               // Title
-	AbstractNote        string `json:"abstractNote,omitempty"`        // Abstract
+	AbstractNote        string `json:"abstractNote,omitempty"`        // Note
 	SeriesTitle         string `json:"seriesTitle,omitempty"`         // Series Title
 	VersionNumber       string `json:"versionNumber,omitempty"`       // Version
 	Date                string `json:"date,omitempty"`                // Date
@@ -292,7 +292,7 @@ type ItemComputerProgram struct {
 type ItemConferencePaper struct {
 	ItemDataBase
 	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Abstract
+	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
 	Date             string `json:"date,omitempty"`             // Date
 	ProceedingsTitle string `json:"proceedingsTitle,omitempty"` // Proceedings Title
 	ConferenceName   string `json:"conferenceName,omitempty"`   // Conference Name
@@ -318,7 +318,7 @@ type ItemConferencePaper struct {
 type ItemDictionaryEntry struct {
 	ItemDataBase
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	DictionaryTitle string `json:"dictionaryTitle,omitempty"` // Dictionary Title
 	Series          string `json:"series,omitempty"`          // Series
 	SeriesNumber    string `json:"seriesNumber,omitempty"`    // Series Number
@@ -345,7 +345,7 @@ type ItemDictionaryEntry struct {
 type ItemDocument struct {
 	ItemDataBase
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	Publisher       string `json:"publisher,omitempty"`       // Publisher
 	Date            string `json:"date,omitempty"`            // Date
 	Language        string `json:"language,omitempty"`        // Language
@@ -363,7 +363,7 @@ type ItemDocument struct {
 type ItemEmail struct {
 	ItemDataBase
 	Subject      string `json:"subject,omitempty"`      // Subject
-	AbstractNote string `json:"abstractNote,omitempty"` // Abstract
+	AbstractNote string `json:"abstractNote,omitempty"` // Note
 	Date         string `json:"date,omitempty"`         // Date
 	ShortTitle   string `json:"shortTitle,omitempty"`   // Short Title
 	Url          string `json:"url,omitempty"`          // URL
@@ -376,7 +376,7 @@ type ItemEmail struct {
 type ItemEncyclopediaArticle struct {
 	ItemDataBase
 	Title             string `json:"title,omitempty"`             // Title
-	AbstractNote      string `json:"abstractNote,omitempty"`      // Abstract
+	AbstractNote      string `json:"abstractNote,omitempty"`      // Note
 	EncyclopediaTitle string `json:"encyclopediaTitle,omitempty"` // Encyclopedia Title
 	Series            string `json:"series,omitempty"`            // Series
 	SeriesNumber      string `json:"seriesNumber,omitempty"`      // Series Number
@@ -403,7 +403,7 @@ type ItemEncyclopediaArticle struct {
 type ItemFilm struct {
 	ItemDataBase
 	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Abstract
+	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
 	Distributor          string `json:"distributor,omitempty"`          // Distributor
 	Date                 string `json:"date,omitempty"`                 // Date
 	Genre                string `json:"genre,omitempty"`                // Genre
@@ -424,7 +424,7 @@ type ItemFilm struct {
 type ItemForumPost struct {
 	ItemDataBase
 	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Abstract
+	AbstractNote string `json:"abstractNote,omitempty"` // Note
 	ForumTitle   string `json:"forumTitle,omitempty"`   // Forum/Listserv Title
 	PostType     string `json:"postType,omitempty"`     // Post Type
 	Date         string `json:"date,omitempty"`         // Date
@@ -440,7 +440,7 @@ type ItemHearing struct {
 	ItemDataBase
 
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	Committee       string `json:"committee,omitempty"`       // Committee
 	Place           string `json:"place,omitempty"`           // Place
 	Publisher       string `json:"publisher,omitempty"`       // Publisher
@@ -463,7 +463,7 @@ type ItemInstantMessage struct {
 	ItemDataBase
 
 	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Abstract
+	AbstractNote string `json:"abstractNote,omitempty"` // Note
 	Date         string `json:"date,omitempty"`         // Date
 	Language     string `json:"language,omitempty"`     // Language
 	ShortTitle   string `json:"shortTitle,omitempty"`   // Short Title
@@ -477,7 +477,7 @@ type ItemInterview struct {
 	ItemDataBase
 
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	Date            string `json:"date,omitempty"`            // Date
 	InterviewMedium string `json:"interviewMedium,omitempty"` // Medium
 	Language        string `json:"language,omitempty"`        // Language
@@ -495,7 +495,7 @@ type ItemInterview struct {
 type ItemJournalArticle struct {
 	ItemDataBase
 	Title               string `json:"title,omitempty"`               // Title
-	AbstractNote        string `json:"abstractNote,omitempty"`        // Abstract
+	AbstractNote        string `json:"abstractNote,omitempty"`        // Note
 	PublicationTitle    string `json:"publicationTitle,omitempty"`    // Publication
 	Volume              string `json:"volume,omitempty"`              // Volume
 	Issue               string `json:"issue,omitempty"`               // Issue
@@ -523,7 +523,7 @@ type ItemLetter struct {
 	ItemDataBase
 
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	LetterType      string `json:"letterType,omitempty"`      // Type
 	Date            string `json:"date,omitempty"`            // Date
 	Language        string `json:"language,omitempty"`        // Language
@@ -541,7 +541,7 @@ type ItemLetter struct {
 type ItemMagazineArticle struct {
 	ItemDataBase
 	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Abstract
+	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
 	PublicationTitle string `json:"publicationTitle,omitempty"` // Publication
 	Volume           string `json:"volume,omitempty"`           // Volume
 	Issue            string `json:"issue,omitempty"`            // Issue
@@ -564,7 +564,7 @@ type ItemManuscript struct {
 	ItemDataBase
 
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	ManuscriptType  string `json:"manuscriptType,omitempty"`  // Type
 	Place           string `json:"place,omitempty"`           // Place
 	Date            string `json:"date,omitempty"`            // Date
@@ -585,7 +585,7 @@ type ItemMap struct {
 	ItemDataBase
 
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	MapType         string `json:"mapType,omitempty"`         // Type
 	Scale           string `json:"scale,omitempty"`           // Scale
 	SeriesTitle     string `json:"seriesTitle,omitempty"`     // Series Title
@@ -609,7 +609,7 @@ type ItemMap struct {
 type ItemNewspaperArticle struct {
 	ItemDataBase
 	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Abstract
+	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
 	PublicationTitle string `json:"publicationTitle,omitempty"` // Publication
 	Place            string `json:"place,omitempty"`            // Place
 	Edition          string `json:"edition,omitempty"`          // Edition
@@ -632,7 +632,7 @@ type ItemNewspaperArticle struct {
 type ItemPatent struct {
 	ItemDataBase
 	Title             string `json:"title,omitempty"`             // Title
-	AbstractNote      string `json:"abstractNote,omitempty"`      // Abstract
+	AbstractNote      string `json:"abstractNote,omitempty"`      // Note
 	Place             string `json:"place,omitempty"`             // Place
 	Country           string `json:"country,omitempty"`           // Country
 	Assignee          string `json:"assignee,omitempty"`          // Assignee
@@ -656,7 +656,7 @@ type ItemPatent struct {
 type ItemPodcast struct {
 	ItemDataBase
 	Title         string `json:"title,omitempty"`         // Title
-	AbstractNote  string `json:"abstractNote,omitempty"`  // Abstract
+	AbstractNote  string `json:"abstractNote,omitempty"`  // Note
 	SeriesTitle   string `json:"seriesTitle,omitempty"`   // Series Title
 	EpisodeNumber string `json:"episodeNumber,omitempty"` // Episode Number
 	AudioFileType string `json:"audioFileType,omitempty"` // File Type
@@ -672,7 +672,7 @@ type ItemPodcast struct {
 type ItemPresentation struct {
 	ItemDataBase
 	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Abstract
+	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
 	PresentationType string `json:"presentationType,omitempty"` // Type
 	Date             string `json:"date,omitempty"`             // Date
 	Place            string `json:"place,omitempty"`            // Place
@@ -688,7 +688,7 @@ type ItemPresentation struct {
 type ItemRadioBroadcast struct {
 	ItemDataBase
 	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Abstract
+	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
 	ProgramTitle         string `json:"programTitle,omitempty"`         // Program Title
 	EpisodeNumber        string `json:"episodeNumber,omitempty"`        // Episode Number
 	AudioRecordingFormat string `json:"audioRecordingFormat,omitempty"` // Format
@@ -712,7 +712,7 @@ type ItemReport struct {
 	ItemDataBase
 
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	ReportNumber    string `json:"reportNumber,omitempty"`    // Report Number
 	ReportType      string `json:"reportType,omitempty"`      // Report Type
 	SeriesTitle     string `json:"seriesTitle,omitempty"`     // Series Title
@@ -736,7 +736,7 @@ type ItemStatute struct {
 	ItemDataBase
 
 	NameOfAct       string `json:"nameOfAct,omitempty"`       // Name of Act
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	Code            string `json:"code,omitempty"`            // Code
 	CodeNumber      string `json:"codeNumber,omitempty"`      // Code Number
 	PublicLawNumber string `json:"publicLawNumber,omitempty"` // Public Law Number
@@ -756,7 +756,7 @@ type ItemStatute struct {
 type ItemTvBroadcast struct {
 	ItemDataBase
 	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Abstract
+	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
 	ProgramTitle         string `json:"programTitle,omitempty"`         // Program Title
 	EpisodeNumber        string `json:"episodeNumber,omitempty"`        // Episode Number
 	VideoRecordingFormat string `json:"videoRecordingFormat,omitempty"` // Format
@@ -780,7 +780,7 @@ type ItemThesis struct {
 	ItemDataBase
 
 	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Abstract
+	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
 	ThesisType      string `json:"thesisType,omitempty"`      // Type
 	University      string `json:"university,omitempty"`      // University
 	Place           string `json:"place,omitempty"`           // Place
@@ -801,7 +801,7 @@ type ItemThesis struct {
 type ItemVideoRecording struct {
 	ItemDataBase
 	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Abstract
+	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
 	VideoRecordingFormat string `json:"videoRecordingFormat,omitempty"` // Format
 	SeriesTitle          string `json:"seriesTitle,omitempty"`          // Series Title
 	Volume               string `json:"volume,omitempty"`               // Volume
@@ -827,7 +827,7 @@ type ItemWebpage struct {
 	ItemDataBase
 
 	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Abstract
+	AbstractNote string `json:"abstractNote,omitempty"` // Note
 	WebsiteTitle string `json:"websiteTitle,omitempty"` // Website Title
 	WebsiteType  string `json:"websiteType,omitempty"`  // Website Type
 	Date         string `json:"date,omitempty"`         // Date

@@ -134,6 +134,49 @@ func (group *Group) GetItemVersionLocal(itemId string, oldId string) (int64, Syn
 	return version, sync, nil
 }
 
+func (group *Group) GetItemsVersionOnlyCloud(trashed bool) (int64, error) {
+	var endpoint string
+	if trashed {
+		endpoint = fmt.Sprintf("/groups/%v/items/trash", group.Id)
+	} else {
+		endpoint = fmt.Sprintf("/groups/%v/items", group.Id)
+	}
+
+	limit := int64(0)
+	start := int64(0)
+	var lastModifiedVersion int64
+	for {
+		group.Zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
+		call := group.Zot.client.R().
+			SetHeader("Accept", "application/json").
+			SetQueryParam("format", "versions").
+			SetQueryParam("limit", strconv.FormatInt(limit, 10)).
+			SetQueryParam("start", strconv.FormatInt(start, 10))
+		var resp *resty.Response
+		var err error
+		for {
+			resp, err = call.Get(endpoint)
+			if err != nil {
+				return 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+			}
+			if !group.Zot.CheckRetry(resp.Header()) {
+				break
+			}
+		}
+		h, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("no last modified version in result header: %v", resp.RawResponse.Header)
+		}
+		if h > lastModifiedVersion {
+			lastModifiedVersion = h
+		}
+		if !group.Zot.CheckBackoff(resp.Header()) {
+			break
+		}
+	}
+	return lastModifiedVersion, nil
+}
+
 func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map[string]int64, int64, error) {
 	var endpoint string
 	if trashed {
@@ -406,7 +449,36 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 	return counter, lastModifiedVersion, nil
 }
 
-func (group *Group) SyncItems() (int64, int64, error) {
+func (group *Group) UploadItems() (int64, int64, error) {
+	var counter int64
+	var lastModifiedVersion int64
+	var err error
+
+	if group.CanUpload() {
+		lastModifiedVersion, err = group.GetItemsVersionOnlyCloud(false)
+		if err != nil {
+			return 0, 0, emperror.Wrapf(err, "cannot get last modified item version")
+		}
+		num4, err := group.syncModifiedItems(lastModifiedVersion)
+		if err != nil {
+			return 0, 0, err
+		}
+		counter += num4
+	}
+
+	if counter > 0 {
+		group.Zot.logger.Infof("refreshing materialized view item_type_hier")
+		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
+		_, err := group.Zot.db.Exec(sqlstr)
+		if err != nil {
+			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
+		}
+	}
+
+	return counter, lastModifiedVersion, nil
+}
+
+func (group *Group) DownloadItems() (int64, int64, error) {
 	var counter int64
 	var err error
 	var lastModifiedVersion int64
@@ -428,14 +500,6 @@ func (group *Group) SyncItems() (int64, int64, error) {
 		if h > lastModifiedVersion {
 			lastModifiedVersion = h
 		}
-	}
-
-	if group.CanUpload() {
-		num4, err := group.syncModifiedItems(lastModifiedVersion)
-		if err != nil {
-			return 0, 0, err
-		}
-		counter += num4
 	}
 
 	if counter > 0 {

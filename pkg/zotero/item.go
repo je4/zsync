@@ -15,11 +15,24 @@ import (
 	"time"
 )
 
+type StringOrBool string
+
+func (sb *StringOrBool) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		s = ""
+	}
+	var h StringOrBool
+	h = StringOrBool(s)
+	sb = &h
+	return nil
+}
+
 type ItemMeta struct {
-	CreatedByUser  User   `json:"createdByUser"`
-	CreatorSummary string `json:"creatorSummary,omitempty"`
-	ParsedDate     string `json:"parsedDate,omitempty"`
-	NumChildren    int64  `json:"numChildren,omitempty"`
+	CreatedByUser  User         `json:"createdByUser"`
+	CreatorSummary string       `json:"creatorSummary,omitempty"`
+	ParsedDate     StringOrBool `json:"parsedDate,omitempty"`
+	NumChildren    int64        `json:"numChildren,omitempty"`
 }
 
 type Item struct {
@@ -53,7 +66,7 @@ type ItemDataBase struct {
 	Collections  []string                    `json:"collections"`
 	DateAdded    string                      `json:"dateAdded,omitempty"`
 	DateModified string                      `json:"dateModified,omitempty"`
-	Creators     []ItemDataPerson            `json:"creators"`
+	Creators     []ItemDataPerson            `json:"creators,omitempty"`
 }
 
 type ItemDataPerson struct {
@@ -253,6 +266,7 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 }
 
 func (item *Item) uploadFileCloud() error {
+
 	bucket, err := item.Group.GetFolder()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get attachment folder")
@@ -389,15 +403,19 @@ func (item *Item) uploadFileCloud() error {
 
 func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 	item.Group.Zot.logger.Infof("Creating Zotero Item [#%s]", item.Key)
+	/*
+		if item.Version > 0 {
+			item.Version = *lastModifiedVersion
+		}
 
-	item.Version = *lastModifiedVersion
+	*/
 	item.Data.Version = item.Version
 	if item.Deleted {
 		endpoint := fmt.Sprintf("/groups/%v/%v/items", item.Group.Id, item.Key)
 		item.Group.Zot.logger.Infof("rest call: DELETE %s", endpoint)
 		resp, err := item.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
-			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", item.Group.ItemVersion)).
+			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
 			Delete(endpoint)
 		if err != nil {
 			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
@@ -416,11 +434,9 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		items := []ItemGeneric{item.Data}
 		req := item.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
+			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
 			SetBody(items)
 
-		if item.Status == SyncStatus_Modified {
-			req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion))
-		}
 		resp, err := req.
 			Post(endpoint)
 		if err != nil {
@@ -428,10 +444,17 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		}
 		result := ItemCollectionCreateResult{}
 		jsonstr := resp.Body()
+		h, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
+		if err != nil {
+			*lastModifiedVersion++
+		}
+		if h > *lastModifiedVersion {
+			*lastModifiedVersion = h
+		}
 		if err := json.Unmarshal(jsonstr, &result); err != nil {
 			return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
 		}
-		*lastModifiedVersion += int64(len(result.Unchanged)) + int64(len(result.Success)) + int64(len(result.Failed))
+		//		*lastModifiedVersion += int64(len(result.Unchanged)) + int64(len(result.Success)) + int64(len(result.Failed))
 
 		successKey, err := result.checkSuccess(0)
 		if err != nil {
@@ -449,7 +472,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		if successKey != item.Key {
 			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, item.Key))
 		}
-		if item.Data.ItemType == "attachment" {
+		if item.Data.ItemType == "attachment" && item.Data.LinkMode == "imported_file" {
 			if err := item.uploadFileCloud(); err != nil {
 				return emperror.Wrapf(err, "cannot upload file")
 			}
@@ -490,18 +513,35 @@ func (item *Item) UpdateLocal() error {
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshall meta %v", item.Meta)
 	}
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7, modified=NOW() "+
-		"WHERE library=$8 AND key=$9", item.Group.Zot.dbSchema)
-	params := []interface{}{
-		item.Version,
-		string(data),
-		string(meta),
-		item.Trashed,
-		item.Deleted,
-		SyncStatusString[item.Status],
-		md5val,
-		item.Group.Id,
-		item.Key,
+	var sqlstr string
+	var params []interface{}
+	if item.Version > 0 {
+		sqlstr = fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7, modified=NOW() "+
+			"WHERE library=$8 AND key=$9", item.Group.Zot.dbSchema)
+		params = []interface{}{
+			item.Version,
+			string(data),
+			string(meta),
+			item.Trashed,
+			item.Deleted,
+			SyncStatusString[item.Status],
+			md5val,
+			item.Group.Id,
+			item.Key,
+		}
+	} else {
+		sqlstr = fmt.Sprintf("UPDATE %s.items SET data=$1, meta=$2, trashed=$3, deleted=$4, sync=$5, md5=$6, modified=NOW() "+
+			"WHERE library=$7 AND key=$8", item.Group.Zot.dbSchema)
+		params = []interface{}{
+			string(data),
+			string(meta),
+			item.Trashed,
+			item.Deleted,
+			SyncStatusString[item.Status],
+			md5val,
+			item.Group.Id,
+			item.Key,
+		}
 	}
 	_, err = item.Group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {

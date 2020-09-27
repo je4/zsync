@@ -392,11 +392,16 @@ func (group *Group) Sync() (err error) {
 		return nil
 	}
 
+	_, itemVersion, err := group.UploadItems()
+	if err != nil {
+		return emperror.Wrapf(err, "cannot sync items of Group %v", group.Id)
+	}
+
 	_, collectionVersion, err := group.SyncCollections()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot sync collections of Group %v", group.Id)
 	}
-	_, itemVersion, err := group.SyncItems()
+	_, itemVersion, err = group.DownloadItems()
 	if err != nil {
 		return emperror.Wrapf(err, "cannot sync items of Group %v", group.Id)
 	}
