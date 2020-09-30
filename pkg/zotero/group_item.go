@@ -370,7 +370,7 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 
 func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) {
 	var counter int64
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab"+
+	sqlstr := fmt.Sprintf("SELECT COUNT(*)"+
 		" FROM %s.items"+
 		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.Zot.dbSchema)
 	params := []interface{}{
@@ -378,22 +378,37 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 		"new",
 		"modified",
 	}
+	var numUpdates int64 = 0
+	row := group.Zot.db.QueryRow(sqlstr, params...)
+	if row != nil {
+		row.Scan(&numUpdates)
+	}
+
+	sqlstr = fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab"+
+		" FROM %s.items"+
+		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.Zot.dbSchema)
 	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return 0, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	defer rows.Close()
 	for rows.Next() {
+		counter++
+
+		group.Zot.logger.Infof("writing item %v of %v to zotero cloud", counter, numUpdates)
+
 		item, err := group.itemFromRow(rows)
 		if err != nil {
 			return 0, emperror.Wrapf(err, "cannot scan row")
 		}
 
 		if err := item.UpdateCloud(&lastModifiedVersion); err != nil {
-			group.Zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
+			group.Zot.logger.Warningf("error creating/updating item %v.%v - retrying with new version", group.Id, item.Key)
+			if err := item.UpdateCloud(&lastModifiedVersion); err != nil {
+				group.Zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
+			}
 			//return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", Group.Id, item.Key)
 		}
-		counter++
 	}
 	return counter, nil
 }

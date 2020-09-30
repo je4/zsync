@@ -458,6 +458,10 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 
 		successKey, err := result.checkSuccess(0)
 		if err != nil {
+			item.Version = *lastModifiedVersion
+			item.Data.Version = *lastModifiedVersion
+			item.Status = SyncStatus_Modified
+			item.UpdateLocal()
 			return emperror.Wrapf(err, "could not create item #%v.%v", item.Group.Id, item.Key)
 		}
 

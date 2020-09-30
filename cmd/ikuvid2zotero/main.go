@@ -20,6 +20,8 @@ type logger struct {
 	handle *os.File
 }
 
+var zoterogroup int64 = 2571475
+
 var _logformat = logging.MustStringFormatter(
 	`%{time:2006-01-02T15:04:05.000} %{shortfunc} > %{level:.5s} - %{message}`,
 )
@@ -97,11 +99,29 @@ func main() {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
 	}
-	var zoterogroup int64 = 2567307
 
 	grp, err := zot.LoadGroupLocal(zoterogroup)
 	if err != nil {
 		fmt.Errorf("cannot load group #%v - %v", zoterogroup, err)
+		return
+	}
+
+	mediasqlstr := "select " +
+		"	m.masterid, " +
+		"	m.signature, " +
+		"	concat('https://ba14ns21403-sec1.fhnw.ch/mediasrv/',`col`.`name`,'/',`m`.`signature`,'/master') AS `masterurl`," +
+		"	c.width, c.height, c.duration" +
+		" FROM master m, collection col, cache c" +
+		" WHERE m.collectionid=col.collectionid " +
+		"	AND c.masterid=m.masterid " +
+		"	AND c.action='master'" +
+		"	AND m.collectionid=?" +
+		"	AND m.`type`=?" +
+		"	AND m.signature=?"
+		//"SELECT masterid, signature, masterurl, width, height, duration FROM mediaserver.fullcachewithurl WHERE collection_id=? AND `type`=? AND parentid IS NULL AND signature LIKE ?"
+	getMediaStmt, err := sourceDB.Prepare(mediasqlstr)
+	if err != nil {
+		logger.Errorf("cannot prepare statement %s - %v", mediasqlstr, err)
 		return
 	}
 
@@ -132,6 +152,7 @@ func main() {
 		item, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v", nr))
 		if err != nil {
 			fmt.Errorf("cannot load item by oldid #%v - %v -- %v", zoterogroup, nr, err)
+			break
 		}
 
 		//itemData := zotero.ItemFilm{}
@@ -207,6 +228,7 @@ func main() {
 			item, err = grp.CreateItemLocal(&itemData, &itemMeta, fmt.Sprintf("%v", nr))
 			if err != nil {
 				fmt.Errorf("cannot create item #%v - %v -- %v", zoterogroup, nr, err)
+				break
 			}
 		} else {
 			item.Data = itemData
@@ -223,6 +245,7 @@ func main() {
 			technote, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v.tech", nr))
 			if err != nil {
 				fmt.Errorf("cannot load item by oldid #%v - %v.tech -- %v", zoterogroup, nr, err)
+				break
 			}
 
 			//techItemData := zotero.ItemDataNote{}
@@ -235,7 +258,7 @@ func main() {
 			//			techItemData.Title = "Technical Information"
 
 			if tech.Valid {
-				techItemData.Note += tech.String + "<br />\n"
+				techItemData.Note += strings.Replace(tech.String, "\n", "<br />\n", -1) + "<br />\n"
 			}
 			if medium.Valid {
 				techItemData.Note += "Medium: " + medium.String
@@ -247,6 +270,7 @@ func main() {
 				technote, err = grp.CreateItemLocal(&techItemData, &technoteMeta, fmt.Sprintf("%v.tech", nr))
 				if err != nil {
 					fmt.Errorf("cannot create item #%v - %v.tech -- %v", zoterogroup, nr, err)
+					break
 				}
 			} else {
 				technote.Data = techItemData
@@ -258,49 +282,69 @@ func main() {
 			}
 		}
 
-		/*
-			if err := obj.IterateFiles(func(f *File) error {
-				item2, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v-%v", obj.Objectid, f.Masterid))
-				if err != nil {
-					return emperror.Wrapf(err, "cannot load item by oldid #%v - %v-%v", zoterogroup, obj.Objectid, f.Masterid)
-				}
-
-				itemData := zotero.ItemGeneric{}
-				// itemData := zotero.ItemDataAttachment{}
-				itemData.ItemType = "attachment"
-				itemData.LinkMode = "linked_url"
-				itemData.Relations = make(map[string]zotero.ZoteroStringList)
-				itemData.Creators = []zotero.ItemDataPerson{}
-				itemData.Tags = []zotero.ItemTag{}
-				itemData.Note = f.Note
-
-				itemData.Title = f.Signature
-				itemData.Url = fmt.Sprintf("https://ba14ns21403-sec1.fhnw.ch/mediasrv/%v/%v/master", f.Collection, f.Signature)
-				itemData.ParentItem = zotero.Parent(item.Key)
-
-				itemMeta := zotero.ItemMeta{}
-
-				if item2 == nil {
-					item2, err = grp.CreateItemLocal(&itemData, &itemMeta, fmt.Sprintf("%v-%v", obj.Objectid, f.Masterid))
-					if err != nil {
-						return emperror.Wrapf(err, "cannot create item #%v - %v", zoterogroup, obj.Objectid)
-					}
-				} else {
-					item2.Data = itemData
-					item2.Data.Version = item2.Version
-					//item.Meta = itemMeta
-					item2.Status = zotero.SyncStatus_Modified
-					item2.Data.Key = item2.Key
-					item2.UpdateLocal()
-				}
-
-				return nil
-			}); err != nil {
-				return emperror.Wrapf(err, "cannot iterate files of %v", obj)
+		params := []interface{}{
+			64,
+			"video",
+			fmt.Sprintf("%04d.h264_1100k.mp4", nr),
+		}
+		rows2, err := getMediaStmt.Query(params...)
+		if err != nil {
+			logger.Errorf("cannot execute query %s / %v - %v", mediasqlstr, params, err)
+			return
+		}
+		defer rows2.Close()
+		for rows2.Next() {
+			var masterid, width, height, duration int64
+			var masterurl, vsig string
+			if err := rows2.Scan(&masterid, &vsig, &masterurl, &width, &height, &duration); err != nil {
+				fmt.Errorf("cannot scan result data: %v", err)
+				break
+			}
+			oldid := fmt.Sprintf("%v-%v", nr, masterid)
+			item2, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v", oldid))
+			if err != nil {
+				fmt.Errorf("cannot load item by oldid #%v - %v: %v", zoterogroup, oldid, err)
+				break
 			}
 
+			itemData := zotero.ItemGeneric{}
+			// itemData := zotero.ItemDataAttachment{}
+			itemData.ItemType = "attachment"
+			itemData.LinkMode = "linked_url"
+			itemData.Relations = make(map[string]zotero.ZoteroStringList)
+			itemData.Creators = []zotero.ItemDataPerson{}
+			itemData.Tags = []zotero.ItemTag{}
+			// wird schon klappen....
+			d, _ := time.ParseDuration(fmt.Sprintf("%vs", duration))
+			d = d.Round(time.Minute)
+			h := d / time.Hour
+			d -= h * time.Hour
+			m := d / time.Minute
+			d -= m * time.Minute
+			s := d / time.Second
+			itemData.Note = fmt.Sprintf("Resolution: %vx%v<br />\nDuration: %d:%02d:%02d", width, height, h, m, s)
 
-		*/
+			itemData.Title = vsig
+			itemData.Url = masterurl
+			itemData.ParentItem = zotero.Parent(item.Key)
+
+			itemMeta := zotero.ItemMeta{}
+
+			if item2 == nil {
+				item2, err = grp.CreateItemLocal(&itemData, &itemMeta, oldid)
+				if err != nil {
+					fmt.Errorf("cannot create item #%v.%v - %v", zoterogroup, oldid, err)
+					break
+				}
+			} else {
+				item2.Data = itemData
+				item2.Data.Version = item2.Version
+				//item.Meta = itemMeta
+				item2.Status = zotero.SyncStatus_Modified
+				item2.Data.Key = item2.Key
+				item2.UpdateLocal()
+			}
+		}
 
 	}
 }
