@@ -115,7 +115,7 @@ func main() {
 
 	rand.Seed(time.Now().Unix())
 
-	zot, err := zotero.NewZotero(config.Endpoint, config.Apikey, zoteroDB, fs, config.ZoteroDB.Schema, config.AttachementFolder, false, logger, false)
+	zot, err := zotero.NewZotero(config.Endpoint, config.Apikey, zoteroDB, fs, config.ZoteroDB.Schema, false, logger, false)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return

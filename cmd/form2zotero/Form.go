@@ -36,7 +36,7 @@ type Object struct {
 }
 
 func (o *Object) GetRightHolders() ([]string, error) {
-	sqlstr := "SELECT r.rightholder FROM mediaserver.rights r, upload.files f, mediaserver.master m WHERE r.masterid=m.masterid AND f.masterid=m.masterid AND f.objectid=?"
+	sqlstr := "SELECT r.rightholder FROM zotmedia.rights r, upload.files f, zotmedia.master m WHERE r.masterid=m.masterid AND f.masterid=m.masterid AND f.objectid=?"
 	o.form.log.Infof("query: %s", sqlstr)
 	rows2, err := o.form.sourceDB.Query(sqlstr, o.Objectid)
 	if err != nil {
@@ -64,7 +64,7 @@ func (o *Object) GetRightHolders() ([]string, error) {
 }
 
 func (o *Object) IterateFiles(callback func(f *File) error) error {
-	sqlstr := "SELECT m.masterid, c.name, m.signature, m.type, m.mimetype FROM upload.files f, mediaserver.master m, mediaserver.collection c WHERE m.collectionid=c.collectionid AND f.masterid=m.masterid AND f.objectid=?"
+	sqlstr := "SELECT m.masterid, c.name, m.signature, m.type, m.mimetype FROM upload.files f, zotmedia.master m, zotmedia.collection c WHERE m.collectionid=c.collectionid AND f.masterid=m.masterid AND f.objectid=?"
 	o.form.log.Infof("query: %s", sqlstr)
 	rows2, err := o.form.sourceDB.Query(sqlstr, o.Objectid)
 	if err != nil {
@@ -85,7 +85,7 @@ func (o *Object) IterateFiles(callback func(f *File) error) error {
 			Mimetype:   mimetype,
 		}
 
-		sqlstr := "SELECT `rightholder`, `usage`, `license`, `restrictedlicense`, `access`, `label`, `modifier` FROM mediaserver.rights WHERE masterid=?"
+		sqlstr := "SELECT `rightholder`, `usage`, `license`, `restrictedlicense`, `access`, `label`, `modifier` FROM zotmedia.rights WHERE masterid=?"
 		// o.form.log.Infof("query: %s", sqlstr)
 		rows3, err := o.form.sourceDB.Query(sqlstr, f.Masterid)
 		if err != nil {

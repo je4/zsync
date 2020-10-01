@@ -9,6 +9,15 @@ func CreateKey() string {
 	return randomString(8, "key", true)
 }
 
+func AppendIfMissing(slice []string, s string) []string {
+	for _, ele := range slice {
+		if ele == s {
+			return slice
+		}
+	}
+	return append(slice, s)
+}
+
 // https://github.com/zotero/dataserver/blob/master/model/DataObjectUtilities.inc.php#L63
 func randomString(length int64, mode string, exclude_ambiguous bool) string {
 	// if you want extended ascii, then add the characters to the array

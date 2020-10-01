@@ -94,7 +94,7 @@ func main() {
 
 	rand.Seed(time.Now().Unix())
 
-	zot, err := zotero.NewZotero(config.Endpoint, config.Apikey, zoteroDB, fs, config.ZoteroDB.Schema, config.AttachementFolder, false, logger, false)
+	zot, err := zotero.NewZotero(config.Endpoint, config.Apikey, zoteroDB, fs, config.ZoteroDB.Schema, false, logger, false)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return
@@ -118,7 +118,7 @@ func main() {
 		"	AND m.collectionid=?" +
 		"	AND m.`type`=?" +
 		"	AND m.signature=?"
-		//"SELECT masterid, signature, masterurl, width, height, duration FROM mediaserver.fullcachewithurl WHERE collection_id=? AND `type`=? AND parentid IS NULL AND signature LIKE ?"
+		//"SELECT masterid, signature, masterurl, width, height, duration FROM zotmedia.fullcachewithurl WHERE collection_id=? AND `type`=? AND parentid IS NULL AND signature LIKE ?"
 	getMediaStmt, err := sourceDB.Prepare(mediasqlstr)
 	if err != nil {
 		logger.Errorf("cannot prepare statement %s - %v", mediasqlstr, err)

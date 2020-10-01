@@ -1,7 +1,6 @@
 package zotero
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
@@ -9,7 +8,6 @@ import (
 	"gopkg.in/resty.v1"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -59,142 +57,6 @@ type GroupGitlab struct {
 	CollectionVersion int64     `json:"collectionversion"`
 	ItemVersion       int64     `json:"itemversion"`
 	TagVersion        int64     `json:tagversion`
-}
-
-func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
-	placeHolder := []string{}
-	params := []interface{}{}
-	for i := 0; i < len(knownGroups); i++ {
-		placeHolder = append(placeHolder, fmt.Sprintf("$%v", i+1))
-		params = append(params, sql.NullInt64{
-			Int64: knownGroups[i],
-			Valid: true,
-		})
-	}
-	sqlstr := fmt.Sprintf("UPDATE %s.groups SET deleted=true WHERE id NOT IN (%s)", zot.dbSchema, strings.Join(placeHolder, ", "))
-	_, err := zot.db.Exec(sqlstr, params...)
-	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
-	}
-	sqlstr = fmt.Sprintf("UPDATE %s.syncgroups SET active=false WHERE id NOT IN (%s)", zot.dbSchema, strings.Join(placeHolder, ", "))
-	_, err = zot.db.Exec(sqlstr, params...)
-	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
-	}
-	return nil
-}
-
-func (zot *Zotero) CreateEmptyGroupLocal(groupId int64) (bool, SyncDirection, error) {
-	active := false
-	direction := SyncDirection_BothLocal
-	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,modified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
-	_, err := zot.db.Exec(sqlstr, groupId)
-	if err != nil {
-		return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
-	}
-	sqlstr = fmt.Sprintf("INSERT INTO %s.syncgroups(id,active,direction) VALUES($1, $2, $3)", zot.dbSchema)
-	params := []interface{}{
-		groupId,
-		active,
-		SyncDirectionString[direction],
-	}
-	_, err = zot.db.Exec(sqlstr, params...)
-	if err != nil {
-		// existiert schon
-		if IsUniqueViolation(err, "syncgroups_pkey") {
-			var dirstr string
-			sqlstr := fmt.Sprintf("SELECT active, direction FROM %s.syncgroups WHERE id=$1", zot.dbSchema)
-			if err := zot.db.QueryRow(sqlstr, groupId).Scan(&active, &dirstr); err != nil {
-				return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
-			}
-			direction = SyncDirectionId[dirstr]
-		} else {
-			return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
-		}
-	}
-	return active, direction, nil
-}
-
-func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
-	group := &Group{
-		Id:      groupId,
-		Version: 0,
-		Links:   nil,
-		Meta:    GroupMeta{},
-		Data:    GroupData{},
-		Active:  zot.newGroupActive,
-		Zot:     zot,
-	}
-	zot.logger.Debugf("loading Group #%v from database", groupId)
-	sqlstr := fmt.Sprintf("SELECT version, created, modified, data, active, direction, tags,"+
-		" itemversion, collectionversion, tagversion, gitlab"+
-		" FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
-	row := zot.db.QueryRow(sqlstr, groupId)
-	var jsonstr sql.NullString
-	var directionstr string
-	var gitlab sql.NullTime
-	err := row.Scan(&group.Version,
-		&group.Meta.Created,
-		&group.Meta.LastModified,
-		&jsonstr,
-		&group.Active,
-		&directionstr,
-		&group.syncTags,
-		&group.ItemVersion,
-		&group.CollectionVersion,
-		&group.TagVersion,
-		&gitlab)
-	if err != nil {
-		// error real error
-		if err != sql.ErrNoRows {
-			return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
-		}
-		// just no data
-		active, direction, err := zot.CreateEmptyGroupLocal(groupId)
-		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot create empty Group %v", groupId)
-		}
-		group.Active = active
-		group.direction = direction
-	} else {
-		if gitlab.Valid {
-			group.Gitlab = &gitlab.Time
-		}
-		group.direction = SyncDirectionId[directionstr]
-	}
-	if jsonstr.Valid {
-		err = json.Unmarshal([]byte(jsonstr.String), &group.Data)
-		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot unmarshall Group data %s", jsonstr)
-		}
-	}
-	return group, nil
-}
-
-func (zot *Zotero) LoadGroupsLocal() ([]*Group, error) {
-	zot.logger.Debugf("loading Groups from database")
-	sqlstr := fmt.Sprintf("SELECT id FROM %s.syncgroups sg WHERE sg.active=true", zot.dbSchema)
-	rows, err := zot.db.Query(sqlstr)
-	if err != nil {
-		return nil, emperror.Wrapf(err, "error executing sql query: %v", sqlstr)
-	}
-	defer rows.Close()
-	grps := []*Group{}
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, emperror.Wrap(err, "cannot scan row")
-		}
-		grp, err := zot.LoadGroupLocal(id)
-		if err != nil {
-			zot.logger.Errorf("error loading Group #%v: %v", id, err)
-			continue
-		}
-		zot.logger.Infof("Group #%v - %v loaded", grp.Id, grp.Data.Name)
-		grps = append(grps, grp)
-	}
-
-	return grps, nil
 }
 
 func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {

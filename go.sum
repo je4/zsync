@@ -42,6 +42,10 @@ github.com/drgrib/maps v0.0.0-20190206181841-390503673595 h1:giX1HgHNY7DGwguffRj
 github.com/drgrib/maps v0.0.0-20190206181841-390503673595/go.mod h1:rsPsNTdqS3/NEuklxGM3RnhHEqbGxaHgsy6MFgN2+5g=
 github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
+github.com/elastic/go-elasticsearch v0.0.0 h1:Pd5fqOuBxKxv83b0+xOAJDAkziWYwFinWnBO0y+TZaA=
+github.com/elastic/go-elasticsearch/v7 v7.5.1-0.20200929065939-2cfab606b36d/go.mod h1:OJ4wdbtDNk5g503kvlHLyErCgQwwzmDtaFC4XyOxXA4=
+github.com/elastic/go-elasticsearch/v8 v8.0.0-20200929065430-35fd8bce1107 h1:Gk8W7VqPdbFZDEh/J20/y7P+dpGZ7l51fG059dX64Wg=
+github.com/elastic/go-elasticsearch/v8 v8.0.0-20200929065430-35fd8bce1107/go.mod h1:xe9a/L2aeOgFKKgrO3ibQTnMdpAeL0GC+5/HpGScSa4=
 github.com/emirpasic/gods v1.12.0 h1:QAUIPSaCu4G+POclxeqb3F+WPpdKqFGlw36+yOzGlrg=
 github.com/emirpasic/gods v1.12.0/go.mod h1:YfzfFFoVP/catgzJb4IKIqXjX78Ha8FMSDh3ymbK86o=
 github.com/felixge/httpsnoop v1.0.1 h1:lvB5Jl89CsZtGIWuTcDM1E/vkVs49/Ml7JJe07l8SPQ=

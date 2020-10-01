@@ -56,7 +56,7 @@ func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.L
 		logger.Panicf("not a git repo: %v", cfg.Backup.Path)
 	}
 
-	zot, err := zotero.NewZotero("", "", db, fs, cfg.DB.Schema, "", false, logger, true)
+	zot, err := zotero.NewZotero("", "", db, fs, cfg.DB.Schema, false, logger, true)
 	if err != nil {
 		logger.Errorf("cannot create zotero instance: %v", err)
 		return

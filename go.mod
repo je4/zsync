@@ -5,6 +5,8 @@ go 1.14
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
+	github.com/elastic/go-elasticsearch/v7 v7.5.1-0.20200929065939-2cfab606b36d
+	github.com/elastic/go-elasticsearch/v8 v8.0.0-20200929065430-35fd8bce1107
 	github.com/go-git/go-git v4.7.0+incompatible
 	github.com/go-git/go-git/v5 v5.1.0
 	github.com/go-ini/ini v1.57.0 // indirect
@@ -23,6 +25,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/vanng822/go-solr v0.10.0
 	github.com/xanzy/go-gitlab v0.33.0
 	gitlab.fhnw.ch/mediathek/search/gsearch v0.0.0-20200921171539-66719656cec4
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de // indirect
