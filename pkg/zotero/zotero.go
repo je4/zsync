@@ -13,10 +13,37 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var regexpTextVariables = regexp.MustCompile(`([a-zA-Z0-9_]+:([^ ` + "\n" + `<"]+|"[^"]+"))`)
+var regexpRemoveEmpty = regexp.MustCompile(`(?m)^\s*$[\r\n]*|[\r\n]+\s+\z`)
+
+func Text2Metadata(str string) map[string][]string {
+	meta := map[string][]string{}
+	if slices := regexpTextVariables.FindAllString(str, -1); slices != nil {
+		for _, slice := range slices {
+			kv := strings.Split(slice, ":")
+			if len(kv) != 2 {
+				continue
+			}
+			if _, ok := meta[kv[0]]; !ok {
+				meta[kv[0]] = []string{}
+			}
+			meta[kv[0]] = append(meta[kv[0]], strings.Trim(kv[1], ` "`))
+		}
+	}
+	return meta
+}
+
+func TextNoMeta(str string) string {
+	h := regexpTextVariables.ReplaceAllString(str, " ")
+	h = regexpRemoveEmpty.ReplaceAllString(h, "")
+	return h
+}
 
 type Zotero struct {
 	baseUrl  *url.URL
@@ -314,6 +341,7 @@ func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 	if err := json.Unmarshal(rawBody, group); err != nil {
 		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
+	group.Init()
 	zot.CheckBackoff(resp.Header())
 	group.Zot = zot
 	return group, nil
@@ -364,6 +392,7 @@ func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
 		return nil, errors.New(fmt.Sprintf("Group has no data %v", group.Id))
 	}
 
+	group.Init()
 	return &group, nil
 }
 
@@ -474,6 +503,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 			return nil, emperror.Wrapf(err, "cannot unmarshall Group data %s", jsonstr)
 		}
 	}
+	group.Init()
 	return group, nil
 }
 

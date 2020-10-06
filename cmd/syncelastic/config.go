@@ -47,6 +47,7 @@ type Config struct {
 	ElasticIndex    string   `toml:"Elasticindex"`
 	Apikey          string   `toml:"apikey"`
 	S3              S3       `toml:"s3"`
+	Synconly        []int64  `toml:"synconly"`
 }
 
 func LoadConfig(filepath string) Config {

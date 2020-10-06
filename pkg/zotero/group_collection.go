@@ -259,7 +259,7 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 	group.Zot.CheckBackoff(resp.Header())
 	result := []Collection{}
 	for _, coll := range collections {
-		if strings.ToLower(coll.Library.Type) != "Group" {
+		if strings.ToLower(coll.Library.Type) != "group" {
 			return nil, 0, errors.New(fmt.Sprintf("unknown library type %v for collection %v", coll.Library.Type, coll.Key))
 		}
 		if coll.Library.Id != group.Id {

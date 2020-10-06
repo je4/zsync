@@ -2,9 +2,7 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"flag"
-	elasticsearch "github.com/elastic/go-elasticsearch/v8"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/op/go-logging"
 	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
@@ -100,33 +98,36 @@ func main() {
 	if err != nil {
 		logger.Panicf("cannot create mediaserver: %v", err)
 	}
+	logger.Infof("%v", ms)
+	/*
+		cfg := elasticsearch.Config{
+			Addresses: config.ElasticEndpoint,
+			// ...
+		}
+		es, err := elasticsearch.NewClient(cfg)
+		if err != nil {
+			logger.Panicf("cannot create elasticsearch client: %v", err)
+		}
 
-	cfg := elasticsearch.Config{
-		Addresses: config.ElasticEndpoint,
-		// ...
-	}
-	es, err := elasticsearch.NewClient(cfg)
-	if err != nil {
-		logger.Panicf("cannot create elasticsearch client: %v", err)
-	}
+		res, err := es.Info()
+		if err != nil {
+			logger.Panicf("cannot get elasticsearch info: %v", err)
+		}
+		defer res.Body.Close()
+		// Check response status
+		if res.IsError() {
+			logger.Panicf("Error: %s", res.String())
+		}
+		// Deserialize the response into a map.
+		var r map[string]interface{}
+		if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+			logger.Panicf("Error parsing the response body: %s", err)
+		}
+		// Print client and server version numbers.
+		logger.Infof("Client: %s", elasticsearch.Version)
+		logger.Infof("Server: %s", r["version"].(map[string]interface{})["number"])
 
-	res, err := es.Info()
-	if err != nil {
-		logger.Panicf("cannot get elasticsearch info: %v", err)
-	}
-	defer res.Body.Close()
-	// Check response status
-	if res.IsError() {
-		logger.Panicf("Error: %s", res.String())
-	}
-	// Deserialize the response into a map.
-	var r map[string]interface{}
-	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-		logger.Panicf("Error parsing the response body: %s", err)
-	}
-	// Print client and server version numbers.
-	logger.Infof("Client: %s", elasticsearch.Version)
-	logger.Infof("Server: %s", r["version"].(map[string]interface{})["number"])
+	*/
 
 	groups, err := zot.LoadGroupsLocal()
 	if err != nil {
@@ -136,11 +137,26 @@ func main() {
 	logger.Infof("%v", groups)
 	after := time.Unix(0, 0)
 	for _, group := range groups {
+		if len(config.Synconly) > 0 {
+			ok := false
+			for _, sog := range config.Synconly {
+				if sog == group.Id {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				continue
+			}
+		}
 		group.IterateItemsAllLocal(&after, func(item *zotero.Item) error {
 			// ignore all notes and attachments
 			if item.Data.ParentItem != "" {
 				return nil
 			}
+			//medias := item.GetMedia(ms)
+			acls := item.GetACL()
+			logger.Infof("%v", acls)
 			return nil
 		})
 	}

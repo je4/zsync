@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+/* *******************************
+Functions of gsearch.Source interface
+******************************* */
+
 func (item *Item) Name() string {
 	return "zotero"
 }
@@ -50,6 +54,24 @@ func (item *Item) GetPersons() []gsearch.Person {
 // name:value
 var zoteroTagVariable = regexp.MustCompile(`^(acl_meta|acl_content):(.+)$`)
 
+func (item *Item) GetACL() map[string][]string {
+	meta := Text2Metadata(item.Group.Data.Description)
+	meta2 := Text2Metadata(item.Data.AbstractNote)
+	for key, val := range meta2 {
+		meta[key] = val
+	}
+	acls := make(map[string][]string)
+	for key, val := range meta {
+		if strings.Index(key, "acl_") == 0 {
+			if _, ok := acls[key]; !ok {
+				acls[key] = []string{}
+			}
+			acls[key] = val
+		}
+	}
+	return acls
+}
+
 func (item *Item) GetTags() []string {
 	var tags []string
 	for _, t := range item.Data.Tags {
@@ -82,7 +104,7 @@ func (item *Item) GetTags() []string {
 	return tags
 }
 
-func (item *Item) GetMedia(ms *zotmedia.Mediaserver) map[string]gsearch.MediaList {
+func (item *Item) GetMedia(ms *zotmedia.MediaserverMySQL) map[string]gsearch.MediaList {
 	medias := make(map[string]gsearch.MediaList)
 	//var types []string
 	children, err := item.getChildrenLocal()
@@ -93,47 +115,79 @@ func (item *Item) GetMedia(ms *zotmedia.Mediaserver) map[string]gsearch.MediaLis
 		if child.Data.ItemType != "attachment" {
 			continue
 		}
-		if child.Data.LinkMode == "linked_url" {
-			if matches := ms.MediaserverRegexp.FindStringSubmatch(child.Data.Url); matches != nil {
-
-			}
-		}
-	}
-	return medias
-	/*
-			meta := child.Data.Media.Metadata
-			t := strings.ToLower(meta.Type)
-			// empty type == no media
-			if t == "" {
-				if strings.HasSuffix(child.Data.Url, ".mp4") {
-					t = "video"
-					meta.Mimetype = "video/mp4"
-				} else {
+		var collection, signature string
+		if child.Data.LinkMode == "linked_url" || child.Data.LinkMode == "imported_url" {
+			// check for mediaserver url
+			var ok bool
+			collection, signature, ok = ms.IsMediaserverURL(child.Data.Url)
+			if !ok {
+				// if not, create mediaserver entry
+				collection = fmt.Sprintf("zotero_%v", item.Group.Id)
+				signature = fmt.Sprintf("%v.%v_url", item.Group.Id, child.Key)
+				if err := ms.CreateMasterUrl(collection, signature, child.Data.Url); err != nil {
+					item.Group.Zot.logger.Errorf("cannot create mediaserver entry for item #%v.%s %s/%s",
+						item.Group.Id,
+						child.Key,
+						collection,
+						signature)
 					continue
 				}
 			}
-			// if type not in list create it
-			if _, ok := zot.medias[t]; !ok {
-				zot.medias[t] = MediaList{}
-				types = append(types, t)
+		} else {
+			collection = fmt.Sprintf("zotero_%v", item.Group.Id)
+			signature = fmt.Sprintf("%v.%v_enclosure", item.Group.Id, child.Key)
+			folder, err := item.Group.GetFolder()
+			if err != nil {
+				item.Group.Zot.logger.Errorf("cannot get folder of attachment file: %v", err)
+				continue
 			}
-			zot.medias[t] = append(zot.medias[t], Media{
-				Name:     child.Data.Title,
-				Mimetype: meta.Mimetype,
-				Type:     t,
-				Uri:      child.Data.Url,
-				Width:    int64(meta.Width),
-				Height:   int64(meta.Height),
-				Duration: int64(meta.Duration),
-			})
+			filepath := fmt.Sprintf("%s/%s", folder, child.Key)
+			found, err := item.Group.Zot.fs.FileExists(folder, child.Key)
+			if err != nil {
+				item.Group.Zot.logger.Errorf("cannot check existence of file %s: %v", filepath, err)
+				continue
+			}
+			if !found {
+				item.Group.Zot.logger.Warningf("file %s does not exist", filepath)
+				continue
+			}
+			url := fmt.Sprintf("%s/%s", item.Group.Zot.fs.Protocol(), filepath)
+			if err := ms.CreateMasterUrl(collection, signature, url); err != nil {
+				item.Group.Zot.logger.Errorf("cannot create mediaserver entry for item #%s.%s %s/%s",
+					item.Group.Id,
+					item.Key,
+					collection,
+					signature)
+				continue
+			}
 		}
-		// sort medias according to their name
-		for _, t := range types {
-			sort.Sort(zot.medias[t])
-		}
-		return zot.medias
 
-	*/
+		if collection != "" && signature != "" {
+			metadata, err := ms.GetMetadata(collection, signature)
+			if err != nil {
+				item.Group.Zot.logger.Errorf("cannot get metadata for %s/%s", collection, signature)
+				continue
+			}
+			name := child.Data.Title
+			if name == "" {
+				name = fmt.Sprintf("#%v.%v", item.Group.Id, child.Key)
+			}
+			media := gsearch.Media{
+				Name:     name,
+				Mimetype: metadata.Mimetype,
+				Type:     metadata.Type,
+				Uri:      fmt.Sprintf("mediaserver:%s/%s", collection, signature),
+				Width:    metadata.Width,
+				Height:   metadata.Height,
+				Duration: metadata.Duration,
+			}
+			if _, ok := medias[media.Type]; !ok {
+				medias[media.Type] = []gsearch.Media{}
+			}
+			medias[media.Type] = append(medias[media.Type], media)
+		}
+	}
+	return medias
 }
 
 func (item *Item) GetPoster() *gsearch.Media {
@@ -145,8 +199,7 @@ func (item *Item) GetNotes() []gsearch.Note {
 }
 
 func (item *Item) GetAbstract() string {
-	return ""
-
+	return TextNoMeta(item.Data.AbstractNote + "\n" + item.Data.Extra)
 }
 
 func (item *Item) GetReferences() []gsearch.Reference {

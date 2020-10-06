@@ -38,6 +38,10 @@ func NewLocalFs(basepath string, logger *logging.Logger) (*LocalFs, error) {
 	return &LocalFs{basepath: basepath, logger: logger}, nil
 }
 
+func (fs *LocalFs) Protocol() string {
+	return "file://"
+}
+
 func (fs *LocalFs) String() string {
 	return fs.basepath
 }

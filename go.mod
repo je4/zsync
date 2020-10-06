@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/elastic/go-elasticsearch/v7 v7.5.1-0.20200929065939-2cfab606b36d
 	github.com/elastic/go-elasticsearch/v8 v8.0.0-20200929065430-35fd8bce1107
 	github.com/go-git/go-git v4.7.0+incompatible

@@ -13,7 +13,8 @@ import (
 )
 
 type S3Fs struct {
-	s3 *minio.Client
+	s3       *minio.Client
+	endpoint string
 }
 
 func NewS3Fs(Endpoint string,
@@ -28,14 +29,18 @@ func NewS3Fs(Endpoint string,
 	if err != nil {
 		return nil, emperror.Wrap(err, "cannot conntct to s3 instance")
 	}
-	return &S3Fs{s3: s3}, nil
+	return &S3Fs{s3: s3, endpoint: Endpoint}, nil
+}
+
+func (fs *S3Fs) Protocol() string {
+	return fmt.Sprintf("s3://%s", fs.endpoint)
 }
 
 func (fs *S3Fs) String() string {
 	return fmt.Sprintf(fs.s3.EndpointURL().String())
 }
 
-func (fs *S3Fs) FileStat( folder, name string, opts FileStatOptions) (os.FileInfo, error) {
+func (fs *S3Fs) FileStat(folder, name string, opts FileStatOptions) (os.FileInfo, error) {
 	sinfo, err := fs.s3.StatObject(context.Background(), folder, name, minio.StatObjectOptions{})
 	if err != nil {
 		// no file no error
@@ -55,7 +60,7 @@ func (fs *S3Fs) FileExists(folder, name string) (bool, error) {
 	if err != nil {
 		// no file no error
 		if IsNotFoundError(err) {
-				return false, nil
+			return false, nil
 		}
 		return false, emperror.Wrapf(err, "cannot get file info for %v/%v", folder, name)
 	}
@@ -70,7 +75,7 @@ func (fs *S3Fs) FolderExists(folder string) (bool, error) {
 	return found, nil
 }
 
-func (fs *S3Fs) FolderCreate( folder string, opts FolderCreateOptions) error {
+func (fs *S3Fs) FolderCreate(folder string, opts FolderCreateOptions) error {
 	if err := fs.s3.MakeBucket(context.Background(), folder, minio.MakeBucketOptions{ObjectLocking: opts.ObjectLocking}); err != nil {
 		return emperror.Wrapf(err, "cannot create bucket %s", folder)
 	}
@@ -131,14 +136,14 @@ func (fs *S3Fs) FileRead(folder, name string, w io.Writer, size int64, opts File
 		folder,
 		name,
 		minio.GetObjectOptions{},
-		);
+	)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot get object %v/%v", folder, name)
 	}
 	defer object.Close()
 	if size == -1 {
 		if _, err := io.Copy(w, object); err != nil {
-				return emperror.Wrapf(err, "cannot read from obect %v/%v", folder, name)
+			return emperror.Wrapf(err, "cannot read from obect %v/%v", folder, name)
 		}
 	} else {
 		if _, err := io.CopyN(w, object, size); err != nil {
@@ -156,7 +161,7 @@ func (fs *S3Fs) FileOpenRead(folder, name string, opts FileGetOptions) (io.ReadC
 		folder,
 		name,
 		minio.GetObjectOptions{},
-	);
+	)
 	if err != nil {
 		return nil, emperror.Wrapf(err, "cannot get object %v/%v", folder, name)
 	}

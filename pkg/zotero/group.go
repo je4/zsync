@@ -33,22 +33,23 @@ type GroupData struct {
 }
 
 type Group struct {
-	Id                int64         `json:"id"`
-	Version           int64         `json:"version"`
-	Links             interface{}   `json:"links,omitempty"`
-	Meta              GroupMeta     `json:"meta"`
-	Data              GroupData     `json:"data"`
-	Deleted           bool          `json:"-"`
-	Active            bool          `json:"-"`
-	syncTags          bool          `json:"-"` // sync tags?
-	direction         SyncDirection `json:"-"`
-	Zot               *Zotero       `json:"-"`
-	ItemVersion       int64         `json:"-"`
-	CollectionVersion int64         `json:"-"`
-	TagVersion        int64         `json:"-"`
-	IsModified        bool          `json:"-"`
-	Gitlab            *time.Time    `json:"-"`
-	Folder            string        `json:"-"`
+	Id                int64               `json:"id"`
+	Version           int64               `json:"version"`
+	Links             interface{}         `json:"links,omitempty"`
+	Meta              GroupMeta           `json:"meta"`
+	Data              GroupData           `json:"data"`
+	Deleted           bool                `json:"-"`
+	Active            bool                `json:"-"`
+	syncTags          bool                `json:"-"` // sync tags?
+	direction         SyncDirection       `json:"-"`
+	Zot               *Zotero             `json:"-"`
+	ItemVersion       int64               `json:"-"`
+	CollectionVersion int64               `json:"-"`
+	TagVersion        int64               `json:"-"`
+	IsModified        bool                `json:"-"`
+	Gitlab            *time.Time          `json:"-"`
+	Folder            string              `json:"-"`
+	meta              map[string][]string `json:"-"`
 }
 
 type GroupGitlab struct {
@@ -57,6 +58,10 @@ type GroupGitlab struct {
 	CollectionVersion int64     `json:"collectionversion"`
 	ItemVersion       int64     `json:"itemversion"`
 	TagVersion        int64     `json:tagversion`
+}
+
+func (group *Group) Init() {
+	group.meta = Text2Metadata(group.Data.Description)
 }
 
 func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {

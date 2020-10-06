@@ -48,4 +48,5 @@ type FileSystem interface {
 	FileOpenRead(folder, name string, opts FileGetOptions) (io.ReadCloser, error)
 	FileStat(folder, name string, opts FileStatOptions) (os.FileInfo, error)
 	String() string
+	Protocol() string
 }
