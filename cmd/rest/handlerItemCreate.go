@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
+	"github.com/je4/zsync/pkg/zotero"
 	"net/http"
 )
 
@@ -31,7 +31,7 @@ func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 			return
 		}
 		itemMeta := zotero.ItemMeta{
-			CreatedByUser:  zotero.User{
+			CreatedByUser: zotero.User{
 				Id:       handlers.zot.CurrentKey.UserId,
 				Username: handlers.zot.CurrentKey.Username,
 				Links:    nil,
@@ -46,4 +46,3 @@ func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 		respondWithJSON(w, http.StatusOK, item)
 	}
 }
-

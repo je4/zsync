@@ -2,8 +2,8 @@ package zotero
 
 import (
 	"fmt"
+	"github.com/je4/zsync/pkg/zotmedia"
 	"github.com/vanng822/go-solr/solr"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotmedia"
 	"gitlab.fhnw.ch/mediathek/search/gsearch/pkg/gsearch"
 	"html/template"
 	"reflect"

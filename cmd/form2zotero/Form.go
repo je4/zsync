@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/goph/emperror"
+	"github.com/je4/zsync/pkg/zotero"
 	"github.com/op/go-logging"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"strings"
 	"time"
 )

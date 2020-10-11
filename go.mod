@@ -1,4 +1,4 @@
-module gitlab.fhnw.ch/hgk-dima/zotero-sync
+module github.com/je4/zsync
 
 go 1.14
 

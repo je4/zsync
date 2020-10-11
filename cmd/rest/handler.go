@@ -5,8 +5,8 @@ import (
 	"errors"
 	"github.com/bluele/gcache"
 	"github.com/goph/emperror"
+	"github.com/je4/zsync/pkg/zotero"
 	"github.com/op/go-logging"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"net/http"
 	"strconv"
@@ -30,7 +30,7 @@ func NewHandler(zot *zotero.Zotero, cfg *Config, logger *logging.Logger) *Handle
 		zot:    zot,
 		cfg:    cfg,
 		logger: logger,
-		groups:gcache.New(500).
+		groups: gcache.New(500).
 			ARC().Expiration(exp).
 			Build(),
 	}

@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"github.com/gorilla/mux"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
+	"github.com/je4/zsync/pkg/filesystem"
+	"github.com/je4/zsync/pkg/zotero"
 	"net/http"
 )
 

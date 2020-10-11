@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/gorilla/mux"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
+	"github.com/je4/zsync/pkg/zotero"
 	"net/http"
 )
 
@@ -33,9 +33,9 @@ func (handlers *Handlers) makeItemGetHandler() http.HandlerFunc {
 
 		var item *zotero.Item
 		if key != "" {
-			item, err = group.GetItemByKeyLocal( key )
+			item, err = group.GetItemByKeyLocal(key)
 		} else if oldid != "" {
-			item, err = group.GetItemByOldidLocal( oldid )
+			item, err = group.GetItemByOldidLocal(oldid)
 		}
 		if err != nil {
 			handlers.logger.Errorf("cannot get item %v.%v%v: %v", group.Id, key, oldid, err)

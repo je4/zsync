@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/goph/emperror"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
+	"github.com/je4/zsync/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"path/filepath"
 	"strconv"

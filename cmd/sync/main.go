@@ -3,10 +3,10 @@ package main
 import (
 	"database/sql"
 	"flag"
+	"github.com/je4/zsync/pkg/filesystem"
+	"github.com/je4/zsync/pkg/zotero"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/filesystem"
-	"gitlab.fhnw.ch/hgk-dima/zotero-sync/pkg/zotero"
 	"log"
 	"math/rand"
 	"os"
