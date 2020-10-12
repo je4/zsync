@@ -203,6 +203,26 @@ func main() {
 				itemData.Tags = append(itemData.Tags, zotero.ItemTag{
 					Tag: k,
 				})
+				coll, err := grp.GetCollectionByNameLocal(k, "")
+				if err != nil {
+					fmt.Errorf("cannot load collection %s", k)
+					break
+				}
+				if coll == nil {
+					logger.Infof("creating collection %v", k)
+					coll, err = grp.CreateCollectionLocal(&zotero.CollectionData{
+						Key:              zotero.CreateKey(),
+						Name:             k,
+						Version:          0,
+						Relations:        zotero.RelationList{},
+						ParentCollection: "",
+					})
+					if err != nil {
+						fmt.Errorf("cannot create collection %s", k)
+						break
+					}
+				}
+				itemData.Collections = append(itemData.Collections, coll.Key)
 			}
 		}
 		if stichwort.Valid {

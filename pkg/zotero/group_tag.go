@@ -8,7 +8,7 @@ import (
 )
 
 func (group *Group) CreateTagLocal(tag Tag) error {
-	group.Zot.logger.Debugf("Creating Tag %s", tag.Tag)
+	group.Zot.Logger.Debugf("Creating Tag %s", tag.Tag)
 	metastr, err := json.Marshal(tag.Meta)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot marshal meta %v", tag.Meta)
@@ -30,7 +30,7 @@ func (group *Group) CreateTagLocal(tag Tag) error {
 }
 
 func (group *Group) DeleteTagLocal(tag string) error {
-	group.Zot.logger.Infof("deleting Tag %s", tag)
+	group.Zot.Logger.Infof("deleting Tag %s", tag)
 	sqlstr := fmt.Sprintf("DELETE FROM %s.tags WHERE tag=$1 and library=$2", group.Zot.dbSchema)
 
 	params := []interface{}{
@@ -46,7 +46,7 @@ func (group *Group) DeleteTagLocal(tag string) error {
 func (group *Group) GetTagsVersionCloud(sinceVersion int64) (*[]Tag, int64, error) {
 	var endpoint string
 	endpoint = fmt.Sprintf("/groups/%v/tags", group.Id)
-	group.Zot.logger.Infof("rest call: %s", endpoint)
+	group.Zot.Logger.Infof("rest call: %s", endpoint)
 
 	resp, err := group.Zot.client.R().
 		SetHeader("Accept", "application/json").
@@ -73,7 +73,7 @@ func (group *Group) SyncTags() (int64, int64, error) {
 	if !group.CanDownload() || !group.syncTags {
 		return 0, 0, nil
 	}
-	group.Zot.logger.Infof("Syncing tags of Group #%v", group.Id)
+	group.Zot.Logger.Infof("Syncing tags of Group #%v", group.Id)
 	var counter int64
 	tagList, lastModifiedVersion, err := group.GetTagsVersionCloud(group.Version)
 	if err != nil {
@@ -85,6 +85,6 @@ func (group *Group) SyncTags() (int64, int64, error) {
 		}
 	}
 
-	group.Zot.logger.Infof("Syncing tags of Group #%v done. %v tags changed", group.Id, counter)
+	group.Zot.Logger.Infof("Syncing tags of Group #%v done. %v tags changed", group.Id, counter)
 	return counter, lastModifiedVersion, nil
 }

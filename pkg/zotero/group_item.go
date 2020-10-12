@@ -146,7 +146,7 @@ func (group *Group) GetItemsVersionOnlyCloud(trashed bool) (int64, error) {
 	start := int64(0)
 	var lastModifiedVersion int64
 	for {
-		group.Zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
+		group.Zot.Logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
 		call := group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetQueryParam("format", "versions").
@@ -190,7 +190,7 @@ func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map
 	start := int64(0)
 	var lastModifiedVersion int64
 	for {
-		group.Zot.logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
+		group.Zot.Logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
 		call := group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
@@ -333,7 +333,7 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 	}
 
 	endpoint := fmt.Sprintf("/groups/%v/items", group.Id)
-	group.Zot.logger.Infof("rest call: %s", endpoint)
+	group.Zot.Logger.Infof("rest call: %s", endpoint)
 
 	call := group.Zot.client.R().
 		SetHeader("Accept", "application/json").
@@ -350,7 +350,7 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 			break
 		}
 	}
-	group.Zot.logger.Debugf("status: #%v ", resp.StatusCode())
+	group.Zot.Logger.Debugf("status: #%v ", resp.StatusCode())
 	rawBody := resp.Body()
 	items := []Item{}
 	if err := json.Unmarshal(rawBody, &items); err != nil {
@@ -395,7 +395,7 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 	for rows.Next() {
 		counter++
 
-		group.Zot.logger.Infof("writing item %v of %v to zotero cloud", counter, numUpdates)
+		group.Zot.Logger.Infof("writing item %v of %v to zotero cloud", counter, numUpdates)
 
 		item, err := group.itemFromRow(rows)
 		if err != nil {
@@ -403,9 +403,9 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 		}
 
 		if err := item.UpdateCloud(&lastModifiedVersion); err != nil {
-			group.Zot.logger.Warningf("error creating/updating item %v.%v - retrying with new version", group.Id, item.Key)
+			group.Zot.Logger.Warningf("error creating/updating item %v.%v - retrying with new version", group.Id, item.Key)
 			if err := item.UpdateCloud(&lastModifiedVersion); err != nil {
-				group.Zot.logger.Errorf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
+				group.Zot.Logger.Errorf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
 			}
 			//return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", Group.Id, item.Key)
 		}
@@ -414,7 +414,7 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 }
 
 func (group *Group) syncItems(trashed bool) (int64, int64, error) {
-	group.Zot.logger.Infof("Syncing items of Group #%v", group.Id)
+	group.Zot.Logger.Infof("Syncing items of Group #%v", group.Id)
 	var counter int64
 
 	objectList, lastModifiedVersion, err := group.GetItemsVersionCloud(group.ItemVersion, trashed)
@@ -428,7 +428,7 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 			return counter, 0, emperror.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
 		}
 		if sync != SyncStatus_Synced && sync != SyncStatus_Incomplete {
-			group.Zot.logger.Errorf("item %v not synced. please handle conflict", itemid)
+			group.Zot.Logger.Errorf("item %v not synced. please handle conflict", itemid)
 			continue
 			//return counter, lastModifiedVersion, errors.New(fmt.Sprintf("item %v not synced. please handle conflict", itemid))
 		}
@@ -448,19 +448,19 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 		if err != nil {
 			return counter, 0, emperror.Wrapf(err, "cannot get items")
 		}
-		group.Zot.logger.Infof("%v items", len(*items))
+		group.Zot.Logger.Infof("%v items", len(*items))
 		for _, item := range *items {
-			group.Zot.logger.Infof("Item %v of %v", counter, numItems)
+			group.Zot.Logger.Infof("Item %v of %v", counter, numItems)
 			item.Status = SyncStatus_Synced
 			item.Trashed = trashed
 			if err := item.UpdateLocal(); err != nil {
-				group.Zot.logger.Errorf("cannot update item: %v", err)
+				group.Zot.Logger.Errorf("cannot update item: %v", err)
 				//return counter, 0, emperror.Wrapf(err, "cannot update items")
 			}
 			counter++
 		}
 	}
-	group.Zot.logger.Infof("Syncing items of Group #%v done. %v items changed", group.Id, counter)
+	group.Zot.Logger.Infof("Syncing items of Group #%v done. %v items changed", group.Id, counter)
 	return counter, lastModifiedVersion, nil
 }
 
@@ -482,7 +482,7 @@ func (group *Group) UploadItems() (int64, int64, error) {
 	}
 
 	if counter > 0 {
-		group.Zot.logger.Infof("refreshing materialized view item_type_hier")
+		group.Zot.Logger.Infof("refreshing materialized view item_type_hier")
 		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
 		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
@@ -518,7 +518,7 @@ func (group *Group) DownloadItems() (int64, int64, error) {
 	}
 
 	if counter > 0 {
-		group.Zot.logger.Infof("refreshing materialized view item_type_hier")
+		group.Zot.Logger.Infof("refreshing materialized view item_type_hier")
 		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
 		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {

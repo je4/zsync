@@ -7,9 +7,9 @@ import (
 
 type AccessElements struct {
 	Library bool `json:"library,omitempty"`
-	Files bool `json:"files,omitempty"`
-	Notes bool `json:"notes,omitempty"`
-	Write bool `json:"write,omitempty"`
+	Files   bool `json:"files,omitempty"`
+	Notes   bool `json:"notes,omitempty"`
+	Write   bool `json:"write,omitempty"`
 }
 
 type Access struct {
@@ -25,7 +25,7 @@ type ApiKey struct {
 
 func (zot *Zotero) getCurrentKey() (*ApiKey, error) {
 	endpoint := "/keys/current"
-	zot.logger.Infof("rest call: %s", endpoint)
+	zot.Logger.Infof("rest call: %s", endpoint)
 
 	resp, err := zot.client.R().
 		SetHeader("Accept", "application/json").

@@ -137,7 +137,7 @@ func (item *Item) GetTags() []string {
 		for _, collKey := range item.Data.Collections {
 			coll, err := item.Group.GetCollectionByKeyLocal(collKey)
 			if err != nil {
-				item.Group.Zot.logger.Errorf("could not load collection #%v.%v", item.Group.Data.Id, collKey)
+				item.Group.Zot.Logger.Errorf("could not load collection #%v.%v", item.Group.Data.Id, collKey)
 				continue
 			}
 			if coll.Key == c {
@@ -158,7 +158,7 @@ func (item *Item) GetTags() []string {
 func (item *Item) GetMedia(ms *zotmedia.MediaserverMySQL) map[string]gsearch.MediaList {
 	medias := make(map[string]gsearch.MediaList)
 	//var types []string
-	children, err := item.getChildrenLocal()
+	children, err := item.GetChildrenLocal()
 	if err != nil {
 		return medias
 	}
@@ -176,7 +176,7 @@ func (item *Item) GetMedia(ms *zotmedia.MediaserverMySQL) map[string]gsearch.Med
 				collection = fmt.Sprintf("zotero_%v", item.Group.Id)
 				signature = fmt.Sprintf("%v.%v_url", item.Group.Id, child.Key)
 				if err := ms.CreateMasterUrl(collection, signature, child.Data.Url); err != nil {
-					item.Group.Zot.logger.Errorf("cannot create mediaserver entry for item #%v.%s %s/%s",
+					item.Group.Zot.Logger.Errorf("cannot create mediaserver entry for item #%v.%s %s/%s",
 						item.Group.Id,
 						child.Key,
 						collection,
@@ -189,22 +189,22 @@ func (item *Item) GetMedia(ms *zotmedia.MediaserverMySQL) map[string]gsearch.Med
 			signature = fmt.Sprintf("%v.%v_enclosure", item.Group.Id, child.Key)
 			folder, err := item.Group.GetFolder()
 			if err != nil {
-				item.Group.Zot.logger.Errorf("cannot get folder of attachment file: %v", err)
+				item.Group.Zot.Logger.Errorf("cannot get folder of attachment file: %v", err)
 				continue
 			}
 			filepath := fmt.Sprintf("%s/%s", folder, child.Key)
-			found, err := item.Group.Zot.fs.FileExists(folder, child.Key)
+			found, err := item.Group.Zot.Fs.FileExists(folder, child.Key)
 			if err != nil {
-				item.Group.Zot.logger.Errorf("cannot check existence of file %s: %v", filepath, err)
+				item.Group.Zot.Logger.Errorf("cannot check existence of file %s: %v", filepath, err)
 				continue
 			}
 			if !found {
-				item.Group.Zot.logger.Warningf("file %s does not exist", filepath)
+				item.Group.Zot.Logger.Warningf("file %s does not exist", filepath)
 				continue
 			}
-			url := fmt.Sprintf("%s/%s", item.Group.Zot.fs.Protocol(), filepath)
+			url := fmt.Sprintf("%s/%s", item.Group.Zot.Fs.Protocol(), filepath)
 			if err := ms.CreateMasterUrl(collection, signature, url); err != nil {
-				item.Group.Zot.logger.Errorf("cannot create mediaserver entry for item #%s.%s %s/%s",
+				item.Group.Zot.Logger.Errorf("cannot create mediaserver entry for item #%s.%s %s/%s",
 					item.Group.Id,
 					item.Key,
 					collection,
@@ -216,7 +216,7 @@ func (item *Item) GetMedia(ms *zotmedia.MediaserverMySQL) map[string]gsearch.Med
 		if collection != "" && signature != "" {
 			metadata, err := ms.GetMetadata(collection, signature)
 			if err != nil {
-				item.Group.Zot.logger.Errorf("cannot get metadata for %s/%s", collection, signature)
+				item.Group.Zot.Logger.Errorf("cannot get metadata for %s/%s", collection, signature)
 				continue
 			}
 			name := child.Data.Title
@@ -289,9 +289,9 @@ func (item *Item) GetNotes() []gsearch.Note {
 		})
 	}
 
-	children, err := item.getChildrenLocal()
+	children, err := item.GetChildrenLocal()
 	if err != nil {
-		item.Group.Zot.logger.Errorf("cannot load children of #%v.%v", item.Group.Id, item.Key)
+		item.Group.Zot.Logger.Errorf("cannot load children of #%v.%v", item.Group.Id, item.Key)
 		return notes
 	}
 	for _, child := range *children {
