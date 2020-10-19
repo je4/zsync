@@ -94,7 +94,7 @@ func main() {
 
 	logger.Infof("Zotero key: #%v %v", zot.CurrentKey.UserId, zot.CurrentKey.Username)
 
-	ms, err := zotmedia.NewMediaserver(config.Mediaserverbase, mediaDB, config.MediaDB.Schema, logger)
+	ms, err := zotmedia.NewMediaserverMySQL(config.Mediaserverbase, mediaDB, config.MediaDB.Schema, logger)
 	if err != nil {
 		logger.Panicf("cannot create mediaserver: %v", err)
 	}
