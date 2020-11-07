@@ -5,7 +5,6 @@ go 1.15
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-git/go-git/v5 v5.2.0
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/google/uuid v1.1.2 // indirect
