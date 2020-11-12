@@ -528,7 +528,7 @@ func (item *Item) UpdateLocal() error {
 			string(meta),
 			item.Trashed,
 			item.Deleted,
-			SyncStatusString[item.Status],
+			SyncStatusString[SyncStatus_Modified],
 			md5val,
 			item.Group.Id,
 			item.Key,
