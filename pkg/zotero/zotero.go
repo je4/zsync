@@ -33,7 +33,7 @@ func Text2Metadata(str string) map[string][]string {
 			if _, ok := meta[kv[0]]; !ok {
 				meta[kv[0]] = []string{}
 			}
-			meta[kv[0]] = append(meta[kv[0]], strings.Trim(kv[1], ` "`))
+			meta[kv[0]] = append(meta[kv[0]], strings.TrimSpace(strings.Trim(kv[1], ` "`)))
 		}
 	}
 	return meta

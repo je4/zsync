@@ -402,7 +402,7 @@ func (item *Item) uploadFileCloud() error {
 }
 
 func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
-	item.Group.Zot.Logger.Infof("Creating Zotero Item [#%s]", item.Key)
+	item.Group.Zot.Logger.Infof("Writing Zotero Item [#%s]", item.Key)
 	/*
 		if item.Version > 0 {
 			item.Version = *lastModifiedVersion
