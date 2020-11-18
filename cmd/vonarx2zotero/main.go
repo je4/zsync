@@ -130,8 +130,8 @@ func main() {
 		"Aufgabenstellung,Dauer_Bezeichnung,Prodjahrbez,Produktionsjahr,Ton,Anzahl_Beispiele,Art_der_Produktion," +
 		"Filmmaterial,Minuten,Rollennummer,Rollenthema,Sekunden,Verweis_auf_Publikation,Bemerkung,Dauer_Sekunden," +
 		"Dozenten,Varianten,Weitere_Angaben_zur_Person" +
-		" FROM rfid.source_von_arx_video " +
-		" WHERE Rollennummer=2"
+		" FROM rfid.source_von_arx_video "
+		//		" WHERE Rollennummer=2"
 	rows, err := sourceDB.Query(sqlstr)
 	if err != nil {
 		logger.Errorf("cannot execute query %s - %v", sqlstr, err)
@@ -174,6 +174,10 @@ func main() {
 			return
 		}
 
+		if strings.TrimSpace(strings.ToLower(Bewertung)) != "mediathek" {
+			continue
+		}
+
 		item, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v", FILM_NUMMER))
 		if err != nil {
 			fmt.Errorf("cannot load item by oldid #%v - %v -- %v", zoterogroup, FILM_NUMMER, err)
@@ -187,9 +191,12 @@ func main() {
 		itemData.Creators = []zotero.ItemDataPerson{}
 		itemData.Tags = []zotero.ItemTag{}
 
+		itemData.Archive = "Mediathek HGK FHNW"
+		itemData.ArchiveLocation = "280.21"
 		itemData.Title = Bezeichnung
 		itemData.Date = Produktionsjahr
-		itemData.Extra = fmt.Sprintf("Rolle %02d", Rollennummer)
+		itemData.CallNumber = fmt.Sprintf("Rolle %02d / %04d", Rollennummer, FILM_NUMMER)
+		itemData.Rights = Bewertung
 		sec, err := strconv.ParseInt(Dauer_Sekunden, 10, 64)
 		if err == nil && sec > 0 {
 			itemData.RunningTime = zotero.FmtDuration(time.Second * time.Duration(sec))
@@ -203,6 +210,9 @@ func main() {
 			authors := strings.SplitN(AutorInnen, ",", 2)
 			for _, author := range authors {
 				author := strings.TrimSpace(author)
+				if author == "diverse" {
+					author = "Diverse Studierende"
+				}
 				var person zotero.ItemDataPerson
 				p2s := strings.Split(author, " ")
 				if len(p2s) == 2 {
@@ -246,10 +256,13 @@ func main() {
 		}
 
 		if Aufgabenstellung != "" {
-			itemData.AbstractNote += Aufgabenstellung + "\n"
+			itemData.AbstractNote += strings.Trim(Aufgabenstellung, " .") + ".\n"
 		}
 		if Anzahl_Beispiele != "" {
-			itemData.AbstractNote += fmt.Sprintf("%s Beispiele", Anzahl_Beispiele) + "\n"
+			itemData.AbstractNote += fmt.Sprintf("Beispiele: %s", Anzahl_Beispiele) + ".\n"
+		}
+		if Varianten != "" {
+			itemData.AbstractNote += fmt.Sprintf("Varianten: %s", Varianten) + ".\n"
 		}
 		if Art_der_Produktion != "" {
 			itemData.Tags = append(itemData.Tags, zotero.ItemTag{
@@ -257,8 +270,23 @@ func main() {
 				Type: 0,
 			})
 		}
+		if strings.TrimSpace(Klasse) != "" {
+			itemData.Tags = append(itemData.Tags, zotero.ItemTag{
+				Tag:  strings.TrimSpace(Klasse),
+				Type: 0,
+			})
+		} else {
+			itemData.Tags = append(itemData.Tags, zotero.ItemTag{
+				Tag:  "Klasse unbekannt",
+				Type: 0,
+			})
+		}
 		if Bemerkung != "" {
-			itemData.AbstractNote += "\n" + Bemerkung + "\n"
+			itemData.AbstractNote += "\n" + Bemerkung + ".\n"
+		}
+
+		if Verweis_auf_Publikation != "" {
+			itemData.Extra = strings.TrimSpace(Verweis_auf_Publikation)
 		}
 
 		itemMeta := zotero.ItemMeta{}
@@ -280,39 +308,42 @@ func main() {
 
 		logger.Infof("%v", item)
 
-		if Verweis_auf_Publikation != "" {
-			pubnote, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v.pub", FILM_NUMMER))
-			if err != nil {
-				fmt.Errorf("cannot load item by oldid #%v - %v.tech -- %v", zoterogroup, FILM_NUMMER, err)
-				break
-			}
-			//techItemData := zotero.ItemDataNote{}
-			pubItemData := zotero.ItemGeneric{}
-			pubItemData.ItemType = "note"
-			pubItemData.Relations = make(map[string]zotero.ZoteroStringList)
-			pubItemData.Tags = []zotero.ItemTag{}
-			pubItemData.Collections = []string{}
-			pubItemData.ParentItem = zotero.Parent(item.Key)
-			pubItemData.Title = "Publikation"
-			pubItemData.Note = strings.Replace(Verweis_auf_Publikation, "\n", "<br />\n", -1)
-
-			pubnoteMeta := zotero.ItemMeta{}
-			if pubnote == nil {
-				pubnote, err = grp.CreateItemLocal(&pubItemData, &pubnoteMeta, fmt.Sprintf("%v.pub", FILM_NUMMER))
+		/*
+			if Verweis_auf_Publikation != "" {
+				pubnote, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v.pub", FILM_NUMMER))
 				if err != nil {
-					fmt.Errorf("cannot create item #%v - %v.pub -- %v", zoterogroup, FILM_NUMMER, err)
+					fmt.Errorf("cannot load item by oldid #%v - %v.tech -- %v", zoterogroup, FILM_NUMMER, err)
 					break
 				}
-			} else {
-				pubnote.Data = pubItemData
-				pubnote.Data.Version = pubnote.Version
-				//item.Meta = itemMeta
-				pubnote.Status = zotero.SyncStatus_Modified
-				pubnote.Data.Key = pubnote.Key
-				pubnote.UpdateLocal()
-			}
+				//techItemData := zotero.ItemDataNote{}
+				pubItemData := zotero.ItemGeneric{}
+				pubItemData.ItemType = "note"
+				pubItemData.Relations = make(map[string]zotero.ZoteroStringList)
+				pubItemData.Tags = []zotero.ItemTag{}
+				pubItemData.Collections = []string{}
+				pubItemData.ParentItem = zotero.Parent(item.Key)
+				pubItemData.Title = "Publikation"
+				pubItemData.Note = strings.Replace(Verweis_auf_Publikation, "\n", "<br />\n", -1)
 
-		}
+
+				pubnoteMeta := zotero.ItemMeta{}
+				if pubnote == nil {
+					pubnote, err = grp.CreateItemLocal(&pubItemData, &pubnoteMeta, fmt.Sprintf("%v.pub", FILM_NUMMER))
+					if err != nil {
+						fmt.Errorf("cannot create item #%v - %v.pub -- %v", zoterogroup, FILM_NUMMER, err)
+						break
+					}
+				} else {
+					pubnote.Data = pubItemData
+					pubnote.Data.Version = pubnote.Version
+					//item.Meta = itemMeta
+					pubnote.Status = zotero.SyncStatus_Modified
+					pubnote.Data.Key = pubnote.Key
+					pubnote.UpdateLocal()
+				}
+
+			}
+		*/
 
 		technote, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v.tech", FILM_NUMMER))
 		if err != nil {
