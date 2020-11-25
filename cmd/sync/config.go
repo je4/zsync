@@ -31,6 +31,7 @@ type Config struct {
 	Listen               string
 	TLS                  bool
 	Synconly             []int64
+	ClearBeforeSync      []int64
 	CertChain            string
 	PrivateKey           string
 	Endpoint             string

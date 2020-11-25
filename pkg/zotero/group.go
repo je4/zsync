@@ -253,6 +253,32 @@ func (group *Group) SyncDeleted() (int64, error) {
 	return int64(len(deletions.Tags) + len(deletions.Items) + len(deletions.Collections)), nil
 }
 
+func (group *Group) ClearLocal() error {
+	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=0, modified=created,"+
+		" itemversion=0, collectionversion=0"+
+		" WHERE id=$1", group.Zot.dbSchema)
+	params := []interface{}{
+		group.Id,
+	}
+	_, err := group.Zot.db.Exec(sqlstr, params...)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+	}
+	group.CollectionVersion = 0
+	group.ItemVersion = 0
+
+	sqlstr = fmt.Sprintf("DELETE FROM %s.items WHERE library=$1", group.Zot.dbSchema)
+	params = []interface{}{
+		group.Id,
+	}
+	_, err = group.Zot.db.Exec(sqlstr, params...)
+	if err != nil {
+		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+	}
+
+	return nil
+}
+
 func (group *Group) Sync() (err error) {
 	// no sync at all
 	if group.direction == SyncDirection_None {

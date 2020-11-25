@@ -107,6 +107,16 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 			continue
 		}
 
+		for _, gid := range cfg.ClearBeforeSync {
+			if gid == group.Id {
+				if err := group.ClearLocal(); err != nil {
+					logger.Errorf("cannot clear group %v: %v", groupId, err)
+					return
+				}
+				break
+			}
+		}
+
 		if err := group.Sync(); err != nil {
 			logger.Errorf("cannot sync group #%v: %v", group.Id, err)
 			continue
