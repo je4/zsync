@@ -30,6 +30,7 @@ type Config struct {
 	Logfile              string
 	Loglevel             string
 	AccessLog            string
+	Synconly             []int64
 	Backup               Backup
 	DB                   Cfg_database `toml:"database"`
 	GroupCacheExpiration string       `toml:"groupcacheexpiration"`

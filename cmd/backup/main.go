@@ -69,6 +69,20 @@ func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.L
 	}
 
 	for _, grp := range grps {
+		doBackup := true
+		if len(cfg.Synconly) > 0 {
+			doBackup = false
+			for _, x := range cfg.Synconly {
+				if x == grp.Id {
+					doBackup = true
+					break
+				}
+			}
+		}
+		if !doBackup {
+			logger.Infof("ignoring group %v [%v]", grp.Data.Name, grp.Id)
+			continue
+		}
 		if err := grp.BackupLocal(backupFs); err != nil {
 			logger.Errorf("cannot backup group #%v: %v", grp.Id, err)
 		}
