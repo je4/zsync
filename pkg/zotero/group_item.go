@@ -273,7 +273,8 @@ func (group *Group) IterateItemsAllLocal(after *time.Time, f func(item *Item) er
 		group.Id,
 	}
 	if after != nil {
-		sqlstr += " AND (gitlab IS NULL OR gitlab > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
+		sqlstr += " AND (modified > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
+		//sqlstr += " AND (gitlab IS NULL OR gitlab > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
 		params = append(params, after.Format("2006-01-02 15:04:05"))
 	}
 	rows, err := group.Zot.db.Query(sqlstr, params...)
