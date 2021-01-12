@@ -558,7 +558,7 @@ func (item *Item) GetChildrenLocal() (*[]Item, error) {
 	item.Group.Zot.Logger.Infof("get children of  item [#%s]", item.Key)
 	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.meta, i.trashed, i.deleted, i.sync, i.md5, i.gitlab"+
 		" FROM %s.items i, %s.item_type_hier ith"+
-		" WHERE i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.Group.Zot.dbSchema, item.Group.Zot.dbSchema)
+		" WHERE i.trashed=false AND i.deleted=false AND i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.Group.Zot.dbSchema, item.Group.Zot.dbSchema)
 	params := []interface{}{
 		item.Group.Id,
 		item.Key,
