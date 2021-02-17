@@ -266,6 +266,7 @@ func (group *Group) ClearLocal() error {
 	}
 	group.CollectionVersion = 0
 	group.ItemVersion = 0
+	group.Version = 0
 
 	sqlstr = fmt.Sprintf("DELETE FROM %s.items WHERE library=$1", group.Zot.dbSchema)
 	params = []interface{}{

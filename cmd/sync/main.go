@@ -99,7 +99,7 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 		}
 		group, err := zot.LoadGroupLocal(groupId)
 		if err != nil {
-			logger.Errorf("cannot load group %v: %v", groupId, err)
+			logger.Errorf("cannot load group local %v: %v", groupId, err)
 			return
 		}
 		if !group.Active {
