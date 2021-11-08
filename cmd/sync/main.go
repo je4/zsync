@@ -154,6 +154,7 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 func main() {
 
 	cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
+	loop := flag.Bool("loop", false, "endless sync")
 	flag.Parse()
 	cfg := LoadConfig(*cfgfile)
 
@@ -202,6 +203,9 @@ func main() {
 	}()
 	for {
 		sync(&cfg, db, fs, logger)
+		if !*loop {
+			return
+		}
 		logger.Infof("sleeping %v", cfg.SyncSleep)
 		select {
 		case <-c1:

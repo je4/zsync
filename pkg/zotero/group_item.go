@@ -267,27 +267,39 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 }
 
 func (group *Group) IterateItemsAllLocal(after *time.Time, f func(item *Item) error) error {
+	sqlstr0 := fmt.Sprintf("SELECT COUNT(*) "+
+		"FROM %s.items WHERE library=$1", group.Zot.dbSchema)
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab "+
 		"FROM %s.items WHERE library=$1", group.Zot.dbSchema)
 	params := []interface{}{
 		group.Id,
 	}
 	if after != nil {
+		sqlstr0 += " AND (modified > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
 		sqlstr += " AND (modified > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
 		//sqlstr += " AND (gitlab IS NULL OR gitlab > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
 		params = append(params, after.Format("2006-01-02 15:04:05"))
 	}
+	var num int64
+	if err := group.Zot.db.QueryRow(sqlstr0, params...).Scan(&num); err != nil {
+		return emperror.Wrapf(err, "cannot execute %s", sqlstr0)
+	}
+	group.Zot.Logger.Infof("%v items found", num)
 	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
 		return emperror.Wrapf(err, "cannot execute %s", sqlstr)
 	}
 	defer rows.Close()
 
+	counter := 0
 	for rows.Next() {
+		counter++
+		//group.Zot.Logger.Infof("item no. #%v", counter)
 		item, err := group.itemFromRow(rows)
 		if err != nil {
 			return emperror.Wrapf(err, "cannot scan row")
 		}
+		group.Zot.Logger.Infof("#%v/%v item %v.%v", counter, num, item.Group.Id, item.Key)
 		if err := f(item); err != nil {
 			return err
 		}
@@ -484,7 +496,8 @@ func (group *Group) UploadItems() (int64, int64, error) {
 
 	if counter > 0 {
 		group.Zot.Logger.Infof("refreshing materialized view item_type_hier")
-		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
+		// sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
+		sqlstr := fmt.Sprintf("SELECT %s.refresh_item_type_hier()", group.Zot.dbSchema)
 		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
 			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
@@ -520,7 +533,8 @@ func (group *Group) DownloadItems() (int64, int64, error) {
 
 	if counter > 0 {
 		group.Zot.Logger.Infof("refreshing materialized view item_type_hier")
-		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
+		//sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA", group.Zot.dbSchema)
+		sqlstr := fmt.Sprintf("SELECT %s.refresh_item_type_hier()", group.Zot.dbSchema)
 		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
 			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
