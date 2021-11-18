@@ -420,8 +420,8 @@ func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
 }
 
 func (zot *Zotero) CreateEmptyGroupLocal(groupId int64) (bool, SyncDirection, error) {
-	active := false
-	direction := SyncDirection_BothLocal
+	active := true
+	direction := SyncDirection_ToLocal
 	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,modified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
 	_, err := zot.db.Exec(sqlstr, groupId)
 	if err != nil {

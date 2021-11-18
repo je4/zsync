@@ -28,12 +28,8 @@ type S3 struct {
 
 type Config struct {
 	Service              string
-	Listen               string
-	TLS                  bool
 	Synconly             []int64
 	ClearBeforeSync      []int64
-	CertChain            string
-	PrivateKey           string
 	Endpoint             string
 	Apikey               string
 	Logfile              string
@@ -43,7 +39,6 @@ type Config struct {
 	Attachmentfolder     string
 	DB                   Cfg_database `toml:"database"`
 	GroupCacheExpiration string       `toml:"groupcacheexpiration"`
-	SyncSleep            string       `toml:"syncsleep"`
 	Gitlab               Cfg_gitlab   `tomal:"gitlab"`
 	S3                   S3           `toml:"s3"`
 }

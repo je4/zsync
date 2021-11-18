@@ -8,11 +8,8 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"log"
-	"math/rand"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
+	"path/filepath"
 )
 
 var _logformat = logging.MustStringFormatter(
@@ -153,10 +150,39 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 
 func main() {
 
-	cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
-	loop := flag.Bool("loop", false, "endless sync")
+	cfgfile := flag.String("c", "", "location of config file")
+	//loop := flag.Bool("loop", false, "endless sync")
+	clear := flag.Bool("clear", false, "clear all data of group")
+	groupid := flag.Int64("group", 0, "id of zotero group to sync")
+
 	flag.Parse()
-	cfg := LoadConfig(*cfgfile)
+
+	var configFile = *cfgfile
+	if configFile == "" {
+		if _, err := os.Stat("zoterosync.toml"); err == nil {
+			configFile = "zoterosync.toml"
+		} else {
+			ex, err := os.Executable()
+			if err != nil {
+				panic(err)
+			}
+			exPath := filepath.Dir(ex)
+			if _, err := os.Stat(filepath.Join(exPath, "zoterosync.toml")); err == nil {
+				configFile = filepath.Join(exPath, "zoterosync.toml")
+			}
+		}
+	}
+
+	cfg := LoadConfig(configFile)
+
+	// if local group is selected, build groups
+	if *groupid > 0 {
+		cfg.Synconly = []int64{*groupid}
+		cfg.ClearBeforeSync = []int64{}
+		if *clear {
+			cfg.ClearBeforeSync = append(cfg.ClearBeforeSync, *groupid)
+		}
+	}
 
 	// get database connection handle
 	db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
@@ -178,41 +204,6 @@ func main() {
 		log.Fatalf("cannot conntct to s3 instance: %v", err)
 	}
 
-	rand.Seed(time.Now().Unix())
-
-	sleep, err := time.ParseDuration(cfg.SyncSleep)
-	if err != nil {
-		logger.Fatalf("error parsing syncsleep: %v", err)
-	}
-	c1 := make(chan string, 1)
-
-	go func() {
-		sigint := make(chan os.Signal, 1)
-
-		// interrupt signal sent from terminal
-		signal.Notify(sigint, os.Interrupt)
-		// sigterm signal sent from kubernetes
-		signal.Notify(sigint, syscall.SIGTERM)
-
-		<-sigint
-
-		// We received an interrupt signal, shut down.
-		logger.Infof("shutdown requested")
-		c1 <- "end please"
-
-	}()
-	for {
-		sync(&cfg, db, fs, logger)
-		if !*loop {
-			return
-		}
-		logger.Infof("sleeping %v", cfg.SyncSleep)
-		select {
-		case <-c1:
-			return
-		case <-time.After(sleep):
-			logger.Infof("end of sleep")
-		}
-	}
+	sync(&cfg, db, fs, logger)
 
 }
