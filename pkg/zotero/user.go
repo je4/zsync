@@ -1,9 +1,9 @@
 package zotero
 
 import (
+	"emperror.dev/errors"
 	"encoding/json"
 	"fmt"
-	"github.com/goph/emperror"
 	"strconv"
 )
 
@@ -22,18 +22,18 @@ func (zot *Zotero) GetUserGroupVersions(key *ApiKey) (*map[int64]int64, error) {
 		SetQueryParam("format", "versions").
 		Get(endpoint)
 	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+		return nil, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 	}
 	rawBody := resp.Body()
 	groups := map[string]int64{}
 	if err := json.Unmarshal(rawBody, &groups); err != nil {
-		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	result := &map[int64]int64{}
 	for gId, version := range groups {
 		id, err := strconv.ParseInt(gId, 10, 64)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot parse %s", gId)
+			return nil, errors.Wrapf(err, "cannot parse %s", gId)
 		}
 		(*result)[id] = version
 	}

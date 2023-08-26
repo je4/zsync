@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	"github.com/je4/zsync/pkg/zotero"
+	"github.com/je4/zsync/v2/pkg/zotero"
 	"net/http"
 )
 

@@ -2,10 +2,9 @@ package zotero
 
 import (
 	"database/sql"
+	"emperror.dev/errors"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/goph/emperror"
 	"gopkg.in/resty.v1"
 	"reflect"
 	"strconv"
@@ -21,7 +20,7 @@ func (group *Group) DeleteItemLocal(key string) error {
 		group.Id,
 	}
 	if _, err := group.Zot.db.Exec(sqlstr, params...); err != nil {
-		return emperror.Wrapf(err, "error executing %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
 	return nil
 }
@@ -40,7 +39,7 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 	}
 	jsonstr, err := json.Marshal(itemData)
 	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot marshall item data %v", itemData)
+		return nil, errors.Wrapf(err, "cannot marshall item data %v", itemData)
 	}
 	oid := sql.NullString{
 		String: oldId,
@@ -62,7 +61,7 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 	if IsUniqueViolation(err, "items_oldid_constraint") {
 		item2, err := group.GetItemByOldidLocal(oldId)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot load item %v", oldId)
+			return nil, errors.Wrapf(err, "cannot load item %v", oldId)
 		}
 		item.Key = item2.Key
 		item.Data.Key = item.Key
@@ -70,10 +69,10 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 		item.Status = SyncStatus_Modified
 		err = item.UpdateLocal()
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot update item %v", oldId)
+			return nil, errors.Wrapf(err, "cannot update item %v", oldId)
 		}
 	} else if err != nil {
-		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
 	return item, nil
@@ -96,7 +95,7 @@ func (group *Group) CreateEmptyItemLocal(itemId string, oldId string) error {
 	}
 	_, err := group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	return nil
 }
@@ -114,12 +113,12 @@ func (group *Group) GetItemVersionLocal(itemId string, oldId string) (int64, Syn
 	switch {
 	case err == sql.ErrNoRows:
 		if err := group.CreateEmptyItemLocal(itemId, oldId); err != nil {
-			return 0, SyncStatus_New, emperror.Wrapf(err, "cannot create new collection")
+			return 0, SyncStatus_New, errors.Wrapf(err, "cannot create new collection")
 		}
 		version = 0
 		sync = SyncStatus_Synced
 	case err != nil:
-		return 0, SyncStatus_New, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return 0, SyncStatus_New, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	switch syncstr {
 	case "new":
@@ -157,7 +156,7 @@ func (group *Group) GetItemsVersionOnlyCloud(trashed bool) (int64, error) {
 		for {
 			resp, err = call.Get(endpoint)
 			if err != nil {
-				return 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+				return 0, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 			}
 			if !group.Zot.CheckRetry(resp.Header()) {
 				break
@@ -202,7 +201,7 @@ func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map
 		for {
 			resp, err = call.Get(endpoint)
 			if err != nil {
-				return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+				return nil, 0, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 			}
 			if !group.Zot.CheckRetry(resp.Header()) {
 				break
@@ -211,11 +210,11 @@ func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map
 		rawBody := resp.Body()
 		objects := &map[string]int64{}
 		if err := json.Unmarshal(rawBody, objects); err != nil {
-			return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+			return nil, 0, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 		}
 		totalResult, err := strconv.ParseInt(resp.RawResponse.Header.Get("Total-Results"), 10, 64)
 		if err != nil {
-			return nil, 0, emperror.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
+			return nil, 0, errors.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
 		}
 		h, err := strconv.ParseInt(resp.RawResponse.Header.Get("Last-Modified-Version"), 10, 64)
 		if err != nil {
@@ -251,7 +250,7 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", group.Zot.dbSchema, strings.Join(pstr, ","))
 	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
-		return &[]Item{}, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return &[]Item{}, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	defer rows.Close()
 
@@ -259,7 +258,7 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 	for rows.Next() {
 		item, err := group.itemFromRow(rows)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot scan row")
+			return nil, errors.Wrapf(err, "cannot scan row")
 		}
 		result = append(result, *item)
 	}
@@ -282,12 +281,12 @@ func (group *Group) IterateItemsAllLocal(after *time.Time, f func(item *Item) er
 	}
 	var num int64
 	if err := group.Zot.db.QueryRow(sqlstr0, params...).Scan(&num); err != nil {
-		return emperror.Wrapf(err, "cannot execute %s", sqlstr0)
+		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
 	}
 	group.Zot.Logger.Infof("%v items found", num)
 	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s", sqlstr)
+		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
 	defer rows.Close()
 
@@ -297,7 +296,7 @@ func (group *Group) IterateItemsAllLocal(after *time.Time, f func(item *Item) er
 		//group.Zot.Logger.Infof("item no. #%v", counter)
 		item, err := group.itemFromRow(rows)
 		if err != nil {
-			return emperror.Wrapf(err, "cannot scan row")
+			return errors.Wrapf(err, "cannot scan row")
 		}
 		group.Zot.Logger.Infof("#%v/%v item %v.%v", counter, num, item.Group.Id, item.Key)
 		if err := f(item); err != nil {
@@ -321,14 +320,14 @@ func (group *Group) IterateCollectionsAllLocal(after *time.Time, f func(coll *Co
 	}
 	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s", sqlstr)
+		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		coll, err := group.collectionFromRow(rows)
 		if err != nil {
-			return emperror.Wrapf(err, "cannot scan row")
+			return errors.Wrapf(err, "cannot scan row")
 		}
 		if err := f(coll); err != nil {
 			return err
@@ -357,7 +356,7 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+			return nil, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 		}
 		if !group.Zot.CheckRetry(resp.Header()) {
 			break
@@ -367,7 +366,7 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 	rawBody := resp.Body()
 	items := []Item{}
 	if err := json.Unmarshal(rawBody, &items); err != nil {
-		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	group.Zot.CheckBackoff(resp.Header())
 	result := []Item{}
@@ -402,7 +401,7 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.Zot.dbSchema)
 	rows, err := group.Zot.db.Query(sqlstr, params...)
 	if err != nil {
-		return 0, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return 0, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -412,7 +411,7 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 
 		item, err := group.itemFromRow(rows)
 		if err != nil {
-			return 0, emperror.Wrapf(err, "cannot scan row")
+			return 0, errors.Wrapf(err, "cannot scan row")
 		}
 
 		if err := item.UpdateCloud(&lastModifiedVersion); err != nil {
@@ -420,7 +419,7 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 			if err := item.UpdateCloud(&lastModifiedVersion); err != nil {
 				group.Zot.Logger.Errorf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
 			}
-			//return 0, emperror.Wrapf(err, "error creating/updating item %v.%v", Group.Id, item.Key)
+			//return 0, errors.Wrapf(err, "error creating/updating item %v.%v", Group.Id, item.Key)
 		}
 	}
 	return counter, nil
@@ -432,13 +431,13 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 
 	objectList, lastModifiedVersion, err := group.GetItemsVersionCloud(group.ItemVersion, trashed)
 	if err != nil {
-		return counter, 0, emperror.Wrapf(err, "cannot get collection versions")
+		return counter, 0, errors.Wrapf(err, "cannot get collection versions")
 	}
 	itemsUpdate := []string{}
 	for itemid, version := range *objectList {
 		oldversion, sync, err := group.GetItemVersionLocal(itemid, "")
 		if err != nil {
-			return counter, 0, emperror.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
+			return counter, 0, errors.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
 		}
 		if sync != SyncStatus_Synced && sync != SyncStatus_Incomplete {
 			group.Zot.Logger.Errorf("item %v not synced. please handle conflict", itemid)
@@ -459,7 +458,7 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 		part := itemsUpdate[start:end]
 		items, err := group.GetItemsCloud(part)
 		if err != nil {
-			return counter, 0, emperror.Wrapf(err, "cannot get items")
+			return counter, 0, errors.Wrapf(err, "cannot get items")
 		}
 		group.Zot.Logger.Infof("%v items", len(*items))
 		for _, item := range *items {
@@ -468,7 +467,7 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 			item.Trashed = trashed
 			if err := item.UpdateLocal(); err != nil {
 				group.Zot.Logger.Errorf("cannot update item: %v", err)
-				//return counter, 0, emperror.Wrapf(err, "cannot update items")
+				//return counter, 0, errors.Wrapf(err, "cannot update items")
 			}
 			counter++
 		}
@@ -485,7 +484,7 @@ func (group *Group) UploadItems() (int64, int64, error) {
 	if group.CanUpload() {
 		lastModifiedVersion, err = group.GetItemsVersionOnlyCloud(false)
 		if err != nil {
-			return 0, 0, emperror.Wrapf(err, "cannot get last modified item version")
+			return 0, 0, errors.Wrapf(err, "cannot get last modified item version")
 		}
 		num4, err := group.syncModifiedItems(lastModifiedVersion)
 		if err != nil {
@@ -500,7 +499,7 @@ func (group *Group) UploadItems() (int64, int64, error) {
 		sqlstr := fmt.Sprintf("SELECT %s.refresh_item_type_hier()", group.Zot.dbSchema)
 		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
-			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
+			return counter, 0, errors.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
 	}
 
@@ -537,7 +536,7 @@ func (group *Group) DownloadItems() (int64, int64, error) {
 		sqlstr := fmt.Sprintf("SELECT %s.refresh_item_type_hier()", group.Zot.dbSchema)
 		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
-			return counter, 0, emperror.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
+			return counter, 0, errors.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 		}
 	}
 
@@ -554,7 +553,7 @@ func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 
 	item, err := group.itemFromRow(group.Zot.db.QueryRow(sqlstr, params...))
 	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
 	return item, nil
@@ -568,7 +567,7 @@ func (group *Group) GetItemByOldidLocal(oldid string) (*Item, error) {
 	}
 	item, err := group.itemFromRow(group.Zot.db.QueryRow(sqlstr, params...))
 	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
 	return item, nil
@@ -577,7 +576,7 @@ func (group *Group) GetItemByOldidLocal(oldid string) (*Item, error) {
 func (group *Group) TryDeleteItemLocal(key string, lastModifiedVersion int64) error {
 	item, err := group.GetItemByKeyLocal(key)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get item %v", key)
+		return errors.Wrapf(err, "cannot get item %v", key)
 	}
 	// no item no deletion
 	if item == nil {
@@ -602,7 +601,7 @@ func (group *Group) TryDeleteItemLocal(key string, lastModifiedVersion int64) er
 		item.Status = SyncStatus_Synced
 	}
 	if err := item.UpdateLocal(); err != nil {
-		return emperror.Wrapf(err, "cannot update collection %v", key)
+		return errors.Wrapf(err, "cannot update collection %v", key)
 	}
 	return nil
 }
@@ -622,12 +621,12 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 			if err == sql.ErrNoRows {
 				return nil, nil
 			}
-			return nil, emperror.Wrapf(err, "cannot scan row")
+			return nil, errors.Wrapf(err, "cannot scan row")
 		}
 	case *sql.Rows:
 		rows := rowss.(*sql.Rows)
 		if err := rows.Scan(&(item.Key), &(item.Version), &datastr, &metastr, &(item.Trashed), &(item.Deleted), &sync, &md5str, &gitlab); err != nil {
-			return nil, emperror.Wrapf(err, "cannot scan row")
+			return nil, errors.Wrapf(err, "cannot scan row")
 		}
 	default:
 		return nil, errors.New(fmt.Sprintf("unknown row type: %v", reflect.TypeOf(rowss).String()))
@@ -641,7 +640,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 	item.Status = SyncStatusId[sync]
 	if datastr.Valid {
 		if err := json.Unmarshal([]byte(datastr.String), &(item.Data)); err != nil {
-			return nil, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
+			return nil, errors.Wrapf(err, "cannot ummarshall data %s", datastr.String)
 		}
 		if item.Data.Collections == nil {
 			item.Data.Collections = []string{}
@@ -651,7 +650,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 	}
 	if metastr.Valid {
 		if err := json.Unmarshal([]byte(metastr.String), &(item.Meta)); err != nil {
-			return nil, emperror.Wrapf(err, "cannot ummarshall meta %s", metastr.String)
+			return nil, errors.Wrapf(err, "cannot ummarshall meta %s", metastr.String)
 		}
 	} else {
 		item.Meta = ItemMeta{

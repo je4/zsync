@@ -1,11 +1,10 @@
 package main
 
 import (
+	"emperror.dev/errors"
 	"encoding/json"
-	"errors"
 	"github.com/bluele/gcache"
-	"github.com/goph/emperror"
-	"github.com/je4/zsync/pkg/zotero"
+	"github.com/je4/zsync/v2/pkg/zotero"
 	"github.com/op/go-logging"
 	"log"
 	"net/http"
@@ -54,14 +53,14 @@ func (handlers *Handlers) getGroup(groupId int64) (group *zotero.Group, err erro
 	if err != nil {
 		group, err = handlers.zot.LoadGroupLocal(groupId)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot load group %v", groupId)
+			return nil, errors.Wrapf(err, "cannot load group %v", groupId)
 		}
 		handlers.groups.Set(groupId, group)
 	} else {
 		var ok bool
 		group, ok = tmp.(*zotero.Group)
 		if !ok {
-			return nil, emperror.Wrapf(errors.New("invalid type in cache"), "cannot load group %v", groupId)
+			return nil, errors.Wrapf(errors.New("invalid type in cache"), "cannot load group %v", groupId)
 		}
 	}
 	return
@@ -74,7 +73,7 @@ func (handlers *Handlers) groupFromVars(vars map[string]string) (*zotero.Group, 
 	}
 	groupid, err := strconv.ParseInt(groupidstr, 10, 64)
 	if err != nil {
-		return nil, emperror.Wrapf(err, "groupid not a number #%v", groupidstr)
+		return nil, errors.Wrapf(err, "groupid not a number #%v", groupidstr)
 	}
 	return handlers.getGroup(groupid)
 }

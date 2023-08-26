@@ -3,8 +3,8 @@ package main
 import (
 	"database/sql"
 	"flag"
-	"github.com/je4/zsync/pkg/filesystem"
-	"github.com/je4/zsync/pkg/zotero"
+	"github.com/je4/zsync/v2/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/zotero"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"log"

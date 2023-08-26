@@ -1,10 +1,10 @@
 package zotero
 
 import (
+	"emperror.dev/errors"
 	"encoding/json"
 	"fmt"
-	"github.com/goph/emperror"
-	"github.com/je4/zsync/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"path"
 	"strconv"
@@ -72,11 +72,11 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	if err := group.IterateCollectionsAllLocal(group.Gitlab, func(coll *Collection) error {
 		group.Zot.Logger.Infof("collection #%v.%v - %v", coll.Group.Id, coll.Key, coll.Data.Name)
 		if err := coll.Backup(backupFs); err != nil {
-			return emperror.Wrapf(err, "cannot backup collection #%v.%v", coll.Group.Id, coll.Key)
+			return errors.Wrapf(err, "cannot backup collection #%v.%v", coll.Group.Id, coll.Key)
 		}
 		return nil
 	}); err != nil {
-		return emperror.Wrap(err, "cannot iterate collections")
+		return errors.Wrap(err, "cannot iterate collections")
 	}
 	sqlstr := fmt.Sprintf("UPDATE %s.collections SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') "+
 		"WHERE library=$2 AND (TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') > gitlab OR gitlab IS NULL)", group.Zot.dbSchema)
@@ -91,17 +91,17 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	}
 	_, err := group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 
 	if err := group.IterateItemsAllLocal(group.Gitlab, func(item *Item) error {
 		group.Zot.Logger.Infof("item #%v.%v - %v", item.Group.Id, item.Key, item.Data.Title)
 		if err := item.Backup(backupFs); err != nil {
-			return emperror.Wrapf(err, "cannot backup item #%v.%v", item.Group.Id, item.Key)
+			return errors.Wrapf(err, "cannot backup item #%v.%v", item.Group.Id, item.Key)
 		}
 		return nil
 	}); err != nil {
-		return emperror.Wrap(err, "cannot iterate items")
+		return errors.Wrap(err, "cannot iterate items")
 	}
 
 	sqlstr = fmt.Sprintf("UPDATE %s.items SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') "+
@@ -117,7 +117,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	}
 	_, err = group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 
 	storeGrp := group.Gitlab == nil
@@ -141,7 +141,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 
 	sqlstr = fmt.Sprintf("UPDATE %s.groups SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') WHERE id=$2", group.Zot.dbSchema)
 	if _, err := group.Zot.db.Exec(sqlstr, now, group.Id); err != nil {
-		return emperror.Wrapf(err, "cannot update timestamp for group #%v", group.Id)
+		return errors.Wrapf(err, "cannot update timestamp for group #%v", group.Id)
 	}
 
 	return nil
@@ -162,7 +162,7 @@ func (group *Group) UpdateLocal() error {
 		" WHERE id=$9", group.Zot.dbSchema)
 	data, err := json.MarshalIndent(group.Data, "", "  ")
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshal Group data")
+		return errors.Wrapf(err, "cannot marshal Group data")
 	}
 
 	params := []interface{}{
@@ -178,7 +178,7 @@ func (group *Group) UpdateLocal() error {
 	}
 	_, err = group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
 	return nil
@@ -190,11 +190,11 @@ func (group *Group) GetFolder() (string, error) {
 		bucket := fmt.Sprintf("zotero-%v", group.Id)
 		found, err := group.Zot.Fs.FolderExists(bucket)
 		if err != nil {
-			return "", emperror.Wrap(err, "cannot check bucket existence")
+			return "", errors.Wrap(err, "cannot check bucket existence")
 		}
 		if !found {
 			if err := group.Zot.Fs.FolderCreate(bucket, filesystem.FolderCreateOptions{ObjectLocking: true}); err != nil {
-				return "", emperror.Wrapf(err, "cannot create bucket %s", bucket)
+				return "", errors.Wrapf(err, "cannot create bucket %s", bucket)
 			}
 		}
 		group.Folder = bucket
@@ -216,7 +216,7 @@ func (group *Group) SyncDeleted() (int64, error) {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			return 0, emperror.Wrapf(err, "cannot get deleted objects from %s", endpoint)
+			return 0, errors.Wrapf(err, "cannot get deleted objects from %s", endpoint)
 		}
 		if !group.Zot.CheckRetry(resp.Header()) {
 			break
@@ -225,26 +225,26 @@ func (group *Group) SyncDeleted() (int64, error) {
 	limv := resp.RawResponse.Header.Get("Last-Modified-Version")
 	lastModifiedVersion, err := strconv.ParseInt(limv, 10, 64)
 	if err != nil {
-		return 0, emperror.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
+		return 0, errors.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
 	}
 	rawBody := resp.Body()
 	deletions := Deletions{}
 	if err := json.Unmarshal(rawBody, &deletions); err != nil {
-		return 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return 0, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	for _, itemKey := range deletions.Items {
 		if err := group.TryDeleteItemLocal(itemKey, lastModifiedVersion); err != nil {
-			return 0, emperror.Wrapf(err, "cannot delete item %v", itemKey)
+			return 0, errors.Wrapf(err, "cannot delete item %v", itemKey)
 		}
 	}
 	for _, collectionKey := range deletions.Collections {
 		if err := group.TryDeleteCollectionLocal(collectionKey, lastModifiedVersion); err != nil {
-			return 0, emperror.Wrapf(err, "cannot delete collection %v", collectionKey)
+			return 0, errors.Wrapf(err, "cannot delete collection %v", collectionKey)
 		}
 	}
 	for _, tagName := range deletions.Tags {
 		if err := group.DeleteTagLocal(tagName); err != nil {
-			return 0, emperror.Wrapf(err, "cannot delete tag %v", tagName)
+			return 0, errors.Wrapf(err, "cannot delete tag %v", tagName)
 		}
 	}
 
@@ -262,7 +262,7 @@ func (group *Group) ClearLocal() error {
 	}
 	_, err := group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	group.CollectionVersion = 0
 	group.ItemVersion = 0
@@ -274,7 +274,7 @@ func (group *Group) ClearLocal() error {
 	}
 	_, err = group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 
 	return nil
@@ -288,26 +288,26 @@ func (group *Group) Sync() (err error) {
 
 	_, collectionVersion, err := group.SyncCollections()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync collections of Group %v", group.Id)
+		return errors.Wrapf(err, "cannot sync collections of Group %v", group.Id)
 	}
 
 	_, itemVersion, err := group.UploadItems()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync items of Group %v", group.Id)
+		return errors.Wrapf(err, "cannot sync items of Group %v", group.Id)
 	}
 
 	_, itemVersion, err = group.DownloadItems()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync items of Group %v", group.Id)
+		return errors.Wrapf(err, "cannot sync items of Group %v", group.Id)
 	}
 	_, tagVersion, err := group.SyncTags()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync tags of Group %v", group.Id)
+		return errors.Wrapf(err, "cannot sync tags of Group %v", group.Id)
 	}
 
 	_, err = group.SyncDeleted()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot sync tags of Group %v", group.Id)
+		return errors.Wrapf(err, "cannot sync tags of Group %v", group.Id)
 	}
 
 	// change to new version if everything was ok

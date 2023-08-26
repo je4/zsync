@@ -3,11 +3,10 @@ package zotero
 import (
 	"crypto/md5"
 	"database/sql"
+	"emperror.dev/errors"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/goph/emperror"
-	"github.com/je4/zsync/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"path/filepath"
 	"strconv"
@@ -166,22 +165,22 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshal data %v", data)
+		return errors.Wrapf(err, "cannot marshal data %v", data)
 	}
 
 	item.Group.Zot.Logger.Infof("storing #%v.%v to %v", item.Group.Id, item.Key, fname)
 	if err := backupFs.FilePut(folder, fname, b, filesystem.FilePutOptions{}); err != nil {
-		return emperror.Wrap(err, "cannot store data in file")
+		return errors.Wrap(err, "cannot store data in file")
 	}
 
 	itemType, err := item.GetType()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get type of item %v/%v", item.Group.Id, item.Key)
+		return errors.Wrapf(err, "cannot get type of item %v/%v", item.Group.Id, item.Key)
 	}
 	if itemType == "attachment" && item.Data.MD5 != "" && !item.Deleted {
 		bucket, err := item.Group.GetFolder()
 		if err != nil {
-			return emperror.Wrapf(err, "cannot get attachment folder")
+			return errors.Wrapf(err, "cannot get attachment folder")
 		}
 
 		item.Group.Zot.Logger.Infof("copying %v/%v/%v --> %v/%v/%v",
@@ -194,7 +193,7 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 		)
 		file, err := item.Group.Zot.Fs.FileOpenRead(bucket, item.Key, filesystem.FileGetOptions{})
 		if err != nil {
-			return emperror.Wrapf(err, "cannot open file from %v/%v", bucket, item.Key)
+			return errors.Wrapf(err, "cannot open file from %v/%v", bucket, item.Key)
 		}
 		defer file.Close()
 		if err := backupFs.FileWrite(
@@ -203,7 +202,7 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 			file,
 			-1,
 			filesystem.FilePutOptions{}); err != nil {
-			return emperror.Wrapf(err, "cannot write to %v/%v.bin", folder, item.Key)
+			return errors.Wrapf(err, "cannot write to %v/%v.bin", folder, item.Key)
 		}
 	}
 
@@ -213,7 +212,7 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 func (item *Item) DownloadAttachmentCloud() (string, error) {
 	bucket, err := item.Group.GetFolder()
 	if err != nil {
-		return "", emperror.Wrapf(err, "cannot get attachment folder")
+		return "", errors.Wrapf(err, "cannot get attachment folder")
 	}
 	//	filename := fmt.Sprintf("%s/%s", folder, item.Key)
 	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.Group.Id, item.Key)
@@ -225,7 +224,7 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			return "", emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+			return "", errors.Wrapf(err, "cannot get current key from %s", endpoint)
 		}
 		if !item.Group.Zot.CheckRetry(resp.Header()) {
 			break
@@ -240,7 +239,7 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 
 	//	_, err = item.Group.Zot.s3.PutObject(context.Background(), bucket, item.Key, bytes.NewReader(body), int64(len(body)), minio.PutObjectOptions{ContentType:contentType})
 	if err := item.Group.Zot.Fs.FilePut(bucket, item.Key, body, filesystem.FilePutOptions{ContentType: contentType}); err != nil {
-		return "", emperror.Wrap(err, "cannot put file")
+		return "", errors.Wrap(err, "cannot put file")
 	}
 
 	md5str := resp.Header().Get("ETag")
@@ -258,7 +257,7 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 	*/
 	/** gitlab sync not here
 	if err := item.UploadAttachmentGitlab(body); err != nil {
-		return "", emperror.Wrapf(err, "cannot upload attachment binary")
+		return "", errors.Wrapf(err, "cannot upload attachment binary")
 	}
 	*/
 
@@ -269,12 +268,12 @@ func (item *Item) uploadFileCloud() error {
 
 	bucket, err := item.Group.GetFolder()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get attachment folder")
+		return errors.Wrapf(err, "cannot get attachment folder")
 	}
 
 	data, err := item.Group.Zot.Fs.FileGet(bucket, item.Key, filesystem.FileGetOptions{})
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get content of %v/%v", bucket, item.Key)
+		return errors.Wrapf(err, "cannot get content of %v/%v", bucket, item.Key)
 	}
 
 	md5str := fmt.Sprintf("%x", md5.Sum(data))
@@ -300,7 +299,7 @@ func (item *Item) uploadFileCloud() error {
 	item.Group.Zot.Logger.Infof("rest call: POST %s", endpoint)
 	info, err := item.Group.Zot.Fs.FileStat(bucket, item.Key, filesystem.FileStatOptions{})
 	if err != nil {
-		return emperror.Wrapf(err, "cannot stat file")
+		return errors.Wrapf(err, "cannot stat file")
 	}
 	resp, err := h.
 		SetFormData(map[string]string{
@@ -311,7 +310,7 @@ func (item *Item) uploadFileCloud() error {
 		}).
 		Post(endpoint)
 	if err != nil {
-		return emperror.Wrapf(err, "upload attachment for item %v with %s", item.Key, endpoint)
+		return errors.Wrapf(err, "upload attachment for item %v with %s", item.Key, endpoint)
 	}
 	switch resp.StatusCode() {
 	case 200:
@@ -331,7 +330,7 @@ func (item *Item) uploadFileCloud() error {
 	jsonstr := resp.Body()
 	var result map[string]string
 	if err = json.Unmarshal(jsonstr, &result); err != nil {
-		return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
+		return errors.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
 	}
 	var ok bool
 	if _, ok = result["exists"]; ok {
@@ -368,7 +367,7 @@ func (item *Item) uploadFileCloud() error {
 		SetBody(append([]byte(prefix), append(data, []byte(suffix)...)...)).
 		Post(endpoint)
 	if err != nil {
-		return emperror.Wrapf(err, "error uploading file to %v", endpoint)
+		return errors.Wrapf(err, "error uploading file to %v", endpoint)
 	}
 	if resp.StatusCode() != 201 {
 		return errors.New(fmt.Sprintf("error uploading file with status %v - %v", resp.Status(), resp.Body()))
@@ -389,7 +388,7 @@ func (item *Item) uploadFileCloud() error {
 		SetFormData(map[string]string{"upload": uploadKey}).
 		Post(endpoint)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot register upload %v", endpoint)
+		return errors.Wrapf(err, "cannot register upload %v", endpoint)
 	}
 	switch resp.StatusCode() {
 	case 204:
@@ -418,7 +417,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
 			Delete(endpoint)
 		if err != nil {
-			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+			return errors.Wrapf(err, "create item %v with %s", item.Key, endpoint)
 		}
 		switch resp.RawResponse.StatusCode {
 		case 409:
@@ -440,7 +439,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		resp, err := req.
 			Post(endpoint)
 		if err != nil {
-			return emperror.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+			return errors.Wrapf(err, "create item %v with %s", item.Key, endpoint)
 		}
 		result := ItemCollectionCreateResult{}
 		jsonstr := resp.Body()
@@ -452,7 +451,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			*lastModifiedVersion = h
 		}
 		if err := json.Unmarshal(jsonstr, &result); err != nil {
-			return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
+			return errors.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
 		}
 		//		*lastModifiedVersion += int64(len(result.Unchanged)) + int64(len(result.Success)) + int64(len(result.Failed))
 
@@ -462,7 +461,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			item.Data.Version = *lastModifiedVersion
 			item.Status = SyncStatus_Modified
 			item.UpdateLocal()
-			return emperror.Wrapf(err, "could not create item #%v.%v", item.Group.Id, item.Key)
+			return errors.Wrapf(err, "could not create item #%v.%v", item.Group.Id, item.Key)
 		}
 
 		for _, i := range result.Successful {
@@ -478,7 +477,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		}
 		if item.Data.ItemType == "attachment" && item.Data.LinkMode == "imported_file" {
 			if err := item.uploadFileCloud(); err != nil {
-				return emperror.Wrapf(err, "cannot upload file")
+				return errors.Wrapf(err, "cannot upload file")
 			}
 		}
 	}
@@ -495,13 +494,13 @@ func (item *Item) UpdateLocal() error {
 	md5val := sql.NullString{Valid: false}
 	itemType, err := item.GetType()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get item type")
+		return errors.Wrapf(err, "cannot get item type")
 	}
 	// if not deleted and status is synced get the attachment
 	if itemType == "attachment" && item.Data.MD5 != "" && !item.Deleted && item.Status == SyncStatus_Synced {
 		md5val.String, err = item.DownloadAttachmentCloud()
 		if err != nil {
-			return emperror.Wrapf(err, "cannot download attachment")
+			return errors.Wrapf(err, "cannot download attachment")
 		}
 	} else {
 		md5val.String = item.MD5
@@ -511,11 +510,11 @@ func (item *Item) UpdateLocal() error {
 
 	data, err := json.Marshal(item.Data)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshall data %v", item.Data)
+		return errors.Wrapf(err, "cannot marshall data %v", item.Data)
 	}
 	meta, err := json.Marshal(item.Meta)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshall meta %v", item.Meta)
+		return errors.Wrapf(err, "cannot marshall meta %v", item.Meta)
 	}
 	var sqlstr string
 	var params []interface{}
@@ -549,7 +548,7 @@ func (item *Item) UpdateLocal() error {
 	}
 	_, err = item.Group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	return nil
 }
@@ -568,14 +567,14 @@ func (item *Item) GetChildrenLocal() (*[]Item, error) {
 		if err == sql.ErrNoRows {
 			return &[]Item{}, nil
 		}
-		return &[]Item{}, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return &[]Item{}, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	defer rows.Close()
 	items := []Item{}
 	for rows.Next() {
 		i, err := item.Group.itemFromRow(rows)
 		if err != nil {
-			return &[]Item{}, emperror.Wrapf(err, "cannot scan result row")
+			return &[]Item{}, errors.Wrapf(err, "cannot scan result row")
 		}
 		items = append(items, *i)
 	}
@@ -587,17 +586,17 @@ func (item *Item) DeleteLocal() error {
 	item.Group.Zot.Logger.Infof("deleting item [#%s]", item.Key)
 	children, err := item.GetChildrenLocal()
 	if err != nil {
-		return emperror.Wrapf(err, "cannot get children of #%v", item.Key)
+		return errors.Wrapf(err, "cannot get children of #%v", item.Key)
 	}
 	for _, c := range *children {
 		if err := c.DeleteLocal(); err != nil {
-			return emperror.Wrapf(err, "cannot delete child #%v of #%v", c.Key, item.Key)
+			return errors.Wrapf(err, "cannot delete child #%v of #%v", c.Key, item.Key)
 		}
 	}
 	item.Deleted = true
 	item.Status = SyncStatus_Modified
 	if err := item.UpdateLocal(); err != nil {
-		return emperror.Wrapf(err, "cannot store item #%v", item.Key)
+		return errors.Wrapf(err, "cannot store item #%v", item.Key)
 	}
 	return nil
 }

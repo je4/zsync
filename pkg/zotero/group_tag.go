@@ -1,9 +1,9 @@
 package zotero
 
 import (
+	"emperror.dev/errors"
 	"encoding/json"
 	"fmt"
-	"github.com/goph/emperror"
 	"strconv"
 )
 
@@ -11,7 +11,7 @@ func (group *Group) CreateTagLocal(tag Tag) error {
 	group.Zot.Logger.Debugf("Creating Tag %s", tag.Tag)
 	metastr, err := json.Marshal(tag.Meta)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshal meta %v", tag.Meta)
+		return errors.Wrapf(err, "cannot marshal meta %v", tag.Meta)
 	}
 	sqlstr := fmt.Sprintf("INSERT INTO %s.tags (tag, meta, library) VALUES( $1, $2, $3)", group.Zot.dbSchema)
 	params := []interface{}{
@@ -24,7 +24,7 @@ func (group *Group) CreateTagLocal(tag Tag) error {
 		if IsUniqueViolation(err, "pk_tags") {
 			return nil
 		}
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	return nil
 }
@@ -38,7 +38,7 @@ func (group *Group) DeleteTagLocal(tag string) error {
 		group.Id,
 	}
 	if _, err := group.Zot.db.Exec(sqlstr, params...); err != nil {
-		return emperror.Wrapf(err, "error executing %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
 	return nil
 }
@@ -53,17 +53,17 @@ func (group *Group) GetTagsVersionCloud(sinceVersion int64) (*[]Tag, int64, erro
 		SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
 		Get(endpoint)
 	if err != nil {
-		return nil, 0, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+		return nil, 0, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 	}
 	rawBody := resp.Body()
 	tags := &[]Tag{}
 	if err := json.Unmarshal(rawBody, tags); err != nil {
-		return nil, 0, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return nil, 0, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	limv := resp.RawResponse.Header.Get("Last-Modified-Version")
 	lastModifiedVersion, err := strconv.ParseInt(limv, 10, 64)
 	if err != nil {
-		return nil, 0, emperror.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
+		return nil, 0, errors.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
 	}
 
 	return tags, lastModifiedVersion, nil
@@ -77,11 +77,11 @@ func (group *Group) SyncTags() (int64, int64, error) {
 	var counter int64
 	tagList, lastModifiedVersion, err := group.GetTagsVersionCloud(group.Version)
 	if err != nil {
-		return counter, 0, emperror.Wrapf(err, "cannot get tag versions")
+		return counter, 0, errors.Wrapf(err, "cannot get tag versions")
 	}
 	for _, tag := range *tagList {
 		if err := group.CreateTagLocal(tag); err != nil {
-			return 0, 0, emperror.Wrapf(err, "cannot create tag %v", tag.Tag)
+			return 0, 0, errors.Wrapf(err, "cannot create tag %v", tag.Tag)
 		}
 	}
 

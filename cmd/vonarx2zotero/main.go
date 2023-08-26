@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/je4/zsync/pkg/filesystem"
-	"github.com/je4/zsync/pkg/zotero"
+	"github.com/je4/zsync/v2/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/zotero"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"log"
@@ -131,7 +131,7 @@ func main() {
 		"Filmmaterial,Minuten,Rollennummer,Rollenthema,Sekunden,Verweis_auf_Publikation,Bemerkung,Dauer_Sekunden," +
 		"Dozenten,Varianten,Weitere_Angaben_zur_Person" +
 		" FROM rfid.source_von_arx_video "
-		//		" WHERE Rollennummer=2"
+	//		" WHERE Rollennummer=2"
 	rows, err := sourceDB.Query(sqlstr)
 	if err != nil {
 		logger.Errorf("cannot execute query %s - %v", sqlstr, err)

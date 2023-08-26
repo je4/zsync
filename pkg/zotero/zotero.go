@@ -2,11 +2,10 @@ package zotero
 
 import (
 	"database/sql"
+	"emperror.dev/errors"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/goph/emperror"
-	"github.com/je4/zsync/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/lib/pq"
 	"github.com/op/go-logging"
 	"gopkg.in/resty.v1"
@@ -171,7 +170,7 @@ func IsUniqueViolation(err error, constraint string) bool {
 func NewZotero(baseUrl string, apiKey string, db *sql.DB, fs filesystem.FileSystem, dbSchema string, newGroupActive bool, logger *logging.Logger, dbOnly bool) (*Zotero, error) {
 	burl, err := url.Parse(baseUrl)
 	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot create url from %s", baseUrl)
+		return nil, errors.Wrapf(err, "cannot create url from %s", baseUrl)
 	}
 	zot := &Zotero{
 		baseUrl:  burl,
@@ -186,7 +185,7 @@ func NewZotero(baseUrl string, apiKey string, db *sql.DB, fs filesystem.FileSyst
 	if !dbOnly {
 		err = zot.Init()
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot init zotero")
+			return nil, errors.Wrapf(err, "cannot init zotero")
 		}
 	}
 	return zot, err
@@ -203,7 +202,8 @@ func (zot *Zotero) Init() (err error) {
 	return
 }
 
-/**
+/*
+*
 Clients accessing the Zotero API should be prepared to handle two forms of rate limiting: backoff requests and hard limiting.
 If the API servers are overloaded, the API may include a Backoff: <seconds> HTTP header in responses, indicating that the client should perform the minimum number of requests necessary to maintain data consistency and then refrain from making further requests for the number of seconds indicated. Backoff can be included in any response, including successful ones.
 If a client has made too many requests within a given time period, the API may return 429 Too Many Requests with a Retry-After: <seconds> header. Clients receiving a 429 should wait the number of seconds indicated in the header before retrying the request.
@@ -330,7 +330,7 @@ func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+			return nil, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 		}
 		if !zot.CheckRetry(resp.Header()) {
 			break
@@ -339,7 +339,7 @@ func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 	rawBody := resp.Body()
 	group := &Group{}
 	if err := json.Unmarshal(rawBody, group); err != nil {
-		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	group.Init()
 	zot.CheckBackoff(resp.Header())
@@ -354,7 +354,7 @@ func (zot *Zotero) DeleteCollectionDB(key string) error {
 		key,
 	}
 	if _, err := zot.db.Exec(sqlstr, params...); err != nil {
-		return emperror.Wrapf(err, "error executing %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
 	return nil
 }
@@ -371,12 +371,12 @@ func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
 			if err == sql.ErrNoRows {
 				return nil, nil
 			}
-			return nil, emperror.Wrapf(err, "cannot scan row")
+			return nil, errors.Wrapf(err, "cannot scan row")
 		}
 	case *sql.Rows:
 		rows := rowss.(*sql.Rows)
 		if err := rows.Scan(&group.Id, &group.Version, &datastr, &group.Deleted, &gitlab, &group.CollectionVersion, &group.ItemVersion, &group.TagVersion); err != nil {
-			return nil, emperror.Wrapf(err, "cannot scan row")
+			return nil, errors.Wrapf(err, "cannot scan row")
 		}
 	default:
 		return nil, errors.New(fmt.Sprintf("unknown row type: %v", reflect.TypeOf(rowss).String()))
@@ -386,7 +386,7 @@ func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
 	}
 	if datastr.Valid {
 		if err := json.Unmarshal([]byte(datastr.String), &group.Data); err != nil {
-			return nil, emperror.Wrapf(err, "cannot ummarshall data %s", datastr.String)
+			return nil, errors.Wrapf(err, "cannot ummarshall data %s", datastr.String)
 		}
 	} else {
 		return nil, errors.New(fmt.Sprintf("Group has no data %v", group.Id))
@@ -409,12 +409,12 @@ func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
 	sqlstr := fmt.Sprintf("UPDATE %s.groups SET deleted=true WHERE id NOT IN (%s)", zot.dbSchema, strings.Join(placeHolder, ", "))
 	_, err := zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
 	}
 	sqlstr = fmt.Sprintf("UPDATE %s.syncgroups SET active=false WHERE id NOT IN (%s)", zot.dbSchema, strings.Join(placeHolder, ", "))
 	_, err = zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, knownGroups)
 	}
 	return nil
 }
@@ -425,7 +425,7 @@ func (zot *Zotero) CreateEmptyGroupLocal(groupId int64) (bool, SyncDirection, er
 	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,modified) VALUES($1, 0, NOW(), NOW())", zot.dbSchema)
 	_, err := zot.db.Exec(sqlstr, groupId)
 	if err != nil {
-		return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+		return false, SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 	}
 	sqlstr = fmt.Sprintf("INSERT INTO %s.syncgroups(id,active,direction) VALUES($1, $2, $3)", zot.dbSchema)
 	params := []interface{}{
@@ -440,11 +440,11 @@ func (zot *Zotero) CreateEmptyGroupLocal(groupId int64) (bool, SyncDirection, er
 			var dirstr string
 			sqlstr := fmt.Sprintf("SELECT active, direction FROM %s.syncgroups WHERE id=$1", zot.dbSchema)
 			if err := zot.db.QueryRow(sqlstr, groupId).Scan(&active, &dirstr); err != nil {
-				return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
+				return false, SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 			}
 			direction = SyncDirectionId[dirstr]
 		} else {
-			return false, SyncDirection_None, emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+			return false, SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 		}
 	}
 	return active, direction, nil
@@ -482,12 +482,12 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 	if err != nil {
 		// error real error
 		if err != sql.ErrNoRows {
-			return nil, emperror.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
+			return nil, errors.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
 		}
 		// just no data
 		active, direction, err := zot.CreateEmptyGroupLocal(groupId)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot create empty Group %v", groupId)
+			return nil, errors.Wrapf(err, "cannot create empty Group %v", groupId)
 		}
 		group.Active = active
 		group.direction = direction
@@ -500,7 +500,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 	if jsonstr.Valid {
 		err = json.Unmarshal([]byte(jsonstr.String), &group.Data)
 		if err != nil {
-			return nil, emperror.Wrapf(err, "cannot unmarshall Group data %s", jsonstr)
+			return nil, errors.Wrapf(err, "cannot unmarshall Group data %s", jsonstr)
 		}
 	}
 	group.Init()
@@ -512,14 +512,14 @@ func (zot *Zotero) LoadGroupsLocal() ([]*Group, error) {
 	sqlstr := fmt.Sprintf("SELECT id FROM %s.syncgroups sg WHERE sg.active=true", zot.dbSchema)
 	rows, err := zot.db.Query(sqlstr)
 	if err != nil {
-		return nil, emperror.Wrapf(err, "error executing sql query: %v", sqlstr)
+		return nil, errors.Wrapf(err, "error executing sql query: %v", sqlstr)
 	}
 	defer rows.Close()
 	grps := []*Group{}
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return nil, emperror.Wrap(err, "cannot scan row")
+			return nil, errors.Wrap(err, "cannot scan row")
 		}
 		grp, err := zot.LoadGroupLocal(id)
 		if err != nil {

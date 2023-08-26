@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/je4/zsync/pkg/filesystem"
-	"github.com/je4/zsync/pkg/zotero"
+	"github.com/je4/zsync/v2/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/zotero"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"log"
@@ -118,7 +118,7 @@ func main() {
 		"	AND m.collectionid=?" +
 		"	AND m.`type`=?" +
 		"	AND m.signature=?"
-		//"SELECT masterid, signature, masterurl, width, height, duration FROM zotmedia.fullcachewithurl WHERE collection_id=? AND `type`=? AND parentid IS NULL AND signature LIKE ?"
+	//"SELECT masterid, signature, masterurl, width, height, duration FROM zotmedia.fullcachewithurl WHERE collection_id=? AND `type`=? AND parentid IS NULL AND signature LIKE ?"
 	getMediaStmt, err := sourceDB.Prepare(mediasqlstr)
 	if err != nil {
 		logger.Errorf("cannot prepare statement %s - %v", mediasqlstr, err)

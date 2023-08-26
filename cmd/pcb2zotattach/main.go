@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/je4/zsync/pkg/filesystem"
-	"github.com/je4/zsync/pkg/zotero"
+	"github.com/je4/zsync/v2/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/zotero"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"log"
@@ -50,8 +50,8 @@ func CreateLogger(module string, logfile string, loglevel string) (log *logging.
 	return
 }
 
-//var linkRegexp = regexp.MustCompile("https://ba14ns21403.fhnw.ch/video/open/(.+)$")
-//var linkRegexp = regexp.MustCompile("file://ba14ns21403.fhnw.ch/nfsdata/www/html/video/open/(.+)$")
+// var linkRegexp = regexp.MustCompile("https://ba14ns21403.fhnw.ch/video/open/(.+)$")
+// var linkRegexp = regexp.MustCompile("file://ba14ns21403.fhnw.ch/nfsdata/www/html/video/open/(.+)$")
 var linkRegexp = regexp.MustCompile("https://ba14ns21403-sec1.fhnw.ch/mediasrv/([^/]+)/([^/]+)$")
 
 func main() {

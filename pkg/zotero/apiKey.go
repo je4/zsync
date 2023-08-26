@@ -1,8 +1,8 @@
 package zotero
 
 import (
+	"emperror.dev/errors"
 	"encoding/json"
-	"github.com/goph/emperror"
 )
 
 type AccessElements struct {
@@ -31,12 +31,12 @@ func (zot *Zotero) getCurrentKey() (*ApiKey, error) {
 		SetHeader("Accept", "application/json").
 		Get(endpoint)
 	if err != nil {
-		return nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+		return nil, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 	}
 	rawBody := resp.Body()
 	key := &ApiKey{}
 	if err := json.Unmarshal(rawBody, key); err != nil {
-		return nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	return key, nil
 }

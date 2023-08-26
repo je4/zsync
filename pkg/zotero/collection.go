@@ -1,11 +1,10 @@
 package zotero
 
 import (
+	"emperror.dev/errors"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/goph/emperror"
-	"github.com/je4/zsync/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/filesystem"
 	"path/filepath"
 	"time"
 )
@@ -48,11 +47,11 @@ func (collection *Collection) UpdateLocal() error {
 	collection.Group.Zot.Logger.Infof("Updating Collection [#%s]", collection.Key)
 	data, err := json.Marshal(collection.Data)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshall data %v", collection.Data)
+		return errors.Wrapf(err, "cannot marshall data %v", collection.Data)
 	}
 	meta, err := json.Marshal(collection.Meta)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshall meta %v", collection.Meta)
+		return errors.Wrapf(err, "cannot marshall meta %v", collection.Meta)
 	}
 	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, meta=$4, deleted=$5, modified=NOW() WHERE key=$6", collection.Group.Zot.dbSchema)
 	params := []interface{}{
@@ -65,7 +64,7 @@ func (collection *Collection) UpdateLocal() error {
 	}
 	_, err = collection.Group.Zot.db.Exec(sqlstr, params...)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	return nil
 }
@@ -82,7 +81,7 @@ func (collection *Collection) UpdateCloud() error {
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", collection.Version)).
 			Delete(endpoint)
 		if err != nil {
-			return emperror.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
+			return errors.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
 		}
 		switch resp.RawResponse.StatusCode {
 		case 409:
@@ -101,16 +100,16 @@ func (collection *Collection) UpdateCloud() error {
 			SetBody(collections).
 			Post(endpoint)
 		if err != nil {
-			return emperror.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
+			return errors.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
 		}
 		result := ItemCollectionCreateResult{}
 		jsonstr := resp.Body()
 		if err := json.Unmarshal(jsonstr, &result); err != nil {
-			return emperror.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
+			return errors.Wrapf(err, "cannot unmarshall result %s", string(jsonstr))
 		}
 		successKey, err := result.checkSuccess(0)
 		if err != nil {
-			return emperror.Wrapf(err, "could not create item #%v.%v", collection.Group.Id, collection.Key)
+			return errors.Wrapf(err, "could not create item #%v.%v", collection.Group.Id, collection.Key)
 		}
 		if successKey != collection.Key {
 			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, collection.Key))
@@ -144,10 +143,10 @@ func (collection *Collection) Backup(backupFs filesystem.FileSystem) error {
 	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		return emperror.Wrapf(err, "cannot marshal data %v", data)
+		return errors.Wrapf(err, "cannot marshal data %v", data)
 	}
 	if err := backupFs.FilePut(folder, fname, b, filesystem.FilePutOptions{}); err != nil {
-		return emperror.Wrap(err, "cannot write data to file")
+		return errors.Wrap(err, "cannot write data to file")
 	}
 
 	return nil

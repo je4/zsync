@@ -1,9 +1,9 @@
 package zotero
 
 import (
+	"emperror.dev/errors"
 	"encoding/json"
 	"fmt"
-	"github.com/goph/emperror"
 	"strconv"
 )
 
@@ -23,12 +23,12 @@ func (group *Group) GetDeleted(sinceVersion int64) (collections *[]string, items
 		SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
 		Get(endpoint)
 	if err != nil {
-		return nil, nil, nil, emperror.Wrapf(err, "cannot get current key from %s", endpoint)
+		return nil, nil, nil, errors.Wrapf(err, "cannot get current key from %s", endpoint)
 	}
 	rawBody := resp.Body()
 	delete := &Delete{}
 	if err := json.Unmarshal(rawBody, delete); err != nil {
-		return nil, nil, nil, emperror.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		return nil, nil, nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 
 	collections = &delete.Collections

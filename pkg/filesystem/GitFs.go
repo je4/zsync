@@ -1,10 +1,10 @@
 package filesystem
 
 import (
+	"emperror.dev/errors"
 	"fmt"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/goph/emperror"
 	"github.com/op/go-logging"
 	"io"
 	"os"
@@ -24,14 +24,14 @@ func NewGitFs(basepath string, logger *logging.Logger) (*GitFs, error) {
 	}
 	localfs, err := NewLocalFs(basepath, logger)
 	if err != nil {
-		return nil, emperror.Wrap(err, "cannot create local fs")
+		return nil, errors.Wrap(err, "cannot create local fs")
 	}
 	gitFs := &GitFs{
 		localFs: localfs,
 		logger:  logger,
 	}
 	if err := gitFs.Open(); err != nil {
-		return nil, emperror.Wrap(err, "cannot open gitfs")
+		return nil, errors.Wrap(err, "cannot open gitfs")
 	}
 
 	return gitFs, nil
@@ -45,7 +45,7 @@ func (fs *GitFs) Open() error {
 	var err error
 	fs.repo, err = git.PlainOpen(fs.localFs.basepath)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot open git repository at %v", fs.localFs.basepath)
+		return errors.Wrapf(err, "cannot open git repository at %v", fs.localFs.basepath)
 	}
 	return nil
 }
@@ -73,7 +73,7 @@ func (fs *GitFs) FileGet(folder, name string, opts FileGetOptions) ([]byte, erro
 func (fs *GitFs) FilePut(folder, name string, data []byte, opts FilePutOptions) error {
 	isUpdate, err := fs.FileExists(folder, name)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot stat file %v/%v", folder, name)
+		return errors.Wrapf(err, "cannot stat file %v/%v", folder, name)
 	}
 	if err := fs.localFs.FilePut(folder, name, data, opts); err != nil {
 		return err
@@ -81,10 +81,10 @@ func (fs *GitFs) FilePut(folder, name string, data []byte, opts FilePutOptions) 
 	if !isUpdate {
 		w, err := fs.repo.Worktree()
 		if err != nil {
-			return emperror.Wrapf(err, "cannot open worktree of %v", fs.localFs.basepath)
+			return errors.Wrapf(err, "cannot open worktree of %v", fs.localFs.basepath)
 		}
 		if _, err := w.Add(filepath.Join(folder, name)); err != nil {
-			return emperror.Wrapf(err, "cannot add %v/%v/%v to repository", fs.localFs.basepath, folder, name)
+			return errors.Wrapf(err, "cannot add %v/%v/%v to repository", fs.localFs.basepath, folder, name)
 		}
 	}
 	return nil
@@ -93,7 +93,7 @@ func (fs *GitFs) FilePut(folder, name string, data []byte, opts FilePutOptions) 
 func (fs *GitFs) FileWrite(folder, name string, r io.Reader, size int64, opts FilePutOptions) error {
 	isUpdate, err := fs.FileExists(folder, name)
 	if err != nil {
-		return emperror.Wrapf(err, "cannot stat file %v/%v", folder, name)
+		return errors.Wrapf(err, "cannot stat file %v/%v", folder, name)
 	}
 	if err := fs.localFs.FileWrite(folder, name, r, size, opts); err != nil {
 		return err
@@ -101,12 +101,12 @@ func (fs *GitFs) FileWrite(folder, name string, r io.Reader, size int64, opts Fi
 	if !isUpdate {
 		w, err := fs.repo.Worktree()
 		if err != nil {
-			return emperror.Wrapf(err, "cannot open worktree of %v", fs.localFs.basepath)
+			return errors.Wrapf(err, "cannot open worktree of %v", fs.localFs.basepath)
 		}
 		fname := filepath.Join(folder, name)
 		fs.logger.Debugf("adding %v to git", fname)
 		if _, err := w.Add(fname); err != nil {
-			return emperror.Wrapf(err, "cannot add %v/%v/%v to repository", fs.localFs.basepath, folder, name)
+			return errors.Wrapf(err, "cannot add %v/%v/%v to repository", fs.localFs.basepath, folder, name)
 		}
 	}
 
@@ -124,7 +124,7 @@ func (fs *GitFs) FileOpenRead(folder, name string, opts FileGetOptions) (io.Read
 func (fs *GitFs) Commit(msg, name, email string) error {
 	w, err := fs.repo.Worktree()
 	if err != nil {
-		return emperror.Wrap(err, "cannot get worktree")
+		return errors.Wrap(err, "cannot get worktree")
 	}
 	commit, err := w.Commit(msg, &git.CommitOptions{
 		Author: &object.Signature{
@@ -133,11 +133,11 @@ func (fs *GitFs) Commit(msg, name, email string) error {
 			When:  time.Now()},
 	})
 	if err != nil {
-		return emperror.Wrap(err, "cannot commit")
+		return errors.Wrap(err, "cannot commit")
 	}
 	obj, err := fs.repo.CommitObject(commit)
 	if err != nil {
-		return emperror.Wrap(err, "cannot commit")
+		return errors.Wrap(err, "cannot commit")
 	}
 	fmt.Println(obj)
 	return nil
