@@ -1,3 +1,5 @@
 .idea
 *.toml
+*.sum
+go.work
 

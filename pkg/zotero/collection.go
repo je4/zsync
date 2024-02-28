@@ -44,7 +44,7 @@ type CollectionGitlab struct {
 }
 
 func (collection *Collection) UpdateLocal() error {
-	collection.Group.Zot.Logger.Infof("Updating Collection [#%s]", collection.Key)
+	collection.Group.Zot.Logger.Info().Msgf("Updating Collection [#%s]", collection.Key)
 	data, err := json.Marshal(collection.Data)
 	if err != nil {
 		return errors.Wrapf(err, "cannot marshall data %v", collection.Data)
@@ -70,12 +70,12 @@ func (collection *Collection) UpdateLocal() error {
 }
 
 func (collection *Collection) UpdateCloud() error {
-	collection.Group.Zot.Logger.Infof("Creating Zotero Collection [#%s]", collection.Key)
+	collection.Group.Zot.Logger.Info().Msgf("Creating Zotero Collection [#%s]", collection.Key)
 
 	collection.Data.Version = collection.Version
 	if collection.Deleted {
 		endpoint := fmt.Sprintf("/groups/%v/collections/%v", collection.Group.Id, collection.Key)
-		collection.Group.Zot.Logger.Infof("rest call: DELETE %s", endpoint)
+		collection.Group.Zot.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
 		resp, err := collection.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", collection.Version)).
@@ -93,7 +93,7 @@ func (collection *Collection) UpdateCloud() error {
 		}
 	} else {
 		endpoint := fmt.Sprintf("/groups/%v/collections", collection.Group.Id)
-		collection.Group.Zot.Logger.Infof("rest call: POST %s", endpoint)
+		collection.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
 		collections := []CollectionData{collection.Data}
 		resp, err := collection.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
@@ -123,7 +123,7 @@ func (collection *Collection) UpdateCloud() error {
 }
 
 func (collection *Collection) Backup(backupFs filesystem.FileSystem) error {
-	collection.Group.Zot.Logger.Infof("storing %v to %v", collection.Data.Name, backupFs.String())
+	collection.Group.Zot.Logger.Info().Msgf("storing %v to %v", collection.Data.Name, backupFs.String())
 	var fname string
 	var folder string
 	folder = filepath.Clean(fmt.Sprintf("%v/collections", collection.Group.Id))

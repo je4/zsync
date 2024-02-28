@@ -86,7 +86,7 @@ func (group *Group) CreateCollectionLocal(collectionData *CollectionData) (*Coll
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	// refresh view
-	group.Zot.Logger.Infof("refreshing materialized view collection_name_hier")
+	group.Zot.Logger.Info().Msgf("refreshing materialized view collection_name_hier")
 	sqlstr = fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA", group.Zot.dbSchema)
 	if _, err = group.Zot.db.Exec(sqlstr); err != nil {
 		return nil, errors.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
@@ -121,7 +121,7 @@ func (group *Group) TryDeleteCollectionLocal(key string, lastModifiedVersion int
 		coll.Version = lastModifiedVersion
 		coll.Status = SyncStatus_Synced
 	}
-	group.Zot.Logger.Debugf("Collection: %v", coll)
+	group.Zot.Logger.Debug().Msgf("Collection: %v", coll)
 	if err := coll.UpdateLocal(); err != nil {
 		return errors.Wrapf(err, "cannot update collection %v", key)
 	}
@@ -175,7 +175,7 @@ func (group *Group) GetCollectionsVersionCloud(sinceVersion int64) (*map[string]
 	start := int64(0)
 	for {
 
-		group.Zot.Logger.Infof("rest call: %s [%v, %v]", endpoint, start, limit)
+		group.Zot.Logger.Info().Msgf("rest call: %s [%v, %v]", endpoint, start, limit)
 
 		call := group.Zot.client.R().
 			SetHeader("Accept", "application/json").
@@ -234,7 +234,7 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 	}
 
 	endpoint := fmt.Sprintf("/groups/%v/collections", group.Id)
-	group.Zot.Logger.Infof("rest call: %s", endpoint)
+	group.Zot.Logger.Info().Msgf("rest call: %s", endpoint)
 
 	call := group.Zot.client.R().
 		SetHeader("Accept", "application/json").
@@ -312,7 +312,7 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 			collection.Data.Name = collection.Key
 		}
 		if err := collection.UpdateCloud(); err != nil {
-			group.Zot.Logger.Errorf("error creating/updating item %v.%v: %v", group.Id, collection.Key, err)
+			group.Zot.Logger.Error().Msgf("error creating/updating item %v.%v: %v", group.Id, collection.Key, err)
 			//			return 0, errors.Wrapf(err, "error creating/updating item %v.%v", Group.Id, collection.Key)
 		}
 		counter++
@@ -343,7 +343,7 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 
 	counter := num + num2
 	if counter > 0 {
-		group.Zot.Logger.Infof("refreshing materialized view collection_name_hier")
+		group.Zot.Logger.Info().Msgf("refreshing materialized view collection_name_hier")
 		sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA", group.Zot.dbSchema)
 		_, err := group.Zot.db.Exec(sqlstr)
 		if err != nil {
@@ -355,7 +355,7 @@ func (group *Group) SyncCollections() (int64, int64, error) {
 }
 
 func (group *Group) syncCollections() (int64, int64, error) {
-	group.Zot.Logger.Infof("Syncing collections of Group #%v", group.Id)
+	group.Zot.Logger.Info().Msgf("Syncing collections of Group #%v", group.Id)
 
 	var counter int64
 	objectList, lastModifiedVersion, err := group.GetCollectionsVersionCloud(group.CollectionVersion)
@@ -391,7 +391,7 @@ func (group *Group) syncCollections() (int64, int64, error) {
 			if h > lastModifiedVersion {
 				lastModifiedVersion = h
 			}
-			group.Zot.Logger.Infof("%v collections", len(*colls))
+			group.Zot.Logger.Info().Msgf("%v collections", len(*colls))
 			for _, coll := range *colls {
 				coll.Status = SyncStatus_Synced
 				if err := coll.UpdateLocal(); err != nil {

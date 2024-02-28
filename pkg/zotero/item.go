@@ -168,7 +168,7 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 		return errors.Wrapf(err, "cannot marshal data %v", data)
 	}
 
-	item.Group.Zot.Logger.Infof("storing #%v.%v to %v", item.Group.Id, item.Key, fname)
+	item.Group.Zot.Logger.Info().Msgf("storing #%v.%v to %v", item.Group.Id, item.Key, fname)
 	if err := backupFs.FilePut(folder, fname, b, filesystem.FilePutOptions{}); err != nil {
 		return errors.Wrap(err, "cannot store data in file")
 	}
@@ -183,7 +183,7 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 			return errors.Wrapf(err, "cannot get attachment folder")
 		}
 
-		item.Group.Zot.Logger.Infof("copying %v/%v/%v --> %v/%v/%v",
+		item.Group.Zot.Logger.Info().Msgf("copying %v/%v/%v --> %v/%v/%v",
 			item.Group.Zot.Fs.String(),
 			bucket,
 			item.Key,
@@ -217,7 +217,7 @@ func (item *Item) DownloadAttachmentCloud() (string, error) {
 	//	filename := fmt.Sprintf("%s/%s", folder, item.Key)
 	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", item.Group.Id, item.Key)
 
-	item.Group.Zot.Logger.Infof("rest call: %s", endpoint)
+	item.Group.Zot.Logger.Info().Msgf("rest call: %s", endpoint)
 	call := item.Group.Zot.client.R().
 		SetHeader("Accept", "application/json")
 	var resp *resty.Response
@@ -296,7 +296,7 @@ func (item *Item) uploadFileCloud() error {
 	} else {
 		h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
 	}
-	item.Group.Zot.Logger.Infof("rest call: POST %s", endpoint)
+	item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	info, err := item.Group.Zot.Fs.FileStat(bucket, item.Key, filesystem.FileStatOptions{})
 	if err != nil {
 		return errors.Wrapf(err, "cannot stat file")
@@ -361,7 +361,7 @@ func (item *Item) uploadFileCloud() error {
 	if !ok {
 		return errors.New(fmt.Sprintf("no uploadKey in upload authorization %v", string(jsonstr)))
 	}
-	item.Group.Zot.Logger.Infof("rest call: POST %s", endpoint)
+	item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	resp, err = resty.New().R().
 		SetHeader("Content-Type", contenttype).
 		SetBody(append([]byte(prefix), append(data, []byte(suffix)...)...)).
@@ -377,7 +377,7 @@ func (item *Item) uploadFileCloud() error {
 	register upload
 	*/
 	endpoint = fmt.Sprintf("/groups/%v/%v/items/file", item.Group.Id, item.Key)
-	item.Group.Zot.Logger.Infof("rest call: POST %s", endpoint)
+	item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	h = item.Group.Zot.client.R()
 	if item.MD5 == "" {
 		h.SetHeader("If-None-Match", "*")
@@ -401,7 +401,7 @@ func (item *Item) uploadFileCloud() error {
 }
 
 func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
-	item.Group.Zot.Logger.Infof("Writing Zotero Item [#%s]", item.Key)
+	item.Group.Zot.Logger.Info().Msgf("Writing Zotero Item [#%s]", item.Key)
 	/*
 		if item.Version > 0 {
 			item.Version = *lastModifiedVersion
@@ -411,7 +411,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 	item.Data.Version = item.Version
 	if item.Deleted {
 		endpoint := fmt.Sprintf("/groups/%v/%v/items", item.Group.Id, item.Key)
-		item.Group.Zot.Logger.Infof("rest call: DELETE %s", endpoint)
+		item.Group.Zot.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
 		resp, err := item.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
@@ -429,7 +429,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		}
 	} else {
 		endpoint := fmt.Sprintf("/groups/%v/items", item.Group.Id)
-		item.Group.Zot.Logger.Infof("rest call: POST %s", endpoint)
+		item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
 		items := []ItemGeneric{item.Data}
 		req := item.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
@@ -467,7 +467,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		for _, i := range result.Successful {
 			i.Group = item.Group
 			i.UpdateLocal()
-			//item.Group.Zot.Logger.Infof( "%v: %v", key, i)
+			//item.Group.Zot.Logger.Info().Msgf( "%v: %v", key, i)
 			if item.Group.ItemVersion < i.Version {
 				item.Group.ItemVersion = i.Version
 			}
@@ -489,7 +489,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 }
 
 func (item *Item) UpdateLocal() error {
-	item.Group.Zot.Logger.Infof("Updating Item [#%s]", item.Key)
+	item.Group.Zot.Logger.Info().Msgf("Updating Item [#%s]", item.Key)
 
 	md5val := sql.NullString{Valid: false}
 	itemType, err := item.GetType()
@@ -554,7 +554,7 @@ func (item *Item) UpdateLocal() error {
 }
 
 func (item *Item) GetChildrenLocal() (*[]Item, error) {
-	item.Group.Zot.Logger.Infof("get children of  item [#%s]", item.Key)
+	item.Group.Zot.Logger.Info().Msgf("get children of  item [#%s]", item.Key)
 	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.meta, i.trashed, i.deleted, i.sync, i.md5, i.gitlab"+
 		" FROM %s.items i, %s.item_type_hier ith"+
 		" WHERE i.trashed=false AND i.deleted=false AND i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.Group.Zot.dbSchema, item.Group.Zot.dbSchema)
@@ -583,7 +583,7 @@ func (item *Item) GetChildrenLocal() (*[]Item, error) {
 }
 
 func (item *Item) DeleteLocal() error {
-	item.Group.Zot.Logger.Infof("deleting item [#%s]", item.Key)
+	item.Group.Zot.Logger.Info().Msgf("deleting item [#%s]", item.Key)
 	children, err := item.GetChildrenLocal()
 	if err != nil {
 		return errors.Wrapf(err, "cannot get children of #%v", item.Key)

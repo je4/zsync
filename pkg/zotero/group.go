@@ -70,7 +70,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	folder := fmt.Sprintf("%v", group.Id)
 
 	if err := group.IterateCollectionsAllLocal(group.Gitlab, func(coll *Collection) error {
-		group.Zot.Logger.Infof("collection #%v.%v - %v", coll.Group.Id, coll.Key, coll.Data.Name)
+		group.Zot.Logger.Info().Msgf("collection #%v.%v - %v", coll.Group.Id, coll.Key, coll.Data.Name)
 		if err := coll.Backup(backupFs); err != nil {
 			return errors.Wrapf(err, "cannot backup collection #%v.%v", coll.Group.Id, coll.Key)
 		}
@@ -95,7 +95,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	}
 
 	if err := group.IterateItemsAllLocal(group.Gitlab, func(item *Item) error {
-		group.Zot.Logger.Infof("item #%v.%v - %v", item.Group.Id, item.Key, item.Data.Title)
+		group.Zot.Logger.Info().Msgf("item #%v.%v - %v", item.Group.Id, item.Key, item.Data.Title)
 		if err := item.Backup(backupFs); err != nil {
 			return errors.Wrapf(err, "cannot backup item #%v.%v", item.Group.Id, item.Key)
 		}
@@ -130,11 +130,11 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	if storeGrp {
 		data, err := json.MarshalIndent(group.Data, "", "  ")
 		if err != nil {
-			group.Zot.Logger.Errorf("cannot marshal Group data of #%v", group.Id)
+			group.Zot.Logger.Error().Msgf("cannot marshal Group data of #%v", group.Id)
 		} else {
 			filename := path.Clean(fmt.Sprintf("%v.json", group.Id))
 			if err := backupFs.FilePut(folder, filename, data, filesystem.FilePutOptions{}); err != nil {
-				group.Zot.Logger.Errorf("cannot write Group data of #%v to file %v", group.Id, filename)
+				group.Zot.Logger.Error().Msgf("cannot write Group data of #%v to file %v", group.Id, filename)
 			}
 		}
 	}
@@ -207,7 +207,7 @@ func (group *Group) SyncDeleted() (int64, error) {
 		return 0, nil
 	}
 	endpoint := fmt.Sprintf("/groups/%v/deleted", group.Id)
-	group.Zot.Logger.Infof("rest call: %s [%v]", endpoint, group.Version)
+	group.Zot.Logger.Info().Msgf("rest call: %s [%v]", endpoint, group.Version)
 	call := group.Zot.client.R().
 		SetHeader("Accept", "application/json").
 		SetQueryParam("since", strconv.FormatInt(group.Version, 10))

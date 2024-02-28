@@ -15,7 +15,7 @@ type User struct {
 
 func (zot *Zotero) GetUserGroupVersions(key *ApiKey) (*map[int64]int64, error) {
 	endpoint := fmt.Sprintf("/users/%v/groups", key.UserId)
-	zot.Logger.Infof("rest call: %s", endpoint)
+	zot.Logger.Info().Msgf("rest call: %s", endpoint)
 
 	resp, err := zot.client.R().
 		SetHeader("Accept", "application/json").

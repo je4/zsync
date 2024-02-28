@@ -3,13 +3,17 @@ package main
 import (
 	"database/sql"
 	"flag"
+	"github.com/je4/utils/v2/pkg/zLogger"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/je4/zsync/v2/pkg/zotero"
 	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
+	"github.com/rs/zerolog"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 var _logformat = logging.MustStringFormatter(
@@ -48,30 +52,30 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Logger) {
+func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLogger) {
 
 	var err error
 	/*
 		nodes, _, err := gl.Repositories.ListTree(glproject.ID, nil)
 		for _, node := range nodes {
-			logger.Infof("[%v] %v - %v", node.ID, node.Name, node.Path)
+			logger.Info().Msgf("[%v] %v - %v", node.ID, node.Name, node.Path)
 		}
 	*/
 
 	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, fs, cfg.DB.Schema, cfg.NewGroupActive, logger, false)
 	if err != nil {
-		logger.Errorf("cannot create zotero instance: %v", err)
+		logger.Error().Msgf("cannot create zotero instance: %v", err)
 		return
 	}
 
-	logger.Infof("current key: %v", zot.CurrentKey)
+	logger.Info().Msgf("current key: %v", zot.CurrentKey)
 
 	groupVersions, err := zot.GetUserGroupVersions(zot.CurrentKey)
 	if err != nil {
-		logger.Errorf("cannot get group versions: %v", err)
+		logger.Error().Msgf("cannot get group versions: %v", err)
 		return
 	}
-	logger.Infof("group versions: %v", groupVersions)
+	logger.Info().Msgf("group versions: %v", groupVersions)
 
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
@@ -96,18 +100,18 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 		}
 		group, err := zot.LoadGroupLocal(groupId)
 		if err != nil {
-			logger.Errorf("cannot load group local %v: %v", groupId, err)
+			logger.Error().Msgf("cannot load group local %v: %v", groupId, err)
 			return
 		}
 		if !group.Active {
-			logger.Infof("ignoring inactive group #%v", group.Id)
+			logger.Info().Msgf("ignoring inactive group #%v", group.Id)
 			continue
 		}
 
 		for _, gid := range cfg.ClearBeforeSync {
 			if gid == group.Id {
 				if err := group.ClearLocal(); err != nil {
-					logger.Errorf("cannot clear group %v: %v", groupId, err)
+					logger.Error().Msgf("cannot clear group %v: %v", groupId, err)
 					return
 				}
 				break
@@ -115,19 +119,19 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 		}
 
 		if err := group.Sync(); err != nil {
-			logger.Errorf("cannot sync group #%v: %v", group.Id, err)
+			logger.Error().Msgf("cannot sync group #%v: %v", group.Id, err)
 			continue
 		}
 
 		// store new group data if necessary
-		logger.Infof("group %v[%v <-> %v]", groupId, group.Version, version)
+		logger.Info().Msgf("group %v[%v <-> %v]", groupId, group.Version, version)
 		// check whether version is newer online...
 		if group.Version < version ||
 			group.Deleted ||
 			group.IsModified {
 			newGroup, err := zot.GetGroupCloud(groupId)
 			if err != nil {
-				logger.Errorf("cannot get group %v: %v", groupId, err)
+				logger.Error().Msgf("cannot get group %v: %v", groupId, err)
 				return
 			}
 			newGroup.CollectionVersion = group.CollectionVersion
@@ -135,15 +139,15 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Log
 			newGroup.TagVersion = group.TagVersion
 			newGroup.Deleted = group.Deleted
 
-			logger.Infof("group %v[%v]", groupId, version)
+			logger.Info().Msgf("group %v[%v]", groupId, version)
 			if err := newGroup.UpdateLocal(); err != nil {
-				logger.Errorf("cannot update group %v: %v", groupId, err)
+				logger.Error().Msgf("cannot update group %v: %v", groupId, err)
 				return
 			}
 		}
 	}
 	if err := zot.DeleteUnknownGroupsLocal(groupIds); err != nil {
-		logger.Errorf("cannot delete unknown groups: %v", err)
+		logger.Error().Msgf("cannot delete unknown groups: %v", err)
 	}
 
 }
@@ -196,8 +200,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("error pinging database: %v", err)
 	}
-	logger, lf := CreateLogger(cfg.Service, cfg.Logfile, cfg.Loglevel)
-	defer lf.Close()
+
+	var out io.Writer = os.Stdout
+	if cfg.Logfile != "" {
+		fp, err := os.OpenFile(cfg.Logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+		if err != nil {
+			log.Fatalf("cannot open logfile %s: %v", cfg.Logfile, err)
+		}
+		defer fp.Close()
+		out = fp
+	}
+
+	output := zerolog.ConsoleWriter{Out: out, TimeFormat: time.RFC3339}
+	_logger := zerolog.New(output).With().Timestamp().Logger()
+	_logger.Level(zLogger.LogLevel(cfg.Loglevel))
+	var logger zLogger.ZLogger = &_logger
 
 	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
 	if err != nil {

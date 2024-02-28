@@ -5,9 +5,9 @@ import (
 	"emperror.dev/errors"
 	"encoding/json"
 	"fmt"
+	"github.com/je4/utils/v2/pkg/zLogger"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/lib/pq"
-	"github.com/op/go-logging"
 	"gopkg.in/resty.v1"
 	"net/http"
 	"net/url"
@@ -48,7 +48,7 @@ type Zotero struct {
 	baseUrl  *url.URL
 	apiKey   string
 	client   *resty.Client
-	Logger   *logging.Logger
+	Logger   zLogger.ZLogger
 	db       *sql.DB
 	dbSchema string
 	//attachmentFolder string
@@ -167,7 +167,7 @@ func IsUniqueViolation(err error, constraint string) bool {
 	return pqErr.Code == "23505"
 }
 
-func NewZotero(baseUrl string, apiKey string, db *sql.DB, fs filesystem.FileSystem, dbSchema string, newGroupActive bool, logger *logging.Logger, dbOnly bool) (*Zotero, error) {
+func NewZotero(baseUrl string, apiKey string, db *sql.DB, fs filesystem.FileSystem, dbSchema string, newGroupActive bool, logger zLogger.ZLogger, dbOnly bool) (*Zotero, error) {
 	burl, err := url.Parse(baseUrl)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot create url from %s", baseUrl)
@@ -221,7 +221,7 @@ func (zot *Zotero) CheckRetry(header http.Header) bool {
 	}
 
 	if retryAfter > 0 {
-		zot.Logger.Infof("Sleeping %v seconds (RetryAfter)", retryAfter)
+		zot.Logger.Info().Msgf("Sleeping %v seconds (RetryAfter)", retryAfter)
 		time.Sleep(time.Duration(retryAfter) * time.Second)
 	}
 	return retryAfter > 0
@@ -242,7 +242,7 @@ func (zot *Zotero) CheckBackoff(header http.Header) bool {
 		}
 	}
 	if backoff > 0 {
-		zot.Logger.Infof("Sleeping %v seconds (Backoff)", backoff)
+		zot.Logger.Info().Msgf("Sleeping %v seconds (Backoff)", backoff)
 		time.Sleep(time.Duration(backoff) * time.Second)
 	}
 	return backoff > 0
@@ -267,7 +267,7 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			zot.Logger.Panicf("cannot execute rest call to %s", endpoint)
+			zot.Logger.Panic().Msgf("cannot execute rest call to %s", endpoint)
 		}
 		if zot.CheckRetry(resp.Header()) {
 			break
@@ -276,7 +276,7 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 	rawBody := resp.Body()
 	types := []itemType{}
 	if err := json.Unmarshal(rawBody, &types); err != nil {
-		zot.Logger.Panicf("cannot unmarshal %s: %v", string(rawBody), err)
+		zot.Logger.Panic().Msgf("cannot unmarshal %s: %v", string(rawBody), err)
 	}
 	zot.CheckBackoff(resp.Header())
 	str += fmt.Sprintln("switch item.(type) {")
@@ -298,7 +298,7 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 		for {
 			resp, err = call.Get(endpoint)
 			if err != nil {
-				zot.Logger.Panicf("cannot execute rest call to %s", endpoint)
+				zot.Logger.Panic().Msgf("cannot execute rest call to %s", endpoint)
 			}
 			if !zot.CheckRetry(resp.Header()) {
 				break
@@ -307,7 +307,7 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 		rawBody := resp.Body()
 		fields := []field{}
 		if err := json.Unmarshal(rawBody, &fields); err != nil {
-			zot.Logger.Panicf("cannot unmarshal %s: %v", string(rawBody), err)
+			zot.Logger.Panic().Msgf("cannot unmarshal %s: %v", string(rawBody), err)
 		}
 		zot.CheckBackoff(resp.Header())
 		for _, field := range fields {
@@ -321,7 +321,7 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 
 func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 	endpoint := fmt.Sprintf("/groups/%v", groupId)
-	zot.Logger.Infof("rest call: %s", endpoint)
+	zot.Logger.Info().Msgf("rest call: %s", endpoint)
 
 	call := zot.client.R().
 		SetHeader("Accept", "application/json")
@@ -460,7 +460,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 		Active:  zot.newGroupActive,
 		Zot:     zot,
 	}
-	zot.Logger.Debugf("loading Group #%v from database", groupId)
+	zot.Logger.Debug().Msgf("loading Group #%v from database", groupId)
 	sqlstr := fmt.Sprintf("SELECT version, created, modified, data, active, direction, tags,"+
 		" itemversion, collectionversion, tagversion, gitlab"+
 		" FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", zot.dbSchema, zot.dbSchema)
@@ -508,7 +508,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 }
 
 func (zot *Zotero) LoadGroupsLocal() ([]*Group, error) {
-	zot.Logger.Debugf("loading Groups from database")
+	zot.Logger.Debug().Msgf("loading Groups from database")
 	sqlstr := fmt.Sprintf("SELECT id FROM %s.syncgroups sg WHERE sg.active=true", zot.dbSchema)
 	rows, err := zot.db.Query(sqlstr)
 	if err != nil {
@@ -523,10 +523,10 @@ func (zot *Zotero) LoadGroupsLocal() ([]*Group, error) {
 		}
 		grp, err := zot.LoadGroupLocal(id)
 		if err != nil {
-			zot.Logger.Errorf("error loading Group #%v: %v", id, err)
+			zot.Logger.Error().Msgf("error loading Group #%v: %v", id, err)
 			continue
 		}
-		zot.Logger.Infof("Group #%v - %v loaded", grp.Id, grp.Data.Name)
+		zot.Logger.Info().Msgf("Group #%v - %v loaded", grp.Id, grp.Data.Name)
 		grps = append(grps, grp)
 	}
 

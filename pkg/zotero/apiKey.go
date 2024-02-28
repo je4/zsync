@@ -25,7 +25,7 @@ type ApiKey struct {
 
 func (zot *Zotero) getCurrentKey() (*ApiKey, error) {
 	endpoint := "/keys/current"
-	zot.Logger.Infof("rest call: %s", endpoint)
+	zot.Logger.Info().Msgf("rest call: %s", endpoint)
 
 	resp, err := zot.client.R().
 		SetHeader("Accept", "application/json").
