@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var errEmptyItem error = errors.New("item has no data")
+
 func (group *Group) DeleteItemLocal(key string) error {
 	sqlstr := fmt.Sprintf("UPDATE %s.items SET deleted=true WHERE key=$1 AND library=$2", group.Zot.dbSchema)
 
@@ -296,7 +298,15 @@ func (group *Group) IterateItemsAllLocal(after *time.Time, f func(item *Item) er
 		//group.Zot.Logger.Info().Msgf("item no. #%v", counter)
 		item, err := group.itemFromRow(rows)
 		if err != nil {
+			if errors.Is(err, errEmptyItem) {
+				group.Zot.Logger.Warn().Err(err).Msgf("item #%v is empty. skipping", counter)
+				continue
+			}
 			return errors.Wrapf(err, "cannot scan row")
+		}
+		if item == nil {
+			group.Zot.Logger.Warn().Msgf("item #%v is nil. skipping", counter)
+			continue
 		}
 		group.Zot.Logger.Info().Msgf("#%v/%v item %v.%v", counter, num, item.Group.Id, item.Key)
 		if err := f(item); err != nil {
@@ -646,7 +656,7 @@ func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
 			item.Data.Collections = []string{}
 		}
 	} else {
-		return nil, errors.New(fmt.Sprintf("item has no data %v.%v", group.Id, item.Key))
+		return nil, errors.Wrapf(errEmptyItem, "item has no data %v.%v", group.Id, item.Key)
 	}
 	if metastr.Valid {
 		if err := json.Unmarshal([]byte(metastr.String), &(item.Meta)); err != nil {
