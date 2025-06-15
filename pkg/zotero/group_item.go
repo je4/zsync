@@ -257,9 +257,15 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 	defer rows.Close()
 
 	result := []Item{}
+	counter := 0
 	for rows.Next() {
+		counter++
 		item, err := group.itemFromRow(rows)
 		if err != nil {
+			if errors.Is(err, errEmptyItem) {
+				group.Zot.Logger.Warn().Err(err).Msgf("item #%v is empty. skipping", counter)
+				continue
+			}
 			return nil, errors.Wrapf(err, "cannot scan row")
 		}
 		result = append(result, *item)
@@ -421,6 +427,10 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 
 		item, err := group.itemFromRow(rows)
 		if err != nil {
+			if errors.Is(err, errEmptyItem) {
+				group.Zot.Logger.Warn().Err(err).Msgf("item #%v is empty. skipping", counter)
+				continue
+			}
 			return 0, errors.Wrapf(err, "cannot scan row")
 		}
 
