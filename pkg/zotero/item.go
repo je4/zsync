@@ -55,27 +55,58 @@ type ItemTag struct {
 	Type int64  `json:"type,omitempty"`
 }
 
+type Relations map[string]ZoteroStringList
+
+func (rl *Relations) UnmarshalJSON(data []byte) error {
+	var i any
+	if err := json.Unmarshal(data, &i); err != nil {
+		return err
+	}
+	switch d := i.(type) {
+	case map[string]any:
+		*rl = Relations{}
+		for key, val := range d {
+			var zsl ZoteroStringList
+			valBytes, err := json.Marshal(val)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(valBytes, &zsl); err != nil {
+				return err
+			}
+			(*rl)[key] = zsl
+		}
+	case []any:
+		if len(d) > 0 {
+			return errors.New(fmt.Sprintf("invalid object list for type Relations - %s", string(data)))
+		}
+		*rl = Relations{}
+	}
+	return nil
+}
+
 type ItemDataBase struct {
-	Key          string                      `json:"key,omitempty"`
-	Version      int64                       `json:"version"`
-	ItemType     string                      `json:"itemType"`
-	Tags         []ItemTag                   `json:"tags"`
-	Relations    map[string]ZoteroStringList `json:"relations"`
-	ParentItem   Parent                      `json:"parentItem,omitempty"`
-	Collections  []string                    `json:"collections"`
-	DateAdded    string                      `json:"dateAdded,omitempty"`
-	DateModified string                      `json:"dateModified,omitempty"`
-	Creators     []ItemDataPerson            `json:"creators,omitempty"`
+	Key          string           `json:"key,omitempty"`
+	Version      int64            `json:"version"`
+	ItemType     string           `json:"itemType"`
+	Tags         []ItemTag        `json:"tags"`
+	Relations    Relations        `json:"relations"`
+	ParentItem   Parent           `json:"parentItem,omitempty"`
+	Collections  []string         `json:"collections"`
+	DateAdded    string           `json:"dateAdded,omitempty"`
+	DateModified string           `json:"dateModified,omitempty"`
+	Creators     []ItemDataPerson `json:"creators,omitempty"`
 }
 
 type ItemDataPerson struct {
 	CreatorType string `json:"creatorType"`
-	FirstName   string `json:"firstName"`
-	LastName    string `json:"lastName"`
+	FirstName   string `json:"firstName,omitempty"`
+	LastName    string `json:"lastName,omitempty"`
+	Name        string `json:"name,omitempty"`
 }
 
 type ItemGitlab struct {
-	LibraryId int64       `json:libraryid`
+	LibraryId int64       `json:"libraryid"`
 	Key       string      `json:"id"`
 	Data      ItemGeneric `json:"data"`
 	Meta      ItemMeta    `json:"meta"`
@@ -288,7 +319,7 @@ func (item *Item) uploadFileCloud() error {
 	/**
 	Get Authorization
 	*/
-	endpoint := fmt.Sprintf("/groups/%v/%v/items/file", item.Group.Id, item.Key)
+	endpoint := fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
 	h := item.Group.Zot.client.R().
 		SetHeader("Content-Type", "application/x-www-form-urlencoded")
 	if item.MD5 == "" {
@@ -376,7 +407,7 @@ func (item *Item) uploadFileCloud() error {
 	/**
 	register upload
 	*/
-	endpoint = fmt.Sprintf("/groups/%v/%v/items/file", item.Group.Id, item.Key)
+	endpoint = fmt.Sprintf("/groups/%v/items/%v/file", item.Group.Id, item.Key)
 	item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	h = item.Group.Zot.client.R()
 	if item.MD5 == "" {
@@ -410,7 +441,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 	*/
 	item.Data.Version = item.Version
 	if item.Deleted {
-		endpoint := fmt.Sprintf("/groups/%v/%v/items", item.Group.Id, item.Key)
+		endpoint := fmt.Sprintf("/groups/%v/items/%v", item.Group.Id, item.Key)
 		item.Group.Zot.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
 		resp, err := item.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").

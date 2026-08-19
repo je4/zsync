@@ -21,14 +21,14 @@ type GroupData struct {
 	Id             int64   `json:"id"`
 	Version        int64   `json:"version"`
 	Name           string  `json:"name"`
-	Owner          int64   `json:owner`
+	Owner          int64   `json:"owner"`
 	Type           string  `json:"type"`
 	Description    string  `json:"description"`
 	Url            string  `json:"url"`
 	HasImage       int64   `json:"hasImage"`
-	LibraryEditing string  `json:libraryEditing`
-	LibraryReading string  `json:libraryReading`
-	FileEditing    string  `json:fileEditing`
+	LibraryEditing string  `json:"libraryEditing"`
+	LibraryReading string  `json:"libraryReading"`
+	FileEditing    string  `json:"fileEditing"`
 	Admins         []int64 `json:"admins"`
 }
 
@@ -57,7 +57,7 @@ type GroupGitlab struct {
 	Data              GroupData `json:"data"`
 	CollectionVersion int64     `json:"collectionversion"`
 	ItemVersion       int64     `json:"itemversion"`
-	TagVersion        int64     `json:tagversion`
+	TagVersion        int64     `json:"tagversion"`
 }
 
 func (group *Group) Init() {

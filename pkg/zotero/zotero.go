@@ -103,6 +103,7 @@ func (rl *RelationList) UnmarshalJSON(data []byte) error {
 		if len(d) > 0 {
 			return errors.New(fmt.Sprintf("invalid object list for type RelationList - %s", string(data)))
 		}
+		*rl = RelationList{}
 	}
 	return nil
 }
@@ -195,6 +196,7 @@ func (zot *Zotero) Init() (err error) {
 	zot.client = resty.New()
 	zot.client.SetHostURL(zot.baseUrl.String())
 	zot.client.SetAuthToken(zot.apiKey)
+	zot.client.SetHeader("Zotero-API-Version", "3")
 	zot.client.SetContentLength(true)
 	zot.client.SetRedirectPolicy(resty.FlexibleRedirectPolicy(3))
 	zot.CurrentKey, err = zot.getCurrentKey()
@@ -269,7 +271,7 @@ func (zot *Zotero) GetTypeStructs() (str string) {
 		if err != nil {
 			zot.Logger.Panic().Msgf("cannot execute rest call to %s", endpoint)
 		}
-		if zot.CheckRetry(resp.Header()) {
+		if !zot.CheckRetry(resp.Header()) {
 			break
 		}
 	}
@@ -500,7 +502,7 @@ func (zot *Zotero) LoadGroupLocal(groupId int64) (*Group, error) {
 	if jsonstr.Valid {
 		err = json.Unmarshal([]byte(jsonstr.String), &group.Data)
 		if err != nil {
-			return nil, errors.Wrapf(err, "cannot unmarshall Group data %s", jsonstr)
+			return nil, errors.Wrapf(err, "cannot unmarshall Group data %s", jsonstr.String)
 		}
 	}
 	group.Init()

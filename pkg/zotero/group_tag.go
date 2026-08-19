@@ -4,6 +4,7 @@ import (
 	"emperror.dev/errors"
 	"encoding/json"
 	"fmt"
+	"gopkg.in/resty.v1"
 	"strconv"
 )
 
@@ -44,29 +45,74 @@ func (group *Group) DeleteTagLocal(tag string) error {
 }
 
 func (group *Group) GetTagsVersionCloud(sinceVersion int64) (*[]Tag, int64, error) {
-	var endpoint string
-	endpoint = fmt.Sprintf("/groups/%v/tags", group.Id)
-	group.Zot.Logger.Info().Msgf("rest call: %s", endpoint)
+	endpoint := fmt.Sprintf("/groups/%v/tags", group.Id)
 
-	resp, err := group.Zot.client.R().
-		SetHeader("Accept", "application/json").
-		SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
-		Get(endpoint)
-	if err != nil {
-		return nil, 0, errors.Wrapf(err, "cannot get current key from %s", endpoint)
-	}
-	rawBody := resp.Body()
-	tags := &[]Tag{}
-	if err := json.Unmarshal(rawBody, tags); err != nil {
-		return nil, 0, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
-	}
-	limv := resp.RawResponse.Header.Get("Last-Modified-Version")
-	lastModifiedVersion, err := strconv.ParseInt(limv, 10, 64)
-	if err != nil {
-		return nil, 0, errors.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
+	var lastModifiedVersion int64
+	totalTags := []Tag{}
+	limit := int64(100)
+	start := int64(0)
+	for {
+		group.Zot.Logger.Info().Msgf("rest call: %s [%v, %v]", endpoint, start, limit)
+
+		call := group.Zot.client.R().
+			SetHeader("Accept", "application/json").
+			SetQueryParam("limit", strconv.FormatInt(limit, 10)).
+			SetQueryParam("start", strconv.FormatInt(start, 10))
+		var resp *resty.Response
+		var err error
+		for {
+			resp, err = call.Get(endpoint)
+			if err != nil {
+				return nil, 0, errors.Wrapf(err, "cannot get tags from %s", endpoint)
+			}
+			if !group.Zot.CheckRetry(resp.Header()) {
+				break
+			}
+		}
+		rawBody := resp.Body()
+		tags := []Tag{}
+		if err := json.Unmarshal(rawBody, &tags); err != nil {
+			return nil, 0, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+		}
+		if len(tags) == 0 {
+			group.Zot.CheckBackoff(resp.Header())
+			break
+		}
+		totalTags = append(totalTags, tags...)
+
+		if resp.RawResponse != nil && resp.RawResponse.Header != nil {
+			limv := resp.RawResponse.Header.Get("Last-Modified-Version")
+			if limv != "" {
+				h, err := strconv.ParseInt(limv, 10, 64)
+				if err == nil && h > lastModifiedVersion {
+					lastModifiedVersion = h
+				}
+			}
+
+			totalResultStr := resp.RawResponse.Header.Get("Total-Results")
+			if totalResultStr != "" {
+				totalResult, err := strconv.ParseInt(totalResultStr, 10, 64)
+				if err == nil && int64(len(totalTags)) >= totalResult {
+					group.Zot.CheckBackoff(resp.Header())
+					break
+				}
+			} else {
+				if int64(len(tags)) < limit {
+					group.Zot.CheckBackoff(resp.Header())
+					break
+				}
+			}
+		} else {
+			if int64(len(tags)) < limit {
+				break
+			}
+		}
+
+		group.Zot.CheckBackoff(resp.Header())
+		start += limit
 	}
 
-	return tags, lastModifiedVersion, nil
+	return &totalTags, lastModifiedVersion, nil
 }
 
 func (group *Group) SyncTags() (int64, int64, error) {
@@ -83,6 +129,7 @@ func (group *Group) SyncTags() (int64, int64, error) {
 		if err := group.CreateTagLocal(tag); err != nil {
 			return 0, 0, errors.Wrapf(err, "cannot create tag %v", tag.Tag)
 		}
+		counter++
 	}
 
 	group.Zot.Logger.Info().Msgf("Syncing tags of Group #%v done. %v tags changed", group.Id, counter)
