@@ -35,7 +35,7 @@ type GroupData struct {
 type Group struct {
 	Id                int64               `json:"id"`
 	Version           int64               `json:"version"`
-	Links             interface{}         `json:"links,omitempty"`
+	Links             any                 `json:"links,omitempty"`
 	Meta              GroupMeta           `json:"meta"`
 	Data              GroupData           `json:"data"`
 	Deleted           bool                `json:"-"`
@@ -54,7 +54,7 @@ type Group struct {
 
 type GroupGitlab struct {
 	Id                int64     `json:"id"`
-	Data              GroupData `json:"data,omitempty"`
+	Data              GroupData `json:"data"`
 	CollectionVersion int64     `json:"collectionversion"`
 	ItemVersion       int64     `json:"itemversion"`
 	TagVersion        int64     `json:tagversion`
@@ -80,7 +80,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 	}
 	sqlstr := fmt.Sprintf("UPDATE %s.collections SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') "+
 		"WHERE library=$2 AND (TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') > gitlab OR gitlab IS NULL)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		now.Format("2006-01-02 15:04:05"),
 		group.Id,
 		now.Format("2006-01-02 15:04:05"),
@@ -106,7 +106,7 @@ func (group *Group) BackupLocal(backupFs filesystem.FileSystem) error {
 
 	sqlstr = fmt.Sprintf("UPDATE %s.items SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') "+
 		"WHERE library=$2 AND (gitlab <= TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)", group.Zot.dbSchema)
-	params = []interface{}{
+	params = []any{
 		now.Format("2006-01-02 15:04:05"),
 		group.Id,
 		now.Format("2006-01-02 15:04:05"),
@@ -165,7 +165,7 @@ func (group *Group) UpdateLocal() error {
 		return errors.Wrapf(err, "cannot marshal Group data")
 	}
 
-	params := []interface{}{
+	params := []any{
 		group.Version,
 		group.Meta.Created,
 		group.Meta.LastModified,
@@ -257,7 +257,7 @@ func (group *Group) ClearLocal() error {
 	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=0, modified=created,"+
 		" itemversion=0, collectionversion=0"+
 		" WHERE id=$1", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		group.Id,
 	}
 	_, err := group.Zot.db.Exec(sqlstr, params...)
@@ -269,7 +269,7 @@ func (group *Group) ClearLocal() error {
 	group.Version = 0
 
 	sqlstr = fmt.Sprintf("DELETE FROM %s.items WHERE library=$1", group.Zot.dbSchema)
-	params = []interface{}{
+	params = []any{
 		group.Id,
 	}
 	_, err = group.Zot.db.Exec(sqlstr, params...)

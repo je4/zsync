@@ -14,7 +14,7 @@ func (group *Group) CreateTagLocal(tag Tag) error {
 		return errors.Wrapf(err, "cannot marshal meta %v", tag.Meta)
 	}
 	sqlstr := fmt.Sprintf("INSERT INTO %s.tags (tag, meta, library) VALUES( $1, $2, $3)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		tag.Tag,
 		metastr,
 		group.Id,
@@ -33,7 +33,7 @@ func (group *Group) DeleteTagLocal(tag string) error {
 	group.Zot.Logger.Info().Msgf("deleting Tag %s", tag)
 	sqlstr := fmt.Sprintf("DELETE FROM %s.tags WHERE tag=$1 and library=$2", group.Zot.dbSchema)
 
-	params := []interface{}{
+	params := []any{
 		tag,
 		group.Id,
 	}

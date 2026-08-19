@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/op/go-logging"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -75,7 +74,7 @@ func (fs *LocalFs) FolderCreate(folder string, opts FolderCreateOptions) error {
 
 func (fs *LocalFs) FileGet(folder, name string, opts FileGetOptions) ([]byte, error) {
 	path := filepath.Join(folder, name)
-	data, err := ioutil.ReadFile(filepath.Join(fs.basepath, path))
+	data, err := os.ReadFile(filepath.Join(fs.basepath, path))
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot read file %v", path)
 	}
@@ -88,7 +87,7 @@ func (fs *LocalFs) FilePut(folder, name string, data []byte, opts FilePutOptions
 	}
 	path := filepath.Join(fs.basepath, filepath.Join(folder, name))
 	fs.logger.Debugf("writing data to: %v", path)
-	if err := ioutil.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		return errors.Wrapf(err, "cannot write data to %v", path)
 	}
 	return nil

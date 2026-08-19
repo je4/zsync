@@ -18,7 +18,7 @@ func NewS3FileInfo(bucket, name string, info minio.ObjectInfo) *S3FileInfo {
 // A FileInfo describes a file and is returned by Stat and Lstat.
 type S3FileInfo struct {
 	bucket, name string
-	info minio.ObjectInfo
+	info         minio.ObjectInfo
 }
 
 func (sfi *S3FileInfo) Name() string { // base name of the file
@@ -41,9 +41,6 @@ func (sfi *S3FileInfo) IsDir() bool { // abbreviation for Mode().IsDir()
 	return false
 }
 
-func (sfi *S3FileInfo) Sys() interface{} {   // underlying data source (can return nil)
+func (sfi *S3FileInfo) Sys() any { // underlying data source (can return nil)
 	return nil
 }
-
-
-

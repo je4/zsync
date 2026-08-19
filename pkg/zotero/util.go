@@ -2,6 +2,7 @@ package zotero
 
 import (
 	"math/rand"
+	"slices"
 	"strings"
 )
 
@@ -10,10 +11,8 @@ func CreateKey() string {
 }
 
 func AppendIfMissing(slice []string, s string) []string {
-	for _, ele := range slice {
-		if ele == s {
-			return slice
-		}
+	if slices.Contains(slice, s) {
+		return slice
 	}
 	return append(slice, s)
 }
@@ -43,7 +42,7 @@ func randomString(length int64, mode string, exclude_ambiguous bool) string {
 	}
 	b := strings.Builder{}
 	b.Grow(int(length))
-	for i := int64(0); i < length; i++ {
+	for range length {
 		b.WriteRune(chars[rand.Intn(len(chars))])
 	}
 	return b.String()

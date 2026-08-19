@@ -25,10 +25,10 @@ type CollectionMeta struct {
 type Collection struct {
 	Key     string         `json:"key"`
 	Version int64          `json:"version"`
-	Library Library        `json:"library,omitempty"`
-	Links   interface{}    `json:"links,omitempty"`
-	Meta    CollectionMeta `json:"meta,omitempty"`
-	Data    CollectionData `json:"data,omitempty"`
+	Library Library        `json:"library"`
+	Links   any            `json:"links,omitempty"`
+	Meta    CollectionMeta `json:"meta"`
+	Data    CollectionData `json:"data"`
 	Group   *Group         `json:"-"`
 	Status  SyncStatus     `json:"-"`
 	Trashed bool           `json:"-"`
@@ -39,8 +39,8 @@ type Collection struct {
 type CollectionGitlab struct {
 	LibraryId int64          `json:"libraryid"`
 	Key       string         `json:"key"`
-	Data      CollectionData `json:"data,omitempty"`
-	Meta      CollectionMeta `json:"meta,omitempty"`
+	Data      CollectionData `json:"data"`
+	Meta      CollectionMeta `json:"meta"`
 }
 
 func (collection *Collection) UpdateLocal() error {
@@ -54,7 +54,7 @@ func (collection *Collection) UpdateLocal() error {
 		return errors.Wrapf(err, "cannot marshall meta %v", collection.Meta)
 	}
 	sqlstr := fmt.Sprintf("UPDATE %s.collections SET version=$1, sync=$2, data=$3, meta=$4, deleted=$5, modified=NOW() WHERE key=$6", collection.Group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		collection.Version,
 		SyncStatusString[collection.Status],
 		data,
@@ -131,10 +131,10 @@ func (collection *Collection) Backup(backupFs filesystem.FileSystem) error {
 
 	// write data to file
 	data := struct {
-		LibraryId int64       `json:"libraryid"`
-		Id        string      `json:"id"`
-		Data      interface{} `json:"data"`
-		Meta      interface{} `json:"meta"`
+		LibraryId int64  `json:"libraryid"`
+		Id        string `json:"id"`
+		Data      any    `json:"data"`
+		Meta      any    `json:"meta"`
 	}{
 		LibraryId: collection.Group.Id,
 		Id:        collection.Key,

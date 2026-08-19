@@ -37,10 +37,10 @@ type ItemMeta struct {
 type Item struct {
 	Key     string      `json:"key"`
 	Version int64       `json:"version"`
-	Library Library     `json:"library,omitempty"`
-	Links   interface{} `json:"links,omitempty"`
-	Meta    ItemMeta    `json:"meta,omitempty"`
-	Data    ItemGeneric `json:"data,omitempty"`
+	Library Library     `json:"library"`
+	Links   any         `json:"links,omitempty"`
+	Meta    ItemMeta    `json:"meta"`
+	Data    ItemGeneric `json:"data"`
 	Group   *Group      `json:"-"`
 	Trashed bool        `json:"-"`
 	Deleted bool        `json:"-"`
@@ -153,10 +153,10 @@ func (item *Item) Backup(backupFs filesystem.FileSystem) error {
 
 	// write data to file
 	data := struct {
-		LibraryId int64       `json:"libraryid"`
-		Id        string      `json:"id"`
-		Data      interface{} `json:"data"`
-		Meta      interface{} `json:"meta"`
+		LibraryId int64  `json:"libraryid"`
+		Id        string `json:"id"`
+		Data      any    `json:"data"`
+		Meta      any    `json:"meta"`
 	}{
 		LibraryId: item.Group.Id,
 		Id:        item.Key,
@@ -517,11 +517,11 @@ func (item *Item) UpdateLocal() error {
 		return errors.Wrapf(err, "cannot marshall meta %v", item.Meta)
 	}
 	var sqlstr string
-	var params []interface{}
+	var params []any
 	if item.Version > 0 {
 		sqlstr = fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7, modified=NOW() "+
 			"WHERE library=$8 AND key=$9", item.Group.Zot.dbSchema)
-		params = []interface{}{
+		params = []any{
 			item.Version,
 			string(data),
 			string(meta),
@@ -535,7 +535,7 @@ func (item *Item) UpdateLocal() error {
 	} else {
 		sqlstr = fmt.Sprintf("UPDATE %s.items SET data=$1, meta=$2, trashed=$3, deleted=$4, sync=$5, md5=$6, modified=NOW() "+
 			"WHERE library=$7 AND key=$8", item.Group.Zot.dbSchema)
-		params = []interface{}{
+		params = []any{
 			string(data),
 			string(meta),
 			item.Trashed,
@@ -558,7 +558,7 @@ func (item *Item) GetChildrenLocal() (*[]Item, error) {
 	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.meta, i.trashed, i.deleted, i.sync, i.md5, i.gitlab"+
 		" FROM %s.items i, %s.item_type_hier ith"+
 		" WHERE i.trashed=false AND i.deleted=false AND i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", item.Group.Zot.dbSchema, item.Group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		item.Group.Id,
 		item.Key,
 	}

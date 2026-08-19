@@ -6,8 +6,7 @@ type TagMeta struct {
 }
 
 type Tag struct {
-	Tag   string      `json:"tag"`
-	Links interface{} `json:"links,omitempty"`
-	Meta  *TagMeta    `json:"meta,omitempty"`
+	Tag   string   `json:"tag"`
+	Links any      `json:"links,omitempty"`
+	Meta  *TagMeta `json:"meta,omitempty"`
 }
-

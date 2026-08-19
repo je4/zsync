@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -87,13 +88,7 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLog
 		groupIds = append(groupIds, groupId)
 
 		if len(cfg.Synconly) > 0 {
-			found := false
-			for _, sg := range cfg.Synconly {
-				if sg == groupId {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(cfg.Synconly, groupId)
 			if !found {
 				continue
 			}

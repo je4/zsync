@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"gopkg.in/resty.v1"
+	"maps"
 	"reflect"
 	"strconv"
 	"strings"
@@ -17,7 +18,7 @@ var errEmptyItem error = errors.New("item has no data")
 func (group *Group) DeleteItemLocal(key string) error {
 	sqlstr := fmt.Sprintf("UPDATE %s.items SET deleted=true WHERE key=$1 AND library=$2", group.Zot.dbSchema)
 
-	params := []interface{}{
+	params := []any{
 		key,
 		group.Id,
 	}
@@ -51,7 +52,7 @@ func (group *Group) CreateItemLocal(itemData *ItemGeneric, itemMeta *ItemMeta, o
 		oid.Valid = false
 	}
 	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, data, oldid) VALUES( $1, $2, $3, $4, $5, $6)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		item.Key,
 		0,
 		item.Library.Id,
@@ -89,7 +90,7 @@ func (group *Group) CreateEmptyItemLocal(itemId string, oldId string) error {
 		oid.Valid = false
 	}
 	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, oldid) VALUES( $1, 0, $2, $3, $4)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		itemId,
 		group.Id,
 		"incomplete",
@@ -104,7 +105,7 @@ func (group *Group) CreateEmptyItemLocal(itemId string, oldId string) error {
 
 func (group *Group) GetItemVersionLocal(itemId string, oldId string) (int64, SyncStatus, error) {
 	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.items WHERE library=$1 AND key=$2", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		group.Id,
 		itemId,
 	}
@@ -226,9 +227,7 @@ func (group *Group) GetItemsVersionCloud(sinceVersion int64, trashed bool) (*map
 			lastModifiedVersion = h
 		}
 		group.Zot.CheckBackoff(resp.Header())
-		for key, version := range *objects {
-			(*totalObjects)[key] = version
-		}
+		maps.Copy((*totalObjects), *objects)
 		if totalResult <= start+limit {
 			break
 		}
@@ -241,7 +240,7 @@ func (group *Group) GetItemsLocal(objectKeys []string) (*[]Item, error) {
 	if len(objectKeys) == 0 {
 		return &[]Item{}, nil
 	}
-	params := []interface{}{
+	params := []any{
 		group.Id,
 	}
 	pstr := []string{}
@@ -278,7 +277,7 @@ func (group *Group) IterateItemsAllLocal(after *time.Time, f func(item *Item) er
 		"FROM %s.items WHERE library=$1", group.Zot.dbSchema)
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab "+
 		"FROM %s.items WHERE library=$1", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		group.Id,
 	}
 	if after != nil {
@@ -327,7 +326,7 @@ func (group *Group) IterateCollectionsAllLocal(after *time.Time, f func(coll *Co
 		" FROM %s.collections"+
 		" WHERE library=$1", group.Zot.dbSchema)
 
-	params := []interface{}{
+	params := []any{
 		group.Id,
 	}
 	if after != nil {
@@ -401,7 +400,7 @@ func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) 
 	sqlstr := fmt.Sprintf("SELECT COUNT(*)"+
 		" FROM %s.items"+
 		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		group.Id,
 		"new",
 		"modified",
@@ -471,10 +470,7 @@ func (group *Group) syncItems(trashed bool) (int64, int64, error) {
 	numItems := len(itemsUpdate)
 	for i := 0; i < (numItems/50)+1; i++ {
 		start := i * 50
-		end := start + 50
-		if numItems < end {
-			end = numItems
-		}
+		end := min(numItems, start+50)
 		part := itemsUpdate[start:end]
 		items, err := group.GetItemsCloud(part)
 		if err != nil {
@@ -566,7 +562,7 @@ func (group *Group) DownloadItems() (int64, int64, error) {
 func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items"+
 		" WHERE library=$1 AND key=$2", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		group.Id,
 		key,
 	}
@@ -581,7 +577,7 @@ func (group *Group) GetItemByKeyLocal(key string) (*Item, error) {
 
 func (group *Group) GetItemByOldidLocal(oldid string) (*Item, error) {
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND oldid=$2", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		group.Id,
 		oldid,
 	}
@@ -626,7 +622,7 @@ func (group *Group) TryDeleteItemLocal(key string, lastModifiedVersion int64) er
 	return nil
 }
 
-func (group *Group) itemFromRow(rowss interface{}) (*Item, error) {
+func (group *Group) itemFromRow(rowss any) (*Item, error) {
 
 	item := &Item{}
 	var datastr sql.NullString

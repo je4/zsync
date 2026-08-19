@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"gopkg.in/resty.v1"
+	"maps"
 	"reflect"
 	"strconv"
 	"strings"
 )
 
-func (group *Group) collectionFromRow(rowss interface{}) (*Collection, error) {
+func (group *Group) collectionFromRow(rowss any) (*Collection, error) {
 
 	coll := Collection{}
 	var datastr sql.NullString
@@ -74,7 +75,7 @@ func (group *Group) CreateCollectionLocal(collectionData *CollectionData) (*Coll
 		return nil, errors.Wrapf(err, "cannot marshall collection data %v", collectionData)
 	}
 	sqlstr := fmt.Sprintf("INSERT INTO %s.collections (key, version, library, sync, data, deleted) VALUES( $1, $2, $3, $4, $5, false)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		coll.Key,
 		0,
 		coll.Library.Id,
@@ -130,7 +131,7 @@ func (group *Group) TryDeleteCollectionLocal(key string, lastModifiedVersion int
 
 func (group *Group) CreateEmptyCollectionLocal(collectionId string) error {
 	sqlstr := fmt.Sprintf("INSERT INTO %s.collections (key, version, library, sync) VALUES( $1, 0, $2, $3)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		collectionId,
 		group.Id,
 		SyncStatusString[SyncStatus_New],
@@ -144,7 +145,7 @@ func (group *Group) CreateEmptyCollectionLocal(collectionId string) error {
 
 func (group *Group) GetCollectionVersionLocal(collectionId string) (int64, SyncStatus, error) {
 	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.collections WHERE key=$1", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		collectionId,
 	}
 	var version int64
@@ -213,9 +214,7 @@ func (group *Group) GetCollectionsVersionCloud(sinceVersion int64) (*map[string]
 		}
 
 		group.Zot.CheckBackoff(resp.Header())
-		for key, version := range *objects {
-			(*totalObjects)[key] = version
-		}
+		maps.Copy((*totalObjects), *objects)
 		if totalResult <= start+limit {
 			break
 		}
@@ -282,7 +281,7 @@ func (group *Group) syncModifiedCollections() (int64, error) {
 	sqlstr := fmt.Sprintf("SELECT key, version, data, deleted, sync"+
 		" FROM %s.collections"+
 		" WHERE library=$1 AND (sync=$2 or sync=$3)", group.Zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		group.Id,
 		"new",
 		"modified",
@@ -378,10 +377,7 @@ func (group *Group) syncCollections() (int64, int64, error) {
 	numColls := len(collectionUpdate)
 	for i := 0; i < (numColls/50)+1; i++ {
 		start := i * 50
-		end := start + 50
-		if numColls < end {
-			end = numColls
-		}
+		end := min(numColls, start+50)
 		part := collectionUpdate[start:end]
 		if len(part) > 0 {
 			colls, h, err := group.GetCollectionsCloud(part)
@@ -420,7 +416,7 @@ func (group *Group) GetCollectionByNameLocal(name string, parentKey string) (*Co
 		" FROM %s.collections cs, %s.collection_name_hier cnh"+
 		" WHERE cs.key=cnh.key AND cs.library=$1 AND cnh.name=$2", group.Zot.dbSchema, group.Zot.dbSchema)
 
-	params := []interface{}{
+	params := []any{
 		group.Id,
 		name,
 	}
@@ -467,7 +463,7 @@ func (group *Group) GetCollectionByKeyLocal(key string) (*Collection, error) {
 	sqlstr := fmt.Sprintf("SELECT cs.key,cs.version,cs.data,cs.meta,cs.deleted,cs.sync"+
 		" FROM %s.collections cs WHERE cs.library=$1 AND cs.key=$2", group.Zot.dbSchema)
 
-	params := []interface{}{
+	params := []any{
 		group.Id,
 		key,
 	}

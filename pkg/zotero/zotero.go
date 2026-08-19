@@ -58,10 +58,10 @@ type Zotero struct {
 }
 
 type Library struct {
-	Type  string      `json:"type"`
-	Id    int64       `json:"id"`
-	Name  string      `json:"name"`
-	Links interface{} `json:"links"`
+	Type  string `json:"type"`
+	Id    int64  `json:"id"`
+	Name  string `json:"name"`
+	Links any    `json:"links"`
 }
 
 type ItemCollectionCreateResultFailed struct {
@@ -89,17 +89,17 @@ type Deletions struct {
 type RelationList map[string]string
 
 func (rl *RelationList) UnmarshalJSON(data []byte) error {
-	var i interface{}
+	var i any
 	if err := json.Unmarshal(data, &i); err != nil {
 		return err
 	}
 	switch d := i.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		*rl = RelationList{}
 		for key, val := range d {
 			(*rl)[key], _ = val.(string)
 		}
-	case []interface{}:
+	case []any:
 		if len(d) > 0 {
 			return errors.New(fmt.Sprintf("invalid object list for type RelationList - %s", string(data)))
 		}
@@ -111,16 +111,16 @@ func (rl *RelationList) UnmarshalJSON(data []byte) error {
 type ZoteroStringList []string
 
 func (irl *ZoteroStringList) UnmarshalJSON(data []byte) error {
-	var i interface{}
+	var i any
 	if err := json.Unmarshal(data, &i); err != nil {
 		return err
 	}
 	switch i.(type) {
 	case string:
 		*irl = ZoteroStringList{i.(string)}
-	case []interface{}:
+	case []any:
 		*irl = ZoteroStringList{}
-		for _, i2 := range i.([]interface{}) {
+		for _, i2 := range i.([]any) {
 			str, ok := i2.(string)
 			if !ok {
 				errors.New(fmt.Sprintf("invalid type %v for %v", reflect.TypeOf(i2), i2))
@@ -137,7 +137,7 @@ func (irl *ZoteroStringList) UnmarshalJSON(data []byte) error {
 type Parent string
 
 func (pc *Parent) UnmarshalJSON(data []byte) error {
-	var i interface{}
+	var i any
 	if err := json.Unmarshal(data, &i); err != nil {
 		return err
 	}
@@ -350,7 +350,7 @@ func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 func (zot *Zotero) DeleteCollectionDB(key string) error {
 	sqlstr := fmt.Sprintf("UPDATE %s.collections SET deleted=true WHERE key=$1", zot.dbSchema)
 
-	params := []interface{}{
+	params := []any{
 		key,
 	}
 	if _, err := zot.db.Exec(sqlstr, params...); err != nil {
@@ -359,7 +359,7 @@ func (zot *Zotero) DeleteCollectionDB(key string) error {
 	return nil
 }
 
-func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
+func (zot *Zotero) groupFromRow(rowss any) (*Group, error) {
 
 	group := Group{}
 	var datastr sql.NullString
@@ -398,8 +398,8 @@ func (zot *Zotero) groupFromRow(rowss interface{}) (*Group, error) {
 
 func (zot *Zotero) DeleteUnknownGroupsLocal(knownGroups []int64) error {
 	placeHolder := []string{}
-	params := []interface{}{}
-	for i := 0; i < len(knownGroups); i++ {
+	params := []any{}
+	for i := range knownGroups {
 		placeHolder = append(placeHolder, fmt.Sprintf("$%v", i+1))
 		params = append(params, sql.NullInt64{
 			Int64: knownGroups[i],
@@ -428,7 +428,7 @@ func (zot *Zotero) CreateEmptyGroupLocal(groupId int64) (bool, SyncDirection, er
 		return false, SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 	}
 	sqlstr = fmt.Sprintf("INSERT INTO %s.syncgroups(id,active,direction) VALUES($1, $2, $3)", zot.dbSchema)
-	params := []interface{}{
+	params := []any{
 		groupId,
 		active,
 		SyncDirectionString[direction],

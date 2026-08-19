@@ -13,7 +13,7 @@ type AccessElements struct {
 }
 
 type Access struct {
-	User   AccessElements            `json:"user,omitempty"`
+	User   AccessElements            `json:"user"`
 	Groups map[string]AccessElements `json:"groups,omitempty"`
 }
 
