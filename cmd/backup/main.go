@@ -1,15 +1,15 @@
 package main
 
 import (
-	"database/sql"
+	"context"
 	"flag"
 	"log"
 	"os"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/je4/zsync/v2/pkg/zotero/storage"
 	"github.com/je4/zsync/v2/pkg/zotero/sync"
-	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"github.com/rs/zerolog"
 )
@@ -44,7 +44,7 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Logger) {
+func backup(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger *logging.Logger) {
 	backupFs, err := filesystem.NewLocalFs(cfg.Backup.Path, logger)
 	if err != nil {
 		logger.Panicf("not a git repo: %v", cfg.Backup.Path)
@@ -87,14 +87,14 @@ func main() {
 	cfg := LoadConfig(*cfgfile)
 
 	// get database connection handle
-	db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
+	db, err := pgxpool.New(context.Background(), cfg.DB.DSN)
 	if err != nil {
 		log.Fatalf("error opening database: %v", err)
 	}
 	defer db.Close()
 
-	// Open doesn't open a connection. Validate DSN data:
-	err = db.Ping()
+	// Validate DSN connection:
+	err = db.Ping(context.Background())
 	if err != nil {
 		log.Fatalf("error pinging database: %v", err)
 	}

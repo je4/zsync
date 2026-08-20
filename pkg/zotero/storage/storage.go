@@ -2,19 +2,22 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/utils/v2/pkg/zLogger"
-	"github.com/lib/pq"
 )
 
 type Storage struct {
-	db             *sql.DB
+	db             *pgxpool.Pool
 	dbSchema       string
 	newGroupActive bool
 	Logger         zLogger.ZLogger
 }
 
-func NewStorage(db *sql.DB, dbSchema string, newGroupActive bool, logger zLogger.ZLogger) *Storage {
+func NewStorage(db *pgxpool.Pool, dbSchema string, newGroupActive bool, logger zLogger.ZLogger) *Storage {
 	return &Storage{
 		db:             db,
 		dbSchema:       dbSchema,
@@ -23,7 +26,11 @@ func NewStorage(db *sql.DB, dbSchema string, newGroupActive bool, logger zLogger
 	}
 }
 
-func (s *Storage) GetDB() *sql.DB {
+func (s *Storage) GetDB() *pgxpool.Pool {
+	return s.db
+}
+
+func (s *Storage) GetPool() *pgxpool.Pool {
 	return s.db
 }
 
@@ -32,18 +39,24 @@ func (s *Storage) GetSchema() string {
 }
 
 func IsEmptyResult(err error) bool {
-	return err == sql.ErrNoRows
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows)
 }
 
 func IsUniqueViolation(err error, constraint string) bool {
-	pqErr, ok := err.(*pq.Error)
-	if !ok {
+	if err == nil {
 		return false
 	}
-	if pqErr.Code != "23505" {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
 		return false
 	}
-	if constraint != "" && pqErr.Constraint != constraint {
+	if pgErr.Code != "23505" {
+		return false
+	}
+	if constraint != "" && pgErr.ConstraintName != constraint {
 		return false
 	}
 	return true

@@ -1,40 +1,32 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
 	"emperror.dev/errors"
+	"github.com/jackc/pgx/v5"
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
 var errEmptyItem = errors.New("item has no data")
 
-func (s *Storage) itemFromRow(groupId int64, rowss any) (*model.Item, error) {
+func (s *Storage) itemFromRow(groupId int64, row pgx.Row) (*model.Item, error) {
 	item := &model.Item{}
 	var datastr sql.NullString
 	var metastr sql.NullString
 	var sync string
 	var md5str sql.NullString
 	var gitlab sql.NullTime
-	switch r := rowss.(type) {
-	case *sql.Row:
-		if err := r.Scan(&(item.Key), &(item.Version), &datastr, &metastr, &(item.Trashed), &(item.Deleted), &sync, &md5str, &gitlab); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, nil
-			}
-			return nil, errors.Wrapf(err, "cannot scan row")
+	if err := row.Scan(&(item.Key), &(item.Version), &datastr, &metastr, &(item.Trashed), &(item.Deleted), &sync, &md5str, &gitlab); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
+			return nil, nil
 		}
-	case *sql.Rows:
-		if err := r.Scan(&(item.Key), &(item.Version), &datastr, &metastr, &(item.Trashed), &(item.Deleted), &sync, &md5str, &gitlab); err != nil {
-			return nil, errors.Wrapf(err, "cannot scan row")
-		}
-	default:
-		return nil, errors.Errorf("unknown row type: %v", reflect.TypeOf(rowss).String())
+		return nil, errors.Wrapf(err, "cannot scan row")
 	}
 	if md5str.Valid {
 		item.MD5 = md5str.String
@@ -112,7 +104,7 @@ func (s *Storage) CreateItem(groupId int64, itemData *model.ItemGeneric, itemMet
 		string(jsonstr),
 		oid,
 	}
-	_, err = s.db.Exec(sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), sqlstr, params...)
 	if IsUniqueViolation(err, "items_oldid_constraint") {
 		item2, err := s.GetItemByOldid(groupId, oldId)
 		if err != nil {
@@ -148,7 +140,7 @@ func (s *Storage) CreateEmptyItem(groupId int64, itemId string, oldId string) er
 		"incomplete",
 		oid,
 	}
-	_, err := s.db.Exec(sqlstr, params...)
+	_, err := s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -164,9 +156,9 @@ func (s *Storage) GetItemVersion(groupId int64, itemId string, oldId string) (in
 	var version int64
 	var syncstr string
 	var sync model.SyncStatus
-	err := s.db.QueryRow(sqlstr, params...).Scan(&version, &syncstr)
+	err := s.db.QueryRow(context.Background(), sqlstr, params...).Scan(&version, &syncstr)
 	switch {
-	case err == sql.ErrNoRows:
+	case errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows:
 		if err := s.CreateEmptyItem(groupId, itemId, oldId); err != nil {
 			return 0, model.SyncStatus_New, errors.Wrapf(err, "cannot create new item")
 		}
@@ -193,7 +185,7 @@ func (s *Storage) GetItems(groupId int64, objectKeys []string) (*[]model.Item, e
 		pstr = append(pstr, fmt.Sprintf("$%v", len(params)))
 	}
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", s.dbSchema, strings.Join(pstr, ","))
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -225,7 +217,7 @@ func (s *Storage) GetItemsVersion(groupId int64, sinceVersion int64, trashed boo
 		sinceVersion,
 		trashed,
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return nil, 0, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -255,7 +247,7 @@ func (s *Storage) GetItemByKey(groupId int64, key string) (*model.Item, error) {
 		key,
 	}
 
-	item, err := s.itemFromRow(groupId, s.db.QueryRow(sqlstr, params...))
+	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), sqlstr, params...))
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -269,7 +261,7 @@ func (s *Storage) GetItemByOldid(groupId int64, oldid string) (*model.Item, erro
 		groupId,
 		oldid,
 	}
-	item, err := s.itemFromRow(groupId, s.db.QueryRow(sqlstr, params...))
+	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), sqlstr, params...))
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -325,13 +317,13 @@ func (s *Storage) UpdateItem(groupId int64, item *model.Item) error {
 			string(meta),
 			item.Trashed,
 			item.Deleted,
-			model.SyncStatusString[item.Status],
+			model.SyncStatusString[model.SyncStatus_Modified],
 			md5val,
 			groupId,
 			item.Key,
 		}
 	}
-	_, err = s.db.Exec(sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -345,7 +337,7 @@ func (s *Storage) DeleteItem(groupId int64, key string) error {
 		key,
 		groupId,
 	}
-	if _, err := s.db.Exec(sqlstr, params...); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr, params...); err != nil {
 		return errors.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
 	return nil
@@ -362,9 +354,9 @@ func (s *Storage) GetChildren(groupId int64, key string) (*[]model.Item, error) 
 		groupId,
 		key,
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
 			return &[]model.Item{}, nil
 		}
 		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
@@ -412,13 +404,13 @@ func (s *Storage) IterateItems(groupId int64, after *time.Time, f func(item *mod
 		params = append(params, after.Format("2006-01-02 15:04:05"))
 	}
 	var num int64
-	if err := s.db.QueryRow(sqlstr0, params...).Scan(&num); err != nil {
+	if err := s.db.QueryRow(context.Background(), sqlstr0, params...).Scan(&num); err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v items found", num)
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -450,13 +442,13 @@ func (s *Storage) IterateItemsAll(groupId int64, after *time.Time, f func(item *
 		params = append(params, after.Format("2006-01-02 15:04:05"))
 	}
 	var num int64
-	if err := s.db.QueryRow(sqlstr0, params...).Scan(&num); err != nil {
+	if err := s.db.QueryRow(context.Background(), sqlstr0, params...).Scan(&num); err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v items found", num)
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -483,7 +475,7 @@ func (s *Storage) GetModifiedItems(groupId int64) ([]*model.Item, error) {
 		"new",
 		"modified",
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -505,7 +497,7 @@ func (s *Storage) RefreshItemTypeHier() error {
 		s.Logger.Info().Msgf("refreshing materialized view item_type_hier")
 	}
 	sqlstr := fmt.Sprintf("SELECT %s.refresh_item_type_hier()", s.dbSchema)
-	if _, err := s.db.Exec(sqlstr); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr); err != nil {
 		return errors.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
 	}
 	return nil
@@ -523,7 +515,7 @@ func (s *Storage) UpdateItemsGitlabTimestamp(groupId int64, now time.Time, gitla
 		sqlstr += " AND (gitlab >= TO_TIMESTAMP($4, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)"
 		params = append(params, gitlab.Format("2006-01-02 15:04:05"))
 	}
-	if _, err := s.db.Exec(sqlstr, params...); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr, params...); err != nil {
 		return errors.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 	return nil

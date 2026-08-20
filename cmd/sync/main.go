@@ -1,7 +1,7 @@
 package main
 
 import (
-	"database/sql"
+	"context"
 	"flag"
 	"io"
 	"log"
@@ -10,12 +10,12 @@ import (
 	"slices"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/utils/v2/pkg/zLogger"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/je4/zsync/v2/pkg/zotero/client"
 	"github.com/je4/zsync/v2/pkg/zotero/storage"
 	"github.com/je4/zsync/v2/pkg/zotero/sync"
-	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
 )
 
@@ -24,7 +24,7 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-func doSync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLogger) {
+func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLogger.ZLogger) {
 	zotClient, err := client.NewClient(cfg.Endpoint, cfg.Apikey, logger)
 	if err != nil {
 		logger.Error().Msgf("cannot create zotero client: %v", err)
@@ -146,14 +146,14 @@ func main() {
 	}
 
 	// get database connection handle
-	db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
+	db, err := pgxpool.New(context.Background(), cfg.DB.DSN)
 	if err != nil {
 		log.Fatalf("error opening database: %v", err)
 	}
 	defer db.Close()
 
-	// Open doesn't open a connection. Validate DSN data:
-	err = db.Ping()
+	// Validate DSN data:
+	err = db.Ping(context.Background())
 	if err != nil {
 		log.Fatalf("error pinging database: %v", err)
 	}

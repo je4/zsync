@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -9,8 +10,8 @@ import (
 	"regexp"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/pkg/zotero/storage"
-	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"github.com/rs/zerolog"
 )
@@ -75,14 +76,14 @@ func main() {
 	}
 
 	// get database connection handle
-	zoteroDB, err := sql.Open(config.ZoteroDB.ServerType, config.ZoteroDB.DSN)
+	zoteroDB, err := pgxpool.New(context.Background(), config.ZoteroDB.DSN)
 	if err != nil {
 		panic(err.Error())
 	}
 	defer zoteroDB.Close()
 
-	// Open doesn't open a connection. Validate DSN data:
-	err = zoteroDB.Ping()
+	// Validate DSN data:
+	err = zoteroDB.Ping(context.Background())
 	if err != nil {
 		panic(err.Error())
 	}
@@ -91,7 +92,7 @@ func main() {
 	zotStorage := storage.NewStorage(zoteroDB, config.ZoteroDB.Schema, false, &zlog)
 
 	sqlstr := fmt.Sprintf(`SELECT "key" FROM %s.item_type_hier WHERE "library" = $1 AND "type" = $2`, config.ZoteroDB.Schema)
-	rows, err := zoteroDB.Query(sqlstr, zoterogroup, "attachment")
+	rows, err := zoteroDB.Query(context.Background(), sqlstr, zoterogroup, "attachment")
 	if err != nil {
 		logger.Errorf("cannot execute query %s - %v", sqlstr, err)
 		return

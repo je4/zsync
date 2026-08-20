@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -22,7 +23,7 @@ func (s *Storage) CreateTag(groupId int64, tag model.Tag) error {
 		metastr,
 		groupId,
 	}
-	_, err = s.db.Exec(sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		if IsUniqueViolation(err, "pk_tags") {
 			return nil
@@ -41,7 +42,7 @@ func (s *Storage) DeleteTag(groupId int64, tag string) error {
 		tag,
 		groupId,
 	}
-	if _, err := s.db.Exec(sqlstr, params...); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr, params...); err != nil {
 		return errors.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
 	return nil

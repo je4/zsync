@@ -1,37 +1,29 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
 	"emperror.dev/errors"
+	"github.com/jackc/pgx/v5"
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
-func (s *Storage) collectionFromRow(groupId int64, rowss any) (*model.Collection, error) {
+func (s *Storage) collectionFromRow(groupId int64, row pgx.Row) (*model.Collection, error) {
 	coll := model.Collection{}
 	var datastr sql.NullString
 	var metastr sql.NullString
 	var sync string
 	var gitlab sql.NullTime
-	switch r := rowss.(type) {
-	case *sql.Row:
-		if err := r.Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, nil
-			}
-			return nil, errors.Wrapf(err, "cannot scan row")
+	if err := row.Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
+			return nil, nil
 		}
-	case *sql.Rows:
-		if err := r.Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
-			return nil, errors.Wrapf(err, "cannot scan row")
-		}
-	default:
-		return nil, errors.Errorf("unknown row type: %v", reflect.TypeOf(rowss).String())
+		return nil, errors.Wrapf(err, "cannot scan row")
 	}
 	if gitlab.Valid {
 		coll.Gitlab = &gitlab.Time
@@ -84,7 +76,7 @@ func (s *Storage) CreateCollection(groupId int64, collectionData *model.Collecti
 		"new",
 		string(jsonstr),
 	}
-	_, err = s.db.Exec(sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -100,7 +92,7 @@ func (s *Storage) RefreshCollectionNameHier() error {
 		s.Logger.Info().Msgf("refreshing materialized view collection_name_hier")
 	}
 	sqlstr := fmt.Sprintf("REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA", s.dbSchema)
-	if _, err := s.db.Exec(sqlstr); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr); err != nil {
 		return errors.Wrapf(err, "cannot refresh materialized view collection_name_hier - %v", sqlstr)
 	}
 	return nil
@@ -113,7 +105,7 @@ func (s *Storage) CreateEmptyCollection(groupId int64, collectionId string) erro
 		groupId,
 		model.SyncStatusString[model.SyncStatus_New],
 	}
-	_, err := s.db.Exec(sqlstr, params...)
+	_, err := s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -129,9 +121,9 @@ func (s *Storage) GetCollectionVersion(groupId int64, collectionId string) (int6
 	var version int64
 	var sync string
 	var status model.SyncStatus
-	err := s.db.QueryRow(sqlstr, params...).Scan(&version, &sync)
+	err := s.db.QueryRow(context.Background(), sqlstr, params...).Scan(&version, &sync)
 	switch {
-	case err == sql.ErrNoRows:
+	case errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows:
 		if err := s.CreateEmptyCollection(groupId, collectionId); err != nil {
 			return 0, model.SyncStatus_Incomplete, errors.Wrapf(err, "cannot create new collection")
 		}
@@ -158,7 +150,7 @@ func (s *Storage) GetCollections(groupId int64, objectKeys []string) (*[]model.C
 		pstr = append(pstr, fmt.Sprintf("$%v", len(params)))
 	}
 	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, deleted, sync, gitlab FROM %s.collections WHERE library=$1 AND key IN (%s)", s.dbSchema, strings.Join(pstr, ","))
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return &[]model.Collection{}, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -181,7 +173,7 @@ func (s *Storage) GetCollectionVersions(groupId int64, sinceVersion int64) (*map
 		groupId,
 		sinceVersion,
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return nil, 0, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -216,7 +208,7 @@ func (s *Storage) GetCollectionByKey(groupId int64, key string) (*model.Collecti
 	var metastr sql.NullString
 	var sync string
 	var gitlab sql.NullTime
-	if err := s.db.QueryRow(sqlstr, params...).
+	if err := s.db.QueryRow(context.Background(), sqlstr, params...).
 		Scan(&(coll.Key), &(coll.Version), &datastr, &metastr, &(coll.Deleted), &sync, &gitlab); err != nil {
 		if IsEmptyResult(err) {
 			return nil, nil
@@ -272,7 +264,7 @@ func (s *Storage) GetCollectionByName(groupId int64, name string, parentKey stri
 	var metastr sql.NullString
 	var sync string
 	var gitlab sql.NullTime
-	if err := s.db.QueryRow(sqlstr, params...).
+	if err := s.db.QueryRow(context.Background(), sqlstr, params...).
 		Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
 		if IsEmptyResult(err) {
 			return nil, nil
@@ -319,7 +311,7 @@ func (s *Storage) UpdateCollection(groupId int64, collection *model.Collection) 
 		groupId,
 		collection.Key,
 	}
-	_, err = s.db.Exec(sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -333,7 +325,7 @@ func (s *Storage) DeleteCollection(groupId int64, key string) error {
 		groupId,
 		key,
 	}
-	if _, err := s.db.Exec(sqlstr, params...); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr, params...); err != nil {
 		return errors.Wrapf(err, "error executing %s: %v", sqlstr, params)
 	}
 	return nil
@@ -353,13 +345,13 @@ func (s *Storage) IterateCollections(groupId int64, after *time.Time, f func(col
 		params = append(params, after.Format("2006-01-02 15:04:05"))
 	}
 	var num int64
-	if err := s.db.QueryRow(sqlstr0, params...).Scan(&num); err != nil {
+	if err := s.db.QueryRow(context.Background(), sqlstr0, params...).Scan(&num); err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v collections found", num)
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -391,13 +383,13 @@ func (s *Storage) IterateCollectionsAll(groupId int64, after *time.Time, f func(
 		params = append(params, after.Format("2006-01-02 15:04:05"))
 	}
 	var num int64
-	if err := s.db.QueryRow(sqlstr0, params...).Scan(&num); err != nil {
+	if err := s.db.QueryRow(context.Background(), sqlstr0, params...).Scan(&num); err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v collections found", num)
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -424,7 +416,7 @@ func (s *Storage) GetModifiedCollections(groupId int64) ([]*model.Collection, er
 		"new",
 		"modified",
 	}
-	rows, err := s.db.Query(sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -453,7 +445,7 @@ func (s *Storage) UpdateCollectionsGitlabTimestamp(groupId int64, now time.Time,
 		sqlstr += " AND (gitlab >= TO_TIMESTAMP($4, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)"
 		params = append(params, gitlab.Format("2006-01-02 15:04:05"))
 	}
-	if _, err := s.db.Exec(sqlstr, params...); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr, params...); err != nil {
 		return errors.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 	return nil

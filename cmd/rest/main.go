@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -14,10 +13,10 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/je4/zsync/v2/pkg/zotero/client"
 	"github.com/je4/zsync/v2/pkg/zotero/storage"
-	_ "github.com/lib/pq"
 	"github.com/mash/go-accesslog"
 	"github.com/op/go-logging"
 	"github.com/rs/zerolog"
@@ -63,14 +62,14 @@ func main() {
 	cfg := LoadConfig(*cfgfile)
 
 	// get database connection handle
-	db, err := sql.Open(cfg.DB.ServerType, cfg.DB.DSN)
+	db, err := pgxpool.New(context.Background(), cfg.DB.DSN)
 	if err != nil {
 		log.Fatalf("error opening database: %v", err)
 	}
 	defer db.Close()
 
-	// Open doesn't open a connection. Validate DSN data:
-	err = db.Ping()
+	// Validate DSN data:
+	err = db.Ping(context.Background())
 	if err != nil {
 		log.Fatalf("error pinging database: %v", err)
 	}

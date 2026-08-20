@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -10,9 +11,9 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 	"github.com/je4/zsync/v2/pkg/zotero/storage"
-	_ "github.com/lib/pq"
 	"github.com/op/go-logging"
 	"github.com/rs/zerolog"
 )
@@ -74,14 +75,14 @@ func main() {
 	}
 
 	// get database connection handle
-	zoteroDB, err := sql.Open(config.ZoteroDB.ServerType, config.ZoteroDB.DSN)
+	zoteroDB, err := pgxpool.New(context.Background(), config.ZoteroDB.DSN)
 	if err != nil {
 		panic(err.Error())
 	}
 	defer zoteroDB.Close()
 
-	// Open doesn't open a connection. Validate DSN data:
-	err = zoteroDB.Ping()
+	// Validate DSN data:
+	err = zoteroDB.Ping(context.Background())
 	if err != nil {
 		panic(err.Error())
 	}

@@ -1,33 +1,26 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"emperror.dev/errors"
+	"github.com/jackc/pgx/v5"
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
-func (s *Storage) groupFromRow(rowss any) (*model.Group, error) {
+func (s *Storage) groupFromRow(row pgx.Row) (*model.Group, error) {
 	group := model.Group{}
 	var datastr sql.NullString
 	var gitlab sql.NullTime
-	switch r := rowss.(type) {
-	case *sql.Row:
-		if err := r.Scan(&group.Id, &group.Version, &group.Meta.Created, &group.Meta.LastModified, &datastr, &group.Deleted, &group.ItemVersion, &group.CollectionVersion, &group.TagVersion, &gitlab); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, nil
-			}
-			return nil, errors.Wrapf(err, "cannot scan row")
+	if err := row.Scan(&group.Id, &group.Version, &group.Meta.Created, &group.Meta.LastModified, &datastr, &group.Deleted, &group.ItemVersion, &group.CollectionVersion, &group.TagVersion, &gitlab); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
+			return nil, nil
 		}
-	case *sql.Rows:
-		if err := r.Scan(&group.Id, &group.Version, &group.Meta.Created, &group.Meta.LastModified, &datastr, &group.Deleted, &group.ItemVersion, &group.CollectionVersion, &group.TagVersion, &gitlab); err != nil {
-			return nil, errors.Wrapf(err, "cannot scan row")
-		}
-	default:
-		return nil, errors.Errorf("unknown row type: %T", rowss)
+		return nil, errors.Wrapf(err, "cannot scan row")
 	}
 	if datastr.Valid {
 		if err := json.Unmarshal([]byte(datastr.String), &group.Data); err != nil {
@@ -51,7 +44,7 @@ func (s *Storage) LoadGroup(groupId int64) (*model.Group, error) {
 	sqlstr := fmt.Sprintf("SELECT version, created, modified, data, active, direction, tags,"+
 		" itemversion, collectionversion, tagversion, gitlab"+
 		" FROM %s.groups g, %s.syncgroups sg WHERE g.id=sg.id AND g.id=$1", s.dbSchema, s.dbSchema)
-	row := s.db.QueryRow(sqlstr, groupId)
+	row := s.db.QueryRow(context.Background(), sqlstr, groupId)
 	var jsonstr sql.NullString
 	var directionstr string
 	var gitlab sql.NullTime
@@ -67,7 +60,7 @@ func (s *Storage) LoadGroup(groupId int64) (*model.Group, error) {
 		&group.TagVersion,
 		&gitlab)
 	if err != nil {
-		if err != sql.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) && err != sql.ErrNoRows {
 			return nil, errors.Wrapf(err, "error scanning result of %s: %v", sqlstr, groupId)
 		}
 		active, direction, err := s.CreateEmptyGroup(groupId)
@@ -97,7 +90,7 @@ func (s *Storage) LoadGroups() ([]*model.Group, error) {
 		s.Logger.Debug().Msgf("loading Groups from database")
 	}
 	sqlstr := fmt.Sprintf("SELECT id FROM %s.syncgroups sg WHERE sg.active=true", s.dbSchema)
-	rows, err := s.db.Query(sqlstr)
+	rows, err := s.db.Query(context.Background(), sqlstr)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error executing sql query: %v", sqlstr)
 	}
@@ -128,7 +121,7 @@ func (s *Storage) CreateEmptyGroup(groupId int64) (bool, model.SyncDirection, er
 	active := s.newGroupActive
 	direction := model.SyncDirection_ToLocal
 	sqlstr := fmt.Sprintf("INSERT INTO %s.groups (id,version,created,modified) VALUES($1, 0, NOW(), NOW())", s.dbSchema)
-	_, err := s.db.Exec(sqlstr, groupId)
+	_, err := s.db.Exec(context.Background(), sqlstr, groupId)
 	if err != nil {
 		return false, model.SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 	}
@@ -138,12 +131,12 @@ func (s *Storage) CreateEmptyGroup(groupId int64) (bool, model.SyncDirection, er
 		active,
 		model.SyncDirectionString[direction],
 	}
-	_, err = s.db.Exec(sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		if IsUniqueViolation(err, "syncgroups_pkey") {
 			var dirstr string
 			sqlstr := fmt.Sprintf("SELECT active, direction FROM %s.syncgroups WHERE id=$1", s.dbSchema)
-			if err := s.db.QueryRow(sqlstr, groupId).Scan(&active, &dirstr); err != nil {
+			if err := s.db.QueryRow(context.Background(), sqlstr, groupId).Scan(&active, &dirstr); err != nil {
 				return false, model.SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 			}
 			direction = model.SyncDirectionId[dirstr]
@@ -158,7 +151,7 @@ func (s *Storage) ClearGroup(groupId int64) error {
 	sqlstr := fmt.Sprintf("UPDATE %s.groups SET version=0, modified=created,"+
 		" itemversion=0, collectionversion=0"+
 		" WHERE id=$1", s.dbSchema)
-	_, err := s.db.Exec(sqlstr, groupId)
+	_, err := s.db.Exec(context.Background(), sqlstr, groupId)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, groupId)
 	}
@@ -185,7 +178,7 @@ func (s *Storage) UpdateGroup(group *model.Group) error {
 		group.TagVersion,
 		group.Id,
 	}
-	_, err = s.db.Exec(sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -195,7 +188,7 @@ func (s *Storage) UpdateGroup(group *model.Group) error {
 
 func (s *Storage) UpdateGroupGitlabTimestamp(groupId int64, t time.Time) error {
 	sqlstr := fmt.Sprintf("UPDATE %s.groups SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') WHERE id=$2", s.dbSchema)
-	if _, err := s.db.Exec(sqlstr, t.Format("2006-01-02 15:04:05"), groupId); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr, t.Format("2006-01-02 15:04:05"), groupId); err != nil {
 		return errors.Wrapf(err, "cannot update timestamp for group #%v", groupId)
 	}
 	return nil
