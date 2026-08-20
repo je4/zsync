@@ -3,9 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/je4/zsync/v2/pkg/zotero"
 	"net/http"
+
+	"github.com/gorilla/mux"
+	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
 func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
@@ -23,21 +24,22 @@ func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 			oldid = ""
 		}
 
-		var itemData zotero.ItemGeneric
+		var itemData model.ItemGeneric
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&itemData); err != nil {
 			handlers.logger.Errorf("cannot decode json: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("cannot decode json: %v", err))
 			return
 		}
-		itemMeta := zotero.ItemMeta{
-			CreatedByUser: zotero.User{
-				Id:       handlers.zot.CurrentKey.UserId,
-				Username: handlers.zot.CurrentKey.Username,
+		itemMeta := model.ItemMeta{}
+		if handlers.client != nil && handlers.client.CurrentKey != nil {
+			itemMeta.CreatedByUser = model.User{
+				Id:       handlers.client.CurrentKey.UserId,
+				Username: handlers.client.CurrentKey.Username,
 				Links:    nil,
-			},
+			}
 		}
-		item, err := group.CreateItemLocal(&itemData, &itemMeta, oldid)
+		item, err := handlers.storage.CreateItem(group.Id, &itemData, &itemMeta, oldid)
 		if err != nil {
 			handlers.logger.Errorf("error storing new item: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new item: %v", err))

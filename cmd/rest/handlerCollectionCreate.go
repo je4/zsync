@@ -3,9 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/je4/zsync/v2/pkg/zotero"
 	"net/http"
+
+	"github.com/gorilla/mux"
+	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
 func (handlers *Handlers) makeCollectionCreateHandler() http.HandlerFunc {
@@ -18,17 +19,17 @@ func (handlers *Handlers) makeCollectionCreateHandler() http.HandlerFunc {
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no group: %v", err))
 			return
 		}
-		var collectionData zotero.CollectionData
+		var collectionData model.CollectionData
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&collectionData); err != nil {
 			handlers.logger.Errorf("cannot decode json: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("cannot decode json: %v", err))
 			return
 		}
-		coll, err := group.CreateCollectionLocal(&collectionData)
+		coll, err := handlers.storage.CreateCollection(group.Id, &collectionData)
 		if err != nil {
-			handlers.logger.Errorf("error storing new item: %v", err)
-			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new item: %v", err))
+			handlers.logger.Errorf("error storing new collection: %v", err)
+			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new collection: %v", err))
 			return
 		}
 		respondWithJSON(w, http.StatusOK, coll)

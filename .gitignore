@@ -2,4 +2,5 @@
 *.toml
 *.sum
 go.work
+.env
 

@@ -1,4 +1,4 @@
-package zotero
+package model
 
 type ItemGeneric struct {
 	ItemDataBase

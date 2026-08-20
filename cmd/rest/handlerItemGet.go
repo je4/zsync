@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/je4/zsync/v2/pkg/zotero"
 	"net/http"
+
+	"github.com/gorilla/mux"
+	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
 func (handlers *Handlers) makeItemGetHandler() http.HandlerFunc {
@@ -31,11 +32,11 @@ func (handlers *Handlers) makeItemGetHandler() http.HandlerFunc {
 			return
 		}
 
-		var item *zotero.Item
+		var item *model.Item
 		if key != "" {
-			item, err = group.GetItemByKeyLocal(key)
+			item, err = handlers.storage.GetItemByKey(group.Id, key)
 		} else if oldid != "" {
-			item, err = group.GetItemByOldidLocal(oldid)
+			item, err = handlers.storage.GetItemByOldid(group.Id, oldid)
 		}
 		if err != nil {
 			handlers.logger.Errorf("cannot get item %v.%v%v: %v", group.Id, key, oldid, err)

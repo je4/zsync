@@ -39,8 +39,8 @@ type S3 struct {
 type Config struct {
 	Logfile           string   `toml:"logfile"`
 	Loglevel          string   `toml:"loglevel"`
-	IKUVidDB          database `toml:IKUVidDB`
-	ZoteroDB          database `toml:ZoteroDB`
+	IKUVidDB          database `toml:"IKUVidDB"`
+	ZoteroDB          database `toml:"ZoteroDB"`
 	Endpoint          string
 	Apikey            string
 	S3                S3 `toml:"s3"`

@@ -4,17 +4,18 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/je4/zsync/v2/pkg/filesystem"
-	"github.com/je4/zsync/v2/pkg/zotero"
-	_ "github.com/lib/pq"
-	"github.com/op/go-logging"
 	"log"
-	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/je4/zsync/v2/pkg/zotero/model"
+	"github.com/je4/zsync/v2/pkg/zotero/storage"
+	_ "github.com/lib/pq"
+	"github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 type logger struct {
@@ -35,8 +36,6 @@ func CreateLogger(module string, logfile string, loglevel string) (log *logging.
 		if err != nil {
 			log.Errorf("Cannot open logfile %v: %v", logfile, err)
 		}
-		//defer lf.Close()
-
 	} else {
 		lf = os.Stderr
 	}
@@ -59,20 +58,20 @@ func main() {
 	config := LoadConfig(*cfgfile)
 
 	// create logger instance
-	logger, lf := CreateLogger("memostream", config.Logfile, config.Loglevel)
+	logger, lf := CreateLogger("vonarx2zotero", config.Logfile, config.Loglevel)
 	defer lf.Close()
 
 	// get database connection handle
 	sourceDB, err := sql.Open(config.VonArxVidDB.ServerType, config.VonArxVidDB.DSN)
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("error opening database: %v", err)
 	}
 	defer sourceDB.Close()
 
 	// Open doesn't open a connection. Validate DSN data:
 	err = sourceDB.Ping()
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("error pinging database: %v", err)
 	}
 
 	// get database connection handle
@@ -88,24 +87,8 @@ func main() {
 		panic(err.Error())
 	}
 
-	fs, err := filesystem.NewS3Fs(config.S3.Endpoint, config.S3.AccessKeyId, config.S3.SecretAccessKey, config.S3.UseSSL)
-	if err != nil {
-		log.Fatalf("cannot conntct to s3 instance: %v", err)
-	}
-
-	rand.Seed(time.Now().Unix())
-
-	zot, err := zotero.NewZotero(config.Endpoint, config.Apikey, zoteroDB, fs, config.ZoteroDB.Schema, false, logger, false)
-	if err != nil {
-		logger.Errorf("cannot create zotero instance: %v", err)
-		return
-	}
-
-	grp, err := zot.LoadGroupLocal(zoterogroup)
-	if err != nil {
-		fmt.Errorf("cannot load group #%v - %v", zoterogroup, err)
-		return
-	}
+	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+	zotStorage := storage.NewStorage(zoteroDB, config.ZoteroDB.Schema, false, &zlog)
 
 	mediasqlstr := "select " +
 		"	m.masterid, " +
@@ -119,7 +102,7 @@ func main() {
 		"	AND m.collectionid=?" +
 		"	AND m.signature LIKE ?" +
 		"   AND m.parentid IS NULL"
-	//"SELECT masterid, signature, masterurl, width, height, duration FROM zotmedia.fullcachewithurl WHERE collection_id=? AND `type`=? AND parentid IS NULL AND signature LIKE ?"
+
 	getMediaStmt, err := sourceDB.Prepare(mediasqlstr)
 	if err != nil {
 		logger.Errorf("cannot prepare statement %s - %v", mediasqlstr, err)
@@ -131,7 +114,6 @@ func main() {
 		"Filmmaterial,Minuten,Rollennummer,Rollenthema,Sekunden,Verweis_auf_Publikation,Bemerkung,Dauer_Sekunden," +
 		"Dozenten,Varianten,Weitere_Angaben_zur_Person" +
 		" FROM rfid.source_von_arx_video "
-	//		" WHERE Rollennummer=2"
 	rows, err := sourceDB.Query(sqlstr)
 	if err != nil {
 		logger.Errorf("cannot execute query %s - %v", sqlstr, err)
@@ -139,67 +121,47 @@ func main() {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var FILM_NUMMER, Rollennummer int64
-		var Bezeichnung, Bewertung, Dauer_Zeit, AutorInnen, Klasse, Farbe_sw, Kamera, Aufgabenstellung, Dauer_Bezeichnung, Prodjahrbez, Produktionsjahr, Ton, Anzahl_Beispiele, Art_der_Produktion, Filmmaterial, Minuten, Rollenthema, Sekunden, Verweis_auf_Publikation, Bemerkung, Dauer_Sekunden, Dozenten, Varianten, Weitere_Angaben_zur_Person string
+		var FILM_NUMMER int64
+		var Bezeichnung, Bewertung, Dauer_Zeit, AutorInnen, Klasse, Farbe_sw, Kamera,
+			Aufgabenstellung, Dauer_Bezeichnung, Prodjahrbez, Produktionsjahr, Ton, Anzahl_Beispiele, Art_der_Produktion,
+			Filmmaterial, Minuten, Rollennummer, Rollenthema, Sekunden, Verweis_auf_Publikation, Bemerkung, Dauer_Sekunden,
+			Dozenten, Varianten, Weitere_Angaben_zur_Person string
 
-		if err := rows.Scan(
-			&FILM_NUMMER,
-			&Bezeichnung,
-			&Bewertung,
-			&Dauer_Zeit,
-			&AutorInnen,
-			&Klasse,
-			&Farbe_sw,
-			&Kamera,
-			&Aufgabenstellung,
-			&Dauer_Bezeichnung,
-			&Prodjahrbez,
-			&Produktionsjahr,
-			&Ton,
-			&Anzahl_Beispiele,
-			&Art_der_Produktion,
-			&Filmmaterial,
-			&Minuten,
-			&Rollennummer,
-			&Rollenthema,
-			&Sekunden,
-			&Verweis_auf_Publikation,
-			&Bemerkung,
-			&Dauer_Sekunden,
-			&Dozenten,
-			&Varianten,
-			&Weitere_Angaben_zur_Person,
-		); err != nil {
+		if err := rows.Scan(&FILM_NUMMER, &Bezeichnung, &Bewertung, &Dauer_Zeit, &AutorInnen, &Klasse, &Farbe_sw, &Kamera,
+			&Aufgabenstellung, &Dauer_Bezeichnung, &Prodjahrbez, &Produktionsjahr, &Ton, &Anzahl_Beispiele, &Art_der_Produktion,
+			&Filmmaterial, &Minuten, &Rollennummer, &Rollenthema, &Sekunden, &Verweis_auf_Publikation, &Bemerkung, &Dauer_Sekunden,
+			&Dozenten, &Varianten, &Weitere_Angaben_zur_Person); err != nil {
 			logger.Errorf("error scanning values - %v", err)
 			return
 		}
 
-		if strings.TrimSpace(strings.ToLower(Bewertung)) != "mediathek" {
-			continue
-		}
-
-		item, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v", FILM_NUMMER))
+		item, err := zotStorage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v", FILM_NUMMER))
 		if err != nil {
-			fmt.Errorf("cannot load item by oldid #%v - %v -- %v", zoterogroup, FILM_NUMMER, err)
+			fmt.Printf("cannot load item by oldid #%v - %v: %v\n", zoterogroup, FILM_NUMMER, err)
 			break
 		}
 
-		//itemData := zotero.ItemFilm{}
-		itemData := zotero.ItemGeneric{}
+		itemData := model.ItemGeneric{}
 		itemData.ItemType = "film"
-		itemData.Relations = make(map[string]zotero.ZoteroStringList)
-		itemData.Creators = []zotero.ItemDataPerson{}
-		itemData.Tags = []zotero.ItemTag{}
+		itemData.Relations = make(map[string]model.ZoteroStringList)
+		itemData.Creators = []model.ItemDataPerson{}
+		itemData.Tags = []model.ItemTag{}
+		itemData.Collections = []string{}
 
-		itemData.Archive = "Mediathek HGK FHNW"
-		itemData.ArchiveLocation = "280.21"
+		Bezeichnung = strings.TrimSpace(Bezeichnung)
 		itemData.Title = Bezeichnung
-		itemData.Date = Produktionsjahr
-		itemData.CallNumber = fmt.Sprintf("Rolle %02d / %04d", Rollennummer, FILM_NUMMER)
-		itemData.Rights = Bewertung
+
+		if Prodjahrbez != "" {
+			itemData.Date = Prodjahrbez
+		} else {
+			if Produktionsjahr != "" {
+				itemData.Date = Produktionsjahr
+			}
+		}
+
 		sec, err := strconv.ParseInt(Dauer_Sekunden, 10, 64)
 		if err == nil && sec > 0 {
-			itemData.RunningTime = zotero.FmtDuration(time.Second * time.Duration(sec))
+			itemData.RunningTime = model.FmtDuration(time.Second * time.Duration(sec))
 		}
 		if Rollenthema != "" {
 			itemData.Genre = Rollenthema
@@ -213,16 +175,16 @@ func main() {
 				if author == "diverse" {
 					author = "Diverse Studierende"
 				}
-				var person zotero.ItemDataPerson
+				var person model.ItemDataPerson
 				p2s := strings.Split(author, " ")
 				if len(p2s) == 2 {
-					person = zotero.ItemDataPerson{
+					person = model.ItemDataPerson{
 						CreatorType: "director",
 						FirstName:   strings.TrimSpace(p2s[0]),
 						LastName:    strings.TrimSpace(p2s[1]),
 					}
 				} else {
-					person = zotero.ItemDataPerson{
+					person = model.ItemDataPerson{
 						CreatorType: "director",
 						FirstName:   "",
 						LastName:    strings.TrimSpace(author),
@@ -236,16 +198,16 @@ func main() {
 			authors := strings.Split(Dozenten, ",")
 			for _, author := range authors {
 				author := strings.TrimSpace(author)
-				var person zotero.ItemDataPerson
+				var person model.ItemDataPerson
 				p2s := strings.SplitN(author, " ", 2)
 				if len(p2s) == 2 {
-					person = zotero.ItemDataPerson{
+					person = model.ItemDataPerson{
 						CreatorType: "producer",
 						FirstName:   strings.TrimSpace(p2s[0]),
 						LastName:    strings.TrimSpace(p2s[1]),
 					}
 				} else {
-					person = zotero.ItemDataPerson{
+					person = model.ItemDataPerson{
 						CreatorType: "producer",
 						FirstName:   "",
 						LastName:    strings.TrimSpace(author),
@@ -254,111 +216,95 @@ func main() {
 				itemData.Creators = append(itemData.Creators, person)
 			}
 		}
+		Kamera = strings.TrimSpace(Kamera)
+		if Kamera != "" {
+			authors := strings.Split(Kamera, ",")
+			for _, author := range authors {
+				author := strings.TrimSpace(author)
+				var person model.ItemDataPerson
+				p2s := strings.SplitN(author, " ", 2)
+				if len(p2s) == 2 {
+					person = model.ItemDataPerson{
+						CreatorType: "contributor",
+						FirstName:   strings.TrimSpace(p2s[0]),
+						LastName:    strings.TrimSpace(p2s[1]),
+					}
+				} else {
+					person = model.ItemDataPerson{
+						CreatorType: "contributor",
+						FirstName:   "",
+						LastName:    strings.TrimSpace(author),
+					}
+				}
+				itemData.Creators = append(itemData.Creators, person)
+			}
+		}
+		Klasse = strings.TrimSpace(Klasse)
+		if Klasse != "" {
+			itemData.Tags = append(itemData.Tags, model.ItemTag{
+				Tag: Klasse,
+			})
+			coll, err := zotStorage.GetCollectionByName(zoterogroup, Klasse, "")
+			if err != nil {
+				fmt.Printf("cannot load collection %s: %v\n", Klasse, err)
+				break
+			}
+			if coll == nil {
+				logger.Infof("creating collection %v", Klasse)
+				coll, err = zotStorage.CreateCollection(zoterogroup, &model.CollectionData{
+					Key:              model.CreateKey(),
+					Name:             Klasse,
+					Version:          0,
+					Relations:        model.RelationList{},
+					ParentCollection: "",
+				})
+				if err != nil {
+					fmt.Printf("cannot create collection %s: %v\n", Klasse, err)
+					break
+				}
+			}
+			itemData.Collections = append(itemData.Collections, coll.Key)
+		}
 
 		if Aufgabenstellung != "" {
-			itemData.AbstractNote += strings.Trim(Aufgabenstellung, " .") + ".\n"
-		}
-		if Anzahl_Beispiele != "" {
-			itemData.AbstractNote += fmt.Sprintf("Beispiele: %s", Anzahl_Beispiele) + ".\n"
-		}
-		if Varianten != "" {
-			itemData.AbstractNote += fmt.Sprintf("Varianten: %s", Varianten) + ".\n"
-		}
-		if Art_der_Produktion != "" {
-			itemData.Tags = append(itemData.Tags, zotero.ItemTag{
-				Tag:  Art_der_Produktion,
-				Type: 0,
-			})
-		}
-		if strings.TrimSpace(Klasse) != "" {
-			itemData.Tags = append(itemData.Tags, zotero.ItemTag{
-				Tag:  strings.TrimSpace(Klasse),
-				Type: 0,
-			})
-		} else {
-			itemData.Tags = append(itemData.Tags, zotero.ItemTag{
-				Tag:  "Klasse unbekannt",
-				Type: 0,
-			})
+			itemData.AbstractNote += Aufgabenstellung + "\n"
 		}
 		if Bemerkung != "" {
-			itemData.AbstractNote += "\n" + Bemerkung + ".\n"
+			itemData.AbstractNote += Bemerkung + "\n"
 		}
 
-		if Verweis_auf_Publikation != "" {
-			itemData.Extra = strings.TrimSpace(Verweis_auf_Publikation)
-		}
-
-		itemMeta := zotero.ItemMeta{}
+		itemMeta := model.ItemMeta{}
 
 		if item == nil {
-			item, err = grp.CreateItemLocal(&itemData, &itemMeta, fmt.Sprintf("%v", FILM_NUMMER))
+			item, err = zotStorage.CreateItem(zoterogroup, &itemData, &itemMeta, fmt.Sprintf("%v", FILM_NUMMER))
 			if err != nil {
-				fmt.Errorf("cannot create item #%v - %v -- %v", zoterogroup, FILM_NUMMER, err)
+				fmt.Printf("cannot create item #%v - %v -- %v\n", zoterogroup, FILM_NUMMER, err)
 				break
 			}
 		} else {
 			item.Data = itemData
 			item.Data.Version = item.Version
-			//item.Meta = itemMeta
-			item.Status = zotero.SyncStatus_Modified
+			item.Status = model.SyncStatus_Modified
 			item.Data.Key = item.Key
-			item.UpdateLocal()
+			if err := zotStorage.UpdateItem(zoterogroup, item); err != nil {
+				fmt.Printf("cannot update item %v: %v\n", item.Key, err)
+			}
 		}
 
 		logger.Infof("%v", item)
 
-		/*
-			if Verweis_auf_Publikation != "" {
-				pubnote, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v.pub", FILM_NUMMER))
-				if err != nil {
-					fmt.Errorf("cannot load item by oldid #%v - %v.tech -- %v", zoterogroup, FILM_NUMMER, err)
-					break
-				}
-				//techItemData := zotero.ItemDataNote{}
-				pubItemData := zotero.ItemGeneric{}
-				pubItemData.ItemType = "note"
-				pubItemData.Relations = make(map[string]zotero.ZoteroStringList)
-				pubItemData.Tags = []zotero.ItemTag{}
-				pubItemData.Collections = []string{}
-				pubItemData.ParentItem = zotero.Parent(item.Key)
-				pubItemData.Title = "Publikation"
-				pubItemData.Note = strings.Replace(Verweis_auf_Publikation, "\n", "<br />\n", -1)
-
-
-				pubnoteMeta := zotero.ItemMeta{}
-				if pubnote == nil {
-					pubnote, err = grp.CreateItemLocal(&pubItemData, &pubnoteMeta, fmt.Sprintf("%v.pub", FILM_NUMMER))
-					if err != nil {
-						fmt.Errorf("cannot create item #%v - %v.pub -- %v", zoterogroup, FILM_NUMMER, err)
-						break
-					}
-				} else {
-					pubnote.Data = pubItemData
-					pubnote.Data.Version = pubnote.Version
-					//item.Meta = itemMeta
-					pubnote.Status = zotero.SyncStatus_Modified
-					pubnote.Data.Key = pubnote.Key
-					pubnote.UpdateLocal()
-				}
-
-			}
-		*/
-
-		technote, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v.tech", FILM_NUMMER))
+		technote, err := zotStorage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v.tech", FILM_NUMMER))
 		if err != nil {
-			fmt.Errorf("cannot load item by oldid #%v - %v.tech -- %v", zoterogroup, FILM_NUMMER, err)
+			fmt.Printf("cannot load item by oldid #%v - %v.tech -- %v\n", zoterogroup, FILM_NUMMER, err)
 			break
 		}
 
-		//techItemData := zotero.ItemDataNote{}
-		techItemData := zotero.ItemGeneric{}
+		techItemData := model.ItemGeneric{}
 		techItemData.ItemType = "note"
-		techItemData.Relations = make(map[string]zotero.ZoteroStringList)
-		techItemData.Tags = []zotero.ItemTag{}
+		techItemData.Relations = make(map[string]model.ZoteroStringList)
+		techItemData.Tags = []model.ItemTag{}
 		techItemData.Collections = []string{}
-		techItemData.ParentItem = zotero.Parent(item.Key)
-		//			techItemData.Title = "Technical Information"
+		techItemData.ParentItem = item.Key
 
 		if Farbe_sw != "" && Ton != "" {
 			techItemData.Note += strings.Replace(fmt.Sprintf("%s / %s", Farbe_sw, Ton), "\n", "<br />\n", -1) + "<br />\n"
@@ -376,21 +322,22 @@ func main() {
 		if Filmmaterial != "" {
 			techItemData.Note += strings.Replace("Filmmaterial: "+Filmmaterial, "\n", "<br />\n", -1) + "<br />\n"
 		}
-		technoteMeta := zotero.ItemMeta{}
+		technoteMeta := model.ItemMeta{}
 
 		if technote == nil {
-			technote, err = grp.CreateItemLocal(&techItemData, &technoteMeta, fmt.Sprintf("%v.tech", FILM_NUMMER))
+			technote, err = zotStorage.CreateItem(zoterogroup, &techItemData, &technoteMeta, fmt.Sprintf("%v.tech", FILM_NUMMER))
 			if err != nil {
-				fmt.Errorf("cannot create item #%v - %v.tech -- %v", zoterogroup, FILM_NUMMER, err)
+				fmt.Printf("cannot create item #%v - %v.tech -- %v\n", zoterogroup, FILM_NUMMER, err)
 				break
 			}
 		} else {
 			technote.Data = techItemData
 			technote.Data.Version = technote.Version
-			//item.Meta = itemMeta
-			technote.Status = zotero.SyncStatus_Modified
+			technote.Status = model.SyncStatus_Modified
 			technote.Data.Key = technote.Key
-			technote.UpdateLocal()
+			if err := zotStorage.UpdateItem(zoterogroup, technote); err != nil {
+				fmt.Printf("cannot update item %v: %v\n", technote.Key, err)
+			}
 		}
 
 		id1 := (FILM_NUMMER - FILM_NUMMER%100) / 100
@@ -410,59 +357,44 @@ func main() {
 			var masterid, width, height, duration int64
 			var masterurl, vsig string
 			if err := rows2.Scan(&masterid, &vsig, &masterurl, &width, &height, &duration); err != nil {
-				fmt.Errorf("cannot scan result data: %v", err)
+				fmt.Printf("cannot scan result data: %v\n", err)
 				break
 			}
 			oldid := fmt.Sprintf("%v-%v", FILM_NUMMER, masterid)
-			item2, err := grp.GetItemByOldidLocal(fmt.Sprintf("%v", oldid))
+			item2, err := zotStorage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v", oldid))
 			if err != nil {
-				fmt.Errorf("cannot load item by oldid #%v - %v: %v", zoterogroup, oldid, err)
+				fmt.Printf("cannot load item by oldid #%v - %v: %v\n", zoterogroup, oldid, err)
 				break
 			}
 
-			itemData := zotero.ItemGeneric{}
-			// itemData := zotero.ItemDataAttachment{}
+			itemData := model.ItemGeneric{}
 			itemData.ItemType = "attachment"
 			itemData.LinkMode = "linked_url"
-			itemData.Relations = make(map[string]zotero.ZoteroStringList)
-			itemData.Creators = []zotero.ItemDataPerson{}
-			itemData.Tags = []zotero.ItemTag{}
+			itemData.Relations = make(map[string]model.ZoteroStringList)
+			itemData.Creators = []model.ItemDataPerson{}
+			itemData.Tags = []model.ItemTag{}
 
-			/*
-				itemData.Note = fmt.Sprintf("Resolution: %vx%v", width, height)
-				// wird schon klappen....
-				if duration > 0 {
-					d, _ := time.ParseDuration(fmt.Sprintf("%vs", duration))
-					d = d.Round(time.Minute)
-					h := d / time.Hour
-					d -= h * time.Hour
-					m := d / time.Minute
-					d -= m * time.Minute
-					s := d / time.Second
-					itemData.Note += fmt.Sprintf("<br />\nDuration: %d:%02d:%02d", h, m, s)
-				}
-			*/
 			itemData.Title = vsig
 			itemData.Url = masterurl
-			itemData.ParentItem = zotero.Parent(item.Key)
+			itemData.ParentItem = item.Key
 
-			itemMeta := zotero.ItemMeta{}
+			itemMeta := model.ItemMeta{}
 
 			if item2 == nil {
-				item2, err = grp.CreateItemLocal(&itemData, &itemMeta, oldid)
+				item2, err = zotStorage.CreateItem(zoterogroup, &itemData, &itemMeta, oldid)
 				if err != nil {
-					fmt.Errorf("cannot create item #%v.%v - %v", zoterogroup, oldid, err)
+					fmt.Printf("cannot create item #%v.%v - %v\n", zoterogroup, oldid, err)
 					break
 				}
 			} else {
 				item2.Data = itemData
 				item2.Data.Version = item2.Version
-				//item.Meta = itemMeta
-				item2.Status = zotero.SyncStatus_Modified
+				item2.Status = model.SyncStatus_Modified
 				item2.Data.Key = item2.Key
-				item2.UpdateLocal()
+				if err := zotStorage.UpdateItem(zoterogroup, item2); err != nil {
+					fmt.Printf("cannot update item %v: %v\n", item2.Key, err)
+				}
 			}
 		}
-
 	}
 }

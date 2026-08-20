@@ -1,4 +1,4 @@
-package zotero
+package model
 
 type SyncDirection int64
 

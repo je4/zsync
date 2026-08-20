@@ -1,4 +1,4 @@
-package zotero
+package model
 
 type ItemDataAttachment struct {
 	ItemDataBase
@@ -13,4 +13,3 @@ type ItemDataAttachment struct {
 	MD5         string `json:"md5,omitempty"`
 	MTime       int64  `json:"mtime"`
 }
-

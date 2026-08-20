@@ -3,21 +3,20 @@ package main
 import (
 	"database/sql"
 	"flag"
-	"github.com/je4/zsync/v2/pkg/filesystem"
-	"github.com/je4/zsync/v2/pkg/zotero"
-	_ "github.com/lib/pq"
-	"github.com/op/go-logging"
 	"log"
 	"os"
+
+	"github.com/je4/zsync/v2/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/zotero/storage"
+	"github.com/je4/zsync/v2/pkg/zotero/sync"
+	_ "github.com/lib/pq"
+	"github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 var _logformat = logging.MustStringFormatter(
 	`%{time:2006-01-02T15:04:05.000} %{module}::%{shortfunc} [%{shortfile}] > %{level:.5s} - %{message}`,
 )
-
-//
-//  XBYUCYUR 2f1180d8-6582-4143-8bba-e82c9f724023
-//
 
 func CreateLogger(module string, logfile string, loglevel string) (log *logging.Logger, lf *os.File) {
 	log = logging.MustGetLogger(module)
@@ -27,8 +26,6 @@ func CreateLogger(module string, logfile string, loglevel string) (log *logging.
 		if err != nil {
 			log.Errorf("Cannot open logfile %v: %v", logfile, err)
 		}
-		//defer lf.Close()
-
 	} else {
 		lf = os.Stderr
 	}
@@ -48,21 +45,16 @@ type ZotField struct {
 }
 
 func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.Logger) {
-
-	var err error
-
 	backupFs, err := filesystem.NewLocalFs(cfg.Backup.Path, logger)
 	if err != nil {
 		logger.Panicf("not a git repo: %v", cfg.Backup.Path)
 	}
 
-	zot, err := zotero.NewZotero("", "", db, fs, cfg.DB.Schema, false, logger, true)
-	if err != nil {
-		logger.Errorf("cannot create zotero instance: %v", err)
-		return
-	}
+	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+	zotStorage := storage.NewStorage(db, cfg.DB.Schema, false, &zlog)
+	syncer := sync.NewSyncer(nil, zotStorage, fs, &zlog)
 
-	grps, err := zot.LoadGroupsLocal()
+	grps, err := zotStorage.LoadGroups()
 	if err != nil {
 		logger.Errorf("cannot load groups: %v", err)
 		return
@@ -83,15 +75,13 @@ func backup(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger *logging.L
 			logger.Infof("ignoring group %v [%v]", grp.Data.Name, grp.Id)
 			continue
 		}
-		if err := grp.BackupLocal(backupFs); err != nil {
+		if err := syncer.BackupLocal(grp, backupFs); err != nil {
 			logger.Errorf("cannot backup group #%v: %v", grp.Id, err)
 		}
 	}
-	//backupFs.Commit(time.Now().String(), cfg.Backup.Name, cfg.Backup.Email)
 }
 
 func main() {
-
 	cfgfile := flag.String("c", "/etc/zoterosync.toml", "location of config file")
 	flag.Parse()
 	cfg := LoadConfig(*cfgfile)
@@ -113,9 +103,8 @@ func main() {
 
 	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
 	if err != nil {
-		log.Fatalf("cannot conntct to s3 instance: %v", err)
+		log.Fatalf("cannot connect to s3 instance: %v", err)
 	}
 
 	backup(&cfg, db, fs, logger)
-
 }

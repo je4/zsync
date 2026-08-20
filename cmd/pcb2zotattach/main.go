@@ -4,16 +4,15 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/je4/zsync/v2/pkg/filesystem"
-	"github.com/je4/zsync/v2/pkg/zotero"
-	_ "github.com/lib/pq"
-	"github.com/op/go-logging"
 	"log"
-	"math/rand"
 	"os"
 	"regexp"
-	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/je4/zsync/v2/pkg/zotero/storage"
+	_ "github.com/lib/pq"
+	"github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 type logger struct {
@@ -35,8 +34,6 @@ func CreateLogger(module string, logfile string, loglevel string) (log *logging.
 		if err != nil {
 			log.Errorf("Cannot open logfile %v: %v", logfile, err)
 		}
-		//defer lf.Close()
-
 	} else {
 		lf = os.Stderr
 	}
@@ -50,33 +47,31 @@ func CreateLogger(module string, logfile string, loglevel string) (log *logging.
 	return
 }
 
-// var linkRegexp = regexp.MustCompile("https://ba14ns21403.fhnw.ch/video/open/(.+)$")
-// var linkRegexp = regexp.MustCompile("file://ba14ns21403.fhnw.ch/nfsdata/www/html/video/open/(.+)$")
-var linkRegexp = regexp.MustCompile("https://ba14ns21403-sec1.fhnw.ch/mediasrv/([^/]+)/([^/]+)$")
-
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	// get location of config file
-	cfgfile := flag.String("cfg", "/etc/mediasrv2.toml", "location of config file")
+	cfgfile := flag.String("cfg", "/etc/pcb2zotattach.toml", "location of config file")
 	flag.Parse()
 	config := LoadConfig(*cfgfile)
 
 	// create logger instance
-	logger, lf := CreateLogger("memostream", config.Logfile, config.Loglevel)
+	logger, lf := CreateLogger("pcb2zotattach", config.Logfile, config.Loglevel)
 	defer lf.Close()
+
+	linkRegexp := regexp.MustCompile("^https://ba14ns21403.fhnw.ch/video/(open|intern)/([^/]+)$")
 
 	// get database connection handle
 	mediaserverDB, err := sql.Open(config.MediaserverDB.ServerType, config.MediaserverDB.DSN)
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("error opening database: %v", err)
 	}
 	defer mediaserverDB.Close()
 
 	// Open doesn't open a connection. Validate DSN data:
 	err = mediaserverDB.Ping()
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("error pinging database: %v", err)
 	}
 
 	// get database connection handle
@@ -92,26 +87,10 @@ func main() {
 		panic(err.Error())
 	}
 
-	fs, err := filesystem.NewS3Fs(config.S3.Endpoint, config.S3.AccessKeyId, config.S3.SecretAccessKey, config.S3.UseSSL)
-	if err != nil {
-		log.Fatalf("cannot conntct to s3 instance: %v", err)
-	}
+	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+	zotStorage := storage.NewStorage(zoteroDB, config.ZoteroDB.Schema, false, &zlog)
 
-	rand.Seed(time.Now().Unix())
-
-	zot, err := zotero.NewZotero(config.Endpoint, config.Apikey, zoteroDB, fs, config.ZoteroDB.Schema, false, logger, false)
-	if err != nil {
-		logger.Errorf("cannot create zotero instance: %v", err)
-		return
-	}
-
-	grp, err := zot.LoadGroupLocal(zoterogroup)
-	if err != nil {
-		fmt.Errorf("cannot load group #%v - %v", zoterogroup, err)
-		return
-	}
-
-	sqlstr := `SELECT "key" FROM s3.item_type_hier WHERE "library" = $1 AND "type" = $2`
+	sqlstr := fmt.Sprintf(`SELECT "key" FROM %s.item_type_hier WHERE "library" = $1 AND "type" = $2`, config.ZoteroDB.Schema)
 	rows, err := zoteroDB.Query(sqlstr, zoterogroup, "attachment")
 	if err != nil {
 		logger.Errorf("cannot execute query %s - %v", sqlstr, err)
@@ -124,32 +103,23 @@ func main() {
 			logger.Error("cannot scan key")
 			return
 		}
-		item, err := grp.GetItemByKeyLocal(key)
+		item, err := zotStorage.GetItemByKey(zoterogroup, key)
 		if err != nil {
 			logger.Errorf("cannot load item #%v.%v", zoterogroup, key)
 			return
+		}
+		if item == nil {
+			continue
 		}
 		url := item.Data.Url
 		logger.Infof(url)
 		matches := linkRegexp.FindStringSubmatch(url)
 		if matches != nil {
-			//			file := fmt.Sprintf("file://ba14ns21403.fhnw.ch/nfsdata/www/html/video/open/%s", matches[1])
-			//			msgroup := fmt.Sprintf("zotero_%v", zoterogroup)
-			//			mssig := fmt.Sprintf("%v", slug.Make(matches[1]))
 			mediaserver := fmt.Sprintf("https://ba14ns21403-sec1.fhnw.ch/mediasrv/%v/%v/master", matches[1], matches[2])
 			logger.Infof("--> %s", mediaserver)
 			item.Data.Url = mediaserver
 
-			/*
-				sqlstr := fmt.Sprintf("INSERT INTO master (collectionid, signature, urn) VALUES( ?, ?, ?)")
-				var params []interface{} = []interface{}{mediacollection, mssig, file}
-
-				if _, err := mediaserverDB.Exec(sqlstr, params...); err != nil {
-					logger.Errorf("cannot execute insert query %v", params...)
-				}
-			*/
-
-			if err := item.UpdateLocal(); err != nil {
+			if err := zotStorage.UpdateItem(zoterogroup, item); err != nil {
 				logger.Errorf("cannot update #%v.%v", zoterogroup, key)
 			}
 		}

@@ -39,8 +39,8 @@ type S3 struct {
 type Config struct {
 	Logfile           string   `toml:"logfile"`
 	Loglevel          string   `toml:"loglevel"`
-	ZoteroDB          database `toml:ZoteroDB`
-	MediaserverDB     database `toml:MediaserverDB`
+	ZoteroDB          database `toml:"ZoteroDB"`
+	MediaserverDB     database `toml:"MediaserverDB"`
 	Endpoint          string
 	Apikey            string
 	S3                S3 `toml:"s3"`

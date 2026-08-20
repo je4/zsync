@@ -3,75 +3,40 @@ package main
 import (
 	"database/sql"
 	"flag"
-	"github.com/je4/utils/v2/pkg/zLogger"
-	"github.com/je4/zsync/v2/pkg/filesystem"
-	"github.com/je4/zsync/v2/pkg/zotero"
-	_ "github.com/lib/pq"
-	"github.com/op/go-logging"
-	"github.com/rs/zerolog"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/je4/utils/v2/pkg/zLogger"
+	"github.com/je4/zsync/v2/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/zotero/client"
+	"github.com/je4/zsync/v2/pkg/zotero/storage"
+	"github.com/je4/zsync/v2/pkg/zotero/sync"
+	_ "github.com/lib/pq"
+	"github.com/rs/zerolog"
 )
-
-var _logformat = logging.MustStringFormatter(
-	`%{time:2006-01-02T15:04:05.000} %{module}::%{shortfunc} > %{level:.5s} - %{message}`,
-)
-
-//
-//  XBYUCYUR 2f1180d8-6582-4143-8bba-e82c9f724023
-//
-
-func CreateLogger(module string, logfile string, loglevel string) (log *logging.Logger, lf *os.File) {
-	log = logging.MustGetLogger(module)
-	var err error
-	if logfile != "" {
-		lf, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Errorf("Cannot open logfile %v: %v", logfile, err)
-		}
-		//defer lf.Close()
-
-	} else {
-		lf = os.Stderr
-	}
-	backend := logging.NewLogBackend(lf, "", 0)
-	backendLeveled := logging.AddModuleLevel(backend)
-	backendLeveled.SetLevel(logging.GetLevel(loglevel), "")
-
-	logging.SetFormatter(_logformat)
-	logging.SetBackend(backendLeveled)
-
-	return
-}
 
 type ZotField struct {
 	Field     string `json:"field"`
 	Localized string `json:"localized"`
 }
 
-func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLogger) {
-
-	var err error
-	/*
-		nodes, _, err := gl.Repositories.ListTree(glproject.ID, nil)
-		for _, node := range nodes {
-			logger.Info().Msgf("[%v] %v - %v", node.ID, node.Name, node.Path)
-		}
-	*/
-
-	zot, err := zotero.NewZotero(cfg.Endpoint, cfg.Apikey, db, fs, cfg.DB.Schema, cfg.NewGroupActive, logger, false)
+func doSync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLogger) {
+	zotClient, err := client.NewClient(cfg.Endpoint, cfg.Apikey, logger)
 	if err != nil {
-		logger.Error().Msgf("cannot create zotero instance: %v", err)
+		logger.Error().Msgf("cannot create zotero client: %v", err)
 		return
 	}
 
-	logger.Info().Msgf("current key: %v", zot.CurrentKey)
+	zotStorage := storage.NewStorage(db, cfg.DB.Schema, cfg.NewGroupActive, logger)
+	syncer := sync.NewSyncer(zotClient, zotStorage, fs, logger)
 
-	groupVersions, err := zot.GetUserGroupVersions(zot.CurrentKey)
+	logger.Info().Msgf("current key: %v", zotClient.CurrentKey)
+
+	groupVersions, err := zotClient.GetUserGroupVersions(zotClient.CurrentKey)
 	if err != nil {
 		logger.Error().Msgf("cannot get group versions: %v", err)
 		return
@@ -80,11 +45,6 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLog
 
 	groupIds := []int64{}
 	for groupId, version := range *groupVersions {
-		/*
-			if groupId != 1510019 {
-				continue
-			}
-		*/
 		groupIds = append(groupIds, groupId)
 
 		if len(cfg.Synconly) > 0 {
@@ -93,7 +53,7 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLog
 				continue
 			}
 		}
-		group, err := zot.LoadGroupLocal(groupId)
+		group, err := zotStorage.LoadGroup(groupId)
 		if err != nil {
 			logger.Error().Msgf("cannot load group local %v: %v", groupId, err)
 			return
@@ -105,15 +65,18 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLog
 
 		for _, gid := range cfg.ClearBeforeSync {
 			if gid == group.Id {
-				if err := group.ClearLocal(); err != nil {
+				if err := zotStorage.ClearGroup(groupId); err != nil {
 					logger.Error().Msgf("cannot clear group %v: %v", groupId, err)
 					return
 				}
+				group.CollectionVersion = 0
+				group.ItemVersion = 0
+				group.Version = 0
 				break
 			}
 		}
 
-		if err := group.Sync(); err != nil {
+		if err := syncer.SyncGroup(group); err != nil {
 			logger.Error().Msgf("cannot sync group #%v: %v", group.Id, err)
 			continue
 		}
@@ -124,33 +87,32 @@ func sync(cfg *Config, db *sql.DB, fs filesystem.FileSystem, logger zLogger.ZLog
 		if group.Version < version ||
 			group.Deleted ||
 			group.IsModified {
-			newGroup, err := zot.GetGroupCloud(groupId)
+			newGroup, err := zotClient.GetGroup(groupId)
 			if err != nil {
 				logger.Error().Msgf("cannot get group %v: %v", groupId, err)
 				return
 			}
-			newGroup.CollectionVersion = group.CollectionVersion
-			newGroup.ItemVersion = group.ItemVersion
-			newGroup.TagVersion = group.TagVersion
-			newGroup.Deleted = group.Deleted
+			if newGroup != nil {
+				newGroup.CollectionVersion = group.CollectionVersion
+				newGroup.ItemVersion = group.ItemVersion
+				newGroup.TagVersion = group.TagVersion
+				newGroup.Deleted = group.Deleted
+				newGroup.Active = group.Active
+				newGroup.Direction = group.Direction
+				newGroup.SyncTags = group.SyncTags
 
-			logger.Info().Msgf("group %v[%v]", groupId, version)
-			if err := newGroup.UpdateLocal(); err != nil {
-				logger.Error().Msgf("cannot update group %v: %v", groupId, err)
-				return
+				logger.Info().Msgf("group %v[%v]", groupId, version)
+				if err := zotStorage.UpdateGroup(newGroup); err != nil {
+					logger.Error().Msgf("cannot update group %v: %v", groupId, err)
+					return
+				}
 			}
 		}
 	}
-	if err := zot.DeleteUnknownGroupsLocal(groupIds); err != nil {
-		logger.Error().Msgf("cannot delete unknown groups: %v", err)
-	}
-
 }
 
 func main() {
-
 	cfgfile := flag.String("c", "", "location of config file")
-	//loop := flag.Bool("loop", false, "endless sync")
 	clear := flag.Bool("clear", false, "clear all data of group")
 	groupid := flag.Int64("group", 0, "id of zotero group to sync")
 
@@ -213,9 +175,8 @@ func main() {
 
 	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
 	if err != nil {
-		log.Fatalf("cannot conntct to s3 instance: %v", err)
+		log.Fatalf("cannot connect to s3 instance: %v", err)
 	}
 
-	sync(&cfg, db, fs, logger)
-
+	doSync(&cfg, db, fs, logger)
 }

@@ -1,34 +1,42 @@
 package main
 
 import (
-	"emperror.dev/errors"
-	"encoding/json"
-	"github.com/bluele/gcache"
-	"github.com/je4/zsync/v2/pkg/zotero"
-	"github.com/op/go-logging"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
+
+	"emperror.dev/errors"
+	"encoding/json"
+	"github.com/bluele/gcache"
+	"github.com/je4/zsync/v2/pkg/filesystem"
+	"github.com/je4/zsync/v2/pkg/zotero/client"
+	"github.com/je4/zsync/v2/pkg/zotero/model"
+	"github.com/je4/zsync/v2/pkg/zotero/storage"
+	"github.com/op/go-logging"
 )
 
 type Handlers struct {
-	groups gcache.Cache
-	cfg    *Config
-	logger *logging.Logger
-	zot    *zotero.Zotero
+	groups  gcache.Cache
+	cfg     *Config
+	logger  *logging.Logger
+	storage *storage.Storage
+	client  *client.Client
+	fs      filesystem.FileSystem
 }
 
-func NewHandler(zot *zotero.Zotero, cfg *Config, logger *logging.Logger) *Handlers {
+func NewHandler(storage *storage.Storage, client *client.Client, fs filesystem.FileSystem, cfg *Config, logger *logging.Logger) *Handlers {
 	exp, err := time.ParseDuration(cfg.GroupCacheExpiration)
 	if err != nil {
 		log.Fatalf("error parsing expiration: %v", err)
 	}
 
 	handlers := &Handlers{
-		zot:    zot,
-		cfg:    cfg,
-		logger: logger,
+		storage: storage,
+		client:  client,
+		fs:      fs,
+		cfg:     cfg,
+		logger:  logger,
 		groups: gcache.New(500).
 			ARC().Expiration(exp).
 			Build(),
@@ -48,17 +56,17 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.Write(response)
 }
 
-func (handlers *Handlers) getGroup(groupId int64) (group *zotero.Group, err error) {
+func (handlers *Handlers) getGroup(groupId int64) (group *model.Group, err error) {
 	tmp, err := handlers.groups.Get(groupId)
 	if err != nil {
-		group, err = handlers.zot.LoadGroupLocal(groupId)
+		group, err = handlers.storage.LoadGroup(groupId)
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot load group %v", groupId)
 		}
 		handlers.groups.Set(groupId, group)
 	} else {
 		var ok bool
-		group, ok = tmp.(*zotero.Group)
+		group, ok = tmp.(*model.Group)
 		if !ok {
 			return nil, errors.Wrapf(errors.New("invalid type in cache"), "cannot load group %v", groupId)
 		}
@@ -66,7 +74,7 @@ func (handlers *Handlers) getGroup(groupId int64) (group *zotero.Group, err erro
 	return
 }
 
-func (handlers *Handlers) groupFromVars(vars map[string]string) (*zotero.Group, error) {
+func (handlers *Handlers) groupFromVars(vars map[string]string) (*model.Group, error) {
 	groupidstr, ok := vars["groupid"]
 	if !ok {
 		return nil, errors.New("no groupid")

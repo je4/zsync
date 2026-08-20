@@ -1,4 +1,4 @@
-package zotero
+package model
 
 type TagMeta struct {
 	Type     int64 `json:"type"`

@@ -1,4 +1,4 @@
-package zotero
+package model
 
 type SyncStatus int64
 
@@ -22,4 +22,3 @@ var SyncStatusId = map[string]SyncStatus{
 	"modified":   SyncStatus_Modified,
 	"incomplete": SyncStatus_Incomplete,
 }
-

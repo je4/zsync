@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/gorilla/mux"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 func (handlers *Handlers) makeCollectionGetHandler() http.HandlerFunc {
@@ -27,7 +28,7 @@ func (handlers *Handlers) makeCollectionGetHandler() http.HandlerFunc {
 			return
 		}
 
-		coll, err := group.GetCollectionByNameLocal(name, parentKey)
+		coll, err := handlers.storage.GetCollectionByName(group.Id, name, parentKey)
 		if err != nil {
 			handlers.logger.Errorf("cannot get collection: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot get collection: %v", err))

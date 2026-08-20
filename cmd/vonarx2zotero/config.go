@@ -39,8 +39,8 @@ type S3 struct {
 type Config struct {
 	Logfile           string   `toml:"logfile"`
 	Loglevel          string   `toml:"loglevel"`
-	VonArxVidDB       database `toml:VonArxVidDB`
-	ZoteroDB          database `toml:ZoteroDB`
+	VonArxVidDB       database `toml:"VonArxVidDB"`
+	ZoteroDB          database `toml:"ZoteroDB"`
 	Endpoint          string
 	Apikey            string
 	S3                S3 `toml:"s3"`

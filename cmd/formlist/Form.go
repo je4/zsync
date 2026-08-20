@@ -2,13 +2,13 @@ package main
 
 import (
 	"database/sql"
-	"emperror.dev/errors"
 	"encoding/json"
-	"fmt"
-	"github.com/je4/zsync/v2/pkg/zotero"
-	"github.com/op/go-logging"
 	"strings"
 	"time"
+
+	"emperror.dev/errors"
+	"github.com/je4/zsync/v2/pkg/zotero/storage"
+	"github.com/op/go-logging"
 )
 
 type Value struct {
@@ -26,98 +26,17 @@ type File struct {
 }
 
 type Object struct {
-	Objectid        int64
-	Status          string
-	Deleted         int
-	Modficationdate time.Time
-	Modifier        string
-	Metadata        map[string][]Value
-	form            *Form
-}
-
-func (o *Object) GetRightHolders() ([]string, error) {
-	sqlstr := "SELECT r.rightholder FROM zotmedia.rights r, upload.files f, zotmedia.master m WHERE r.masterid=m.masterid AND f.masterid=m.masterid AND f.objectid=?"
-	o.form.log.Infof("query: %s", sqlstr)
-	rows2, err := o.form.sourceDB.Query(sqlstr, o.Objectid)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot execute query %s", sqlstr)
-	}
-	defer rows2.Close()
-	rhs := []string{}
-	for rows2.Next() {
-		var rh string
-		if err := rows2.Scan(&rh); err != nil {
-			return nil, errors.Wrap(err, "cannot scan data")
-		}
-		found := false
-		for _, r := range rhs {
-			if r == rh {
-				found = true
-				break
-			}
-		}
-		if !found {
-			rhs = append(rhs, rh)
-		}
-	}
-	return rhs, nil
-}
-
-func (o *Object) IterateFiles(callback func(f *File) error) error {
-	sqlstr := "SELECT m.masterid, c.name, m.signature, m.type, m.mimetype FROM upload.files f, zotmedia.master m, zotmedia.collection c WHERE m.collectionid=c.collectionid AND f.masterid=m.masterid AND f.objectid=?"
-	o.form.log.Infof("query: %s", sqlstr)
-	rows2, err := o.form.sourceDB.Query(sqlstr, o.Objectid)
-	if err != nil {
-		return errors.Wrapf(err, "cannot execute query %s", sqlstr)
-	}
-	defer rows2.Close()
-	for rows2.Next() {
-		var masterid int64
-		var collection, signature, _type, mimetype string
-		if err := rows2.Scan(&masterid, &collection, &signature, &_type, &mimetype); err != nil {
-			return errors.Wrapf(err, "cannot scan values")
-		}
-		f := &File{
-			Masterid:   masterid,
-			Collection: collection,
-			Signature:  signature,
-			Type:       _type,
-			Mimetype:   mimetype,
-		}
-
-		sqlstr := "SELECT `rightholder`, `usage`, `license`, `restrictedlicense`, `access`, `label`, `modifier` FROM zotmedia.rights WHERE masterid=?"
-		// o.form.log.Infof("query: %s", sqlstr)
-		rows3, err := o.form.sourceDB.Query(sqlstr, f.Masterid)
-		if err != nil {
-			return errors.Wrapf(err, "cannot execute query %s", sqlstr)
-		}
-		defer rows3.Close()
-		for rows3.Next() {
-			var rightholder, usage, license, restrictedlicense, access, label, modifier string
-			if err := rows3.Scan(&rightholder, &usage, &license, &restrictedlicense, &access, &label, &modifier); err != nil {
-				return errors.Wrapf(err, "cannot scan rights data")
-			}
-			f.Note = fmt.Sprintf(
-				"Rightholder: %s<br />\n"+
-					"Usage: %s<br />\n"+
-					"License: %s<br />\n"+
-					"RestrictedLicense: %s<br />\n"+
-					"Access: %s<br />\n"+
-					"Label: %s<br />\n"+
-					"Modifier: %s\n",
-				rightholder, usage, license, restrictedlicense, access, label, modifier)
-		}
-
-		if err := callback(f); err != nil {
-			return err
-		}
-	}
-	return nil
+	Objectid         int64
+	Status           string
+	Deleted          bool
+	Modificationdate time.Time
+	Modifier         string
+	Metadata         map[string][]Value
 }
 
 type Form struct {
 	sourceDB *sql.DB
-	zotero   *zotero.Zotero
+	storage  *storage.Storage
 	log      *logging.Logger
 }
 
@@ -127,7 +46,7 @@ func (f *Form) GetTypes() (map[int64]int64, error) {
 	f.log.Infof("query: %s", sqlstr)
 	rows, err := f.sourceDB.Query(sqlstr)
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot exeute query %s", sqlstr)
+		return nil, errors.Wrapf(err, "cannot execute query %s", sqlstr)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -136,7 +55,6 @@ func (f *Form) GetTypes() (map[int64]int64, error) {
 		var zoterogroup sql.NullInt64
 		if err := rows.Scan(&typeid, &name, &zoterogroup); err != nil {
 			return nil, errors.Wrap(err, "cannot scan content")
-
 		}
 		if !zoterogroup.Valid {
 			continue
@@ -150,34 +68,30 @@ func (f *Form) GetTypes() (map[int64]int64, error) {
 func (f *Form) IterateObjects(typeid, zoterogroup int64, callback func(obj *Object) error) error {
 	sqlstr := "SELECT objectid, status, deleted, modificationdate, modifier FROM upload.object WHERE typeid=?"
 	f.log.Infof("query: %s", sqlstr)
-	rows2, err := f.sourceDB.Query(sqlstr, typeid)
+	rows, err := f.sourceDB.Query(sqlstr, typeid)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute query %s", sqlstr)
 	}
-	defer rows2.Close()
-	for rows2.Next() {
-		var objectid int64
-		var status string
-		var deleted int
-		var modficationdate sql.NullTime
-		var modifier string
-		if err := rows2.Scan(&objectid, &status, &deleted, &modficationdate, &modifier); err != nil {
-			return errors.Wrapf(err, "cannot scan content")
-		}
+	defer rows.Close()
+	for rows.Next() {
 		obj := &Object{
-			Objectid:        objectid,
-			Status:          status,
-			Deleted:         deleted,
-			Modficationdate: modficationdate.Time,
-			Modifier:        modifier,
-			Metadata:        map[string][]Value{},
-			form:            f,
+			Metadata: map[string][]Value{},
 		}
-		sqlstr = "SELECT fieldtype, name, json FROM upload.`field` WHERE objectid=?"
-		f.log.Infof("query: %s - %v", sqlstr, objectid)
-		rows3, err := f.sourceDB.Query(sqlstr, objectid)
+		var modifier sql.NullString
+		var moddate sql.NullString
+		if err := rows.Scan(&obj.Objectid, &obj.Status, &obj.Deleted, &moddate, &modifier); err != nil {
+			return errors.Wrap(err, "cannot scan content")
+		}
+		if modifier.Valid {
+			obj.Modifier = modifier.String
+		}
+		if moddate.Valid {
+			obj.Modificationdate, _ = time.Parse("2006-01-02 15:04:05", moddate.String)
+		}
+		sqlstr2 := "SELECT fieldtype, name, `json` FROM upload.metadata WHERE objectid=?"
+		rows3, err := f.sourceDB.Query(sqlstr2, obj.Objectid)
 		if err != nil {
-			return errors.Wrapf(err, "cannot execute query %s", sqlstr)
+			return errors.Wrapf(err, "cannot execute query %s", sqlstr2)
 		}
 		defer rows3.Close()
 		for rows3.Next() {

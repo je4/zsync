@@ -1,14 +1,9 @@
-package zotero
+package model
 
 import (
 	"encoding/json"
-	"github.com/je4/zsync/v2/info"
-	"github.com/rs/zerolog"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
+	"strings"
 	"testing"
-	"time"
 )
 
 func TestItemDataPersonSerialization(t *testing.T) {
@@ -170,191 +165,6 @@ func TestGroupStructTags(t *testing.T) {
 	}
 }
 
-func TestCheckRetryAndBackoff(t *testing.T) {
-	logger := zerolog.Nop()
-	zot := &Zotero{
-		Logger: &logger,
-	}
-
-	// No headers
-	hEmpty := http.Header{}
-	if zot.CheckRetry(hEmpty) {
-		t.Errorf("CheckRetry should return false for empty headers")
-	}
-	if zot.CheckBackoff(hEmpty) {
-		t.Errorf("CheckBackoff should return false for empty headers")
-	}
-
-	// Zero headers
-	hZero := http.Header{
-		"Retry-After": []string{"0"},
-		"Backoff":     []string{"0"},
-	}
-	if zot.CheckRetry(hZero) {
-		t.Errorf("CheckRetry should return false for 0 Retry-After")
-	}
-	if zot.CheckBackoff(hZero) {
-		t.Errorf("CheckBackoff should return false for 0 Backoff")
-	}
-
-	// Invalid header strings
-	hInvalid := http.Header{
-		"Retry-After": []string{"invalid"},
-		"Backoff":     []string{"invalid"},
-	}
-	if zot.CheckRetry(hInvalid) {
-		t.Errorf("CheckRetry should return false for invalid Retry-After")
-	}
-	if zot.CheckBackoff(hInvalid) {
-		t.Errorf("CheckBackoff should return false for invalid Backoff")
-	}
-
-	// Past HTTP-date Retry-After
-	hPastDate := http.Header{
-		"Retry-After": []string{"Fri, 31 Dec 1999 23:59:59 GMT"},
-	}
-	if zot.CheckRetry(hPastDate) {
-		t.Errorf("CheckRetry should return false for past HTTP-Date Retry-After")
-	}
-
-	// Future HTTP-date Retry-After (1 second ahead)
-	futureDate := time.Now().Add(1 * time.Second).UTC().Format(http.TimeFormat)
-	hFutureDate := http.Header{
-		"Retry-After": []string{futureDate},
-	}
-	start := time.Now()
-	if !zot.CheckRetry(hFutureDate) {
-		t.Errorf("CheckRetry should return true for future HTTP-Date Retry-After")
-	}
-	elapsed := time.Since(start)
-	if elapsed < 500*time.Millisecond {
-		t.Errorf("expected sleep on future HTTP-Date Retry-After, got elapsed %v", elapsed)
-	}
-}
-
-func TestTagPagination(t *testing.T) {
-	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/groups/100/tags" {
-			http.NotFound(w, r)
-			return
-		}
-		// Verify Zotero API Version header
-		if r.Header.Get("Zotero-API-Version") != "3" {
-			t.Errorf("expected Zotero-API-Version: 3, got '%s'", r.Header.Get("Zotero-API-Version"))
-		}
-
-		callCount++
-		start := r.URL.Query().Get("start")
-		w.Header().Set("Last-Modified-Version", "42")
-		w.Header().Set("Total-Results", "3")
-		w.Header().Set("Content-Type", "application/json")
-
-		if start == "0" || start == "" {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[{"tag":"tag1","meta":{"type":0,"numItems":1}},{"tag":"tag2","meta":{"type":0,"numItems":2}}]`))
-		} else if start == "100" || start == "2" {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[{"tag":"tag3","meta":{"type":0,"numItems":3}}]`))
-		} else {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[]`))
-		}
-	}))
-	defer server.Close()
-
-	logger := zerolog.Nop()
-	zot, err := NewZotero(server.URL, "test-api-key", nil, nil, "public", false, &logger, false)
-	if err != nil {
-		// NewZotero calls Init() which calls getCurrentKey() -> since server is mock, we can just init client directly
-	}
-	burl, _ := url.Parse(server.URL)
-	zot = &Zotero{
-		baseUrl: burl,
-		apiKey:  "test-api-key",
-		Logger:  &logger,
-	}
-	if err := zot.Init(); err != nil {
-		// getCurrentKey will fail on mock server unless mocked, but client is initialized
-	}
-
-	grp := &Group{
-		Id:  100,
-		Zot: zot,
-	}
-
-	tags, lastMod, err := grp.GetTagsVersionCloud(0)
-	if err != nil {
-		t.Fatalf("unexpected error fetching tags: %v", err)
-	}
-	if lastMod != 42 {
-		t.Errorf("expected Last-Modified-Version=42, got %d", lastMod)
-	}
-	if len(*tags) != 3 {
-		t.Fatalf("expected 3 tags aggregated across pages, got %d", len(*tags))
-	}
-	if (*tags)[0].Tag != "tag1" || (*tags)[1].Tag != "tag2" || (*tags)[2].Tag != "tag3" {
-		t.Errorf("unexpected tags: %v", *tags)
-	}
-}
-
-func TestApiVersionHeaderAndInit(t *testing.T) {
-	receivedVersionHeader := ""
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedVersionHeader = r.Header.Get("Zotero-API-Version")
-		if r.URL.Path == "/keys/test-api-key" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"key":"test-api-key","userId":123,"user":123,"access":{"user":{"library":true,"files":true}}}`))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-
-	logger := zerolog.Nop()
-	zot, err := NewZotero(server.URL, "test-api-key", nil, nil, "public", false, &logger, false)
-	if err != nil {
-		t.Fatalf("unexpected error creating Zotero client: %v", err)
-	}
-	if receivedVersionHeader != "3" {
-		t.Errorf("expected Zotero-API-Version '3', got '%s'", receivedVersionHeader)
-	}
-	if zot.client.Header.Get("Zotero-API-Version") != "3" {
-		t.Errorf("expected client header Zotero-API-Version to be '3', got '%s'", zot.client.Header.Get("Zotero-API-Version"))
-	}
-}
-
-func TestUserAgentHeaderAndInit(t *testing.T) {
-	receivedUserAgentHeader := ""
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedUserAgentHeader = r.Header.Get("User-Agent")
-		if r.URL.Path == "/keys/test-api-key" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"key":"test-api-key","userId":123,"user":123,"access":{"user":{"library":true,"files":true}}}`))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-
-	logger := zerolog.Nop()
-	zot, err := NewZotero(server.URL, "test-api-key", nil, nil, "public", false, &logger, false)
-	if err != nil {
-		t.Fatalf("unexpected error creating Zotero client: %v", err)
-	}
-	expectedUA := info.GetUserAgent()
-	if receivedUserAgentHeader != expectedUA {
-		t.Errorf("expected User-Agent '%s', got '%s'", expectedUA, receivedUserAgentHeader)
-	}
-	if zot.client.Header.Get("User-Agent") != expectedUA {
-		t.Errorf("expected client header User-Agent to be '%s', got '%s'", expectedUA, zot.client.Header.Get("User-Agent"))
-	}
-}
-
 func TestCollectionDataVersionSerialization(t *testing.T) {
 	// Case 1: New collection creation (Key == "", Version == 0) -> omit key and version
 	cdNew := CollectionData{
@@ -381,12 +191,21 @@ func TestCollectionDataVersionSerialization(t *testing.T) {
 	} else if relMap, ok := rel.(map[string]any); !ok || len(relMap) != 0 {
 		t.Errorf("expected 'relations' to be empty object, got: %v", rel)
 	}
+	if parent, exists := mapNew["parentCollection"]; !exists {
+		t.Error("expected 'parentCollection' to be present")
+	} else if parentBool, ok := parent.(bool); !ok || parentBool != false {
+		t.Errorf("expected 'parentCollection' to be false, got: %v", parent)
+	}
 
-	// Case 2: Existing collection update (Key != "", Version > 0) -> retain key and version
+	// Case 2: Existing collection update (Key != "", Version > 0) -> include key and version
 	cdExisting := CollectionData{
-		Key:     "COLL123",
-		Name:    "Test Existing Collection",
-		Version: 12,
+		Key:              "COLL123",
+		Name:             "Existing Collection",
+		Version:          45,
+		ParentCollection: "PARENT456",
+		Relations: RelationList{
+			"owl:sameAs": "http://example.com/same",
+		},
 	}
 	bytesExisting, err := json.Marshal(cdExisting)
 	if err != nil {
@@ -399,8 +218,8 @@ func TestCollectionDataVersionSerialization(t *testing.T) {
 	if val, exists := mapExisting["key"]; !exists || val != "COLL123" {
 		t.Errorf("expected 'key' to be 'COLL123', got: %v", val)
 	}
-	if val, exists := mapExisting["version"]; !exists || val != float64(12) {
-		t.Errorf("expected 'version' to be 12, got: %v", val)
+	if val, exists := mapExisting["version"]; !exists || val != float64(45) {
+		t.Errorf("expected 'version' to be 45, got: %v", val)
 	}
 }
 
@@ -544,5 +363,24 @@ func TestItemDataAttachmentSerialization(t *testing.T) {
 	}
 	if genUnmarshaled.ItemType != "attachment" || genUnmarshaled.LinkMode != "imported_file" || genUnmarshaled.ContentType != "text/plain" || genUnmarshaled.Filename != "document.txt" || genUnmarshaled.ParentItem != "PARENT888" {
 		t.Errorf("unmarshaled ItemGeneric attachment mismatch: %+v vs %+v", genUnmarshaled, genAtt)
+	}
+}
+
+func TestText2Metadata(t *testing.T) {
+	desc := "some text tag:value key:\"spaced value\" foo:bar"
+	meta := Text2Metadata(desc)
+	if len(meta["tag"]) != 1 || meta["tag"][0] != "value" {
+		t.Errorf("expected tag=value, got %v", meta["tag"])
+	}
+	if len(meta["key"]) != 1 || meta["key"][0] != "spaced value" {
+		t.Errorf("expected key='spaced value', got %v", meta["key"])
+	}
+	if len(meta["foo"]) != 1 || meta["foo"][0] != "bar" {
+		t.Errorf("expected foo=bar, got %v", meta["foo"])
+	}
+
+	noMeta := strings.TrimSpace(TextNoMeta(desc))
+	if noMeta != "some text" {
+		t.Errorf("expected 'some text', got '%s'", noMeta)
 	}
 }

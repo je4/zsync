@@ -1,4 +1,4 @@
-package zotero
+package model
 
 import (
 	"math/rand"
@@ -28,7 +28,7 @@ func randomString(length int64, mode string, exclude_ambiguous bool) string {
 	var chars []rune
 	switch mode {
 	case "key":
-		chars = append(upper, numbers...)
+		chars = append(chars, numbers...)
 	case "mixed":
 		chars = append(lower, upper...)
 		chars = append(chars, numbers...)
