@@ -1,8 +1,10 @@
 package zotero
 
 import (
+	"context"
 	"emperror.dev/errors"
 	"encoding/json"
+	"time"
 )
 
 type AccessElements struct {
@@ -57,7 +59,11 @@ func (zot *Zotero) AuthorizeLocal(appName string) (string, error) {
 		"appName": appName,
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	req := zot.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetHeader("Content-Type", "application/json").
 		SetBody(payload)

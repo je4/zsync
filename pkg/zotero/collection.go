@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/je4/zsync/v2/pkg/filesystem"
+	"gopkg.in/resty.v1"
 	"path/filepath"
 	"time"
 )
@@ -12,7 +13,7 @@ import (
 type CollectionData struct {
 	Key              string       `json:"key,omitempty"`
 	Name             string       `json:"name"`
-	Version          int64        `json:"version"`
+	Version          int64        `json:"version,omitempty"`
 	Relations        RelationList `json:"relations"`
 	ParentCollection Parent       `json:"parentCollection"`
 }
@@ -76,13 +77,21 @@ func (collection *Collection) UpdateCloud() error {
 	if collection.Deleted {
 		endpoint := fmt.Sprintf("/groups/%v/collections/%v", collection.Group.Id, collection.Key)
 		collection.Group.Zot.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
-		resp, err := collection.Group.Zot.client.R().
-			SetHeader("Accept", "application/json").
-			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", collection.Version)).
-			Delete(endpoint)
-		if err != nil {
-			return errors.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
+		var resp *resty.Response
+		var err error
+		for {
+			resp, err = collection.Group.Zot.client.R().
+				SetHeader("Accept", "application/json").
+				SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", collection.Version)).
+				Delete(endpoint)
+			if err != nil {
+				return errors.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
+			}
+			if !collection.Group.Zot.CheckRetry(resp.Header()) {
+				break
+			}
 		}
+		collection.Group.Zot.CheckBackoff(resp.Header())
 		switch resp.RawResponse.StatusCode {
 		case 409:
 			return errors.New(fmt.Sprintf("delete: Conflict: the target library #%v is locked", collection.Group.Id))
@@ -99,13 +108,21 @@ func (collection *Collection) UpdateCloud() error {
 			sendData.Key = ""
 		}
 		collections := []CollectionData{sendData}
-		resp, err := collection.Group.Zot.client.R().
-			SetHeader("Accept", "application/json").
-			SetBody(collections).
-			Post(endpoint)
-		if err != nil {
-			return errors.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
+		var resp *resty.Response
+		var err error
+		for {
+			resp, err = collection.Group.Zot.client.R().
+				SetHeader("Accept", "application/json").
+				SetBody(collections).
+				Post(endpoint)
+			if err != nil {
+				return errors.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
+			}
+			if !collection.Group.Zot.CheckRetry(resp.Header()) {
+				break
+			}
 		}
+		collection.Group.Zot.CheckBackoff(resp.Header())
 		if resp.StatusCode() >= 400 {
 			return errors.Errorf("create collection failed with status %d: %s", resp.StatusCode(), string(resp.Body()))
 		}
@@ -142,10 +159,18 @@ func (collection *Collection) DeleteCloud(lastModifiedVersion int64) error {
 	if lastModifiedVersion > 0 {
 		req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", lastModifiedVersion))
 	}
-	resp, err := req.Delete(endpoint)
-	if err != nil {
-		return errors.Wrapf(err, "delete collection %v with %s", collection.Key, endpoint)
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = req.Delete(endpoint)
+		if err != nil {
+			return errors.Wrapf(err, "delete collection %v with %s", collection.Key, endpoint)
+		}
+		if !collection.Group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
 	}
+	collection.Group.Zot.CheckBackoff(resp.Header())
 	switch resp.RawResponse.StatusCode {
 	case 200, 204:
 		collection.Deleted = true

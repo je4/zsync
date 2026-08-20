@@ -2,11 +2,13 @@ package zotero
 
 import (
 	"encoding/json"
+	"github.com/je4/zsync/v2/info"
 	"github.com/rs/zerolog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestItemDataPersonSerialization(t *testing.T) {
@@ -206,6 +208,28 @@ func TestCheckRetryAndBackoff(t *testing.T) {
 	if zot.CheckBackoff(hInvalid) {
 		t.Errorf("CheckBackoff should return false for invalid Backoff")
 	}
+
+	// Past HTTP-date Retry-After
+	hPastDate := http.Header{
+		"Retry-After": []string{"Fri, 31 Dec 1999 23:59:59 GMT"},
+	}
+	if zot.CheckRetry(hPastDate) {
+		t.Errorf("CheckRetry should return false for past HTTP-Date Retry-After")
+	}
+
+	// Future HTTP-date Retry-After (1 second ahead)
+	futureDate := time.Now().Add(1 * time.Second).UTC().Format(http.TimeFormat)
+	hFutureDate := http.Header{
+		"Retry-After": []string{futureDate},
+	}
+	start := time.Now()
+	if !zot.CheckRetry(hFutureDate) {
+		t.Errorf("CheckRetry should return true for future HTTP-Date Retry-After")
+	}
+	elapsed := time.Since(start)
+	if elapsed < 500*time.Millisecond {
+		t.Errorf("expected sleep on future HTTP-Date Retry-After, got elapsed %v", elapsed)
+	}
 }
 
 func TestTagPagination(t *testing.T) {
@@ -299,5 +323,226 @@ func TestApiVersionHeaderAndInit(t *testing.T) {
 	}
 	if zot.client.Header.Get("Zotero-API-Version") != "3" {
 		t.Errorf("expected client header Zotero-API-Version to be '3', got '%s'", zot.client.Header.Get("Zotero-API-Version"))
+	}
+}
+
+func TestUserAgentHeaderAndInit(t *testing.T) {
+	receivedUserAgentHeader := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedUserAgentHeader = r.Header.Get("User-Agent")
+		if r.URL.Path == "/keys/test-api-key" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"key":"test-api-key","userId":123,"user":123,"access":{"user":{"library":true,"files":true}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	logger := zerolog.Nop()
+	zot, err := NewZotero(server.URL, "test-api-key", nil, nil, "public", false, &logger, false)
+	if err != nil {
+		t.Fatalf("unexpected error creating Zotero client: %v", err)
+	}
+	expectedUA := info.GetUserAgent()
+	if receivedUserAgentHeader != expectedUA {
+		t.Errorf("expected User-Agent '%s', got '%s'", expectedUA, receivedUserAgentHeader)
+	}
+	if zot.client.Header.Get("User-Agent") != expectedUA {
+		t.Errorf("expected client header User-Agent to be '%s', got '%s'", expectedUA, zot.client.Header.Get("User-Agent"))
+	}
+}
+
+func TestCollectionDataVersionSerialization(t *testing.T) {
+	// Case 1: New collection creation (Key == "", Version == 0) -> omit key and version
+	cdNew := CollectionData{
+		Key:     "",
+		Name:    "Test New Collection",
+		Version: 0,
+	}
+	bytesNew, err := json.Marshal(cdNew)
+	if err != nil {
+		t.Fatalf("failed to marshal CollectionData: %v", err)
+	}
+	var mapNew map[string]any
+	if err := json.Unmarshal(bytesNew, &mapNew); err != nil {
+		t.Fatalf("failed to unmarshal JSON into map: %v", err)
+	}
+	if _, exists := mapNew["key"]; exists {
+		t.Errorf("expected 'key' to be omitted when empty, but found: %v", mapNew["key"])
+	}
+	if _, exists := mapNew["version"]; exists {
+		t.Errorf("expected 'version' to be omitted when 0, but found: %v", mapNew["version"])
+	}
+	if rel, exists := mapNew["relations"]; !exists {
+		t.Error("expected 'relations' to be present")
+	} else if relMap, ok := rel.(map[string]any); !ok || len(relMap) != 0 {
+		t.Errorf("expected 'relations' to be empty object, got: %v", rel)
+	}
+
+	// Case 2: Existing collection update (Key != "", Version > 0) -> retain key and version
+	cdExisting := CollectionData{
+		Key:     "COLL123",
+		Name:    "Test Existing Collection",
+		Version: 12,
+	}
+	bytesExisting, err := json.Marshal(cdExisting)
+	if err != nil {
+		t.Fatalf("failed to marshal CollectionData: %v", err)
+	}
+	var mapExisting map[string]any
+	if err := json.Unmarshal(bytesExisting, &mapExisting); err != nil {
+		t.Fatalf("failed to unmarshal JSON into map: %v", err)
+	}
+	if val, exists := mapExisting["key"]; !exists || val != "COLL123" {
+		t.Errorf("expected 'key' to be 'COLL123', got: %v", val)
+	}
+	if val, exists := mapExisting["version"]; !exists || val != float64(12) {
+		t.Errorf("expected 'version' to be 12, got: %v", val)
+	}
+}
+
+func TestItemGenericVersionSerialization(t *testing.T) {
+	// Case 1: New item creation (Key == "", Version == 0) -> omit key and version
+	itemNew := ItemGeneric{
+		ItemDataBase: ItemDataBase{
+			Key:      "",
+			Version:  0,
+			ItemType: "book",
+		},
+		Title: "New Book",
+	}
+	bytesNew, err := json.Marshal(itemNew)
+	if err != nil {
+		t.Fatalf("failed to marshal ItemGeneric: %v", err)
+	}
+	var mapNew map[string]any
+	if err := json.Unmarshal(bytesNew, &mapNew); err != nil {
+		t.Fatalf("failed to unmarshal JSON into map: %v", err)
+	}
+	if _, exists := mapNew["key"]; exists {
+		t.Errorf("expected 'key' to be omitted when empty, but found: %v", mapNew["key"])
+	}
+	if _, exists := mapNew["version"]; exists {
+		t.Errorf("expected 'version' to be omitted when 0, but found: %v", mapNew["version"])
+	}
+	if rel, exists := mapNew["relations"]; !exists {
+		t.Error("expected 'relations' to be present")
+	} else if relMap, ok := rel.(map[string]any); !ok || len(relMap) != 0 {
+		t.Errorf("expected 'relations' to be empty object, got: %v", rel)
+	}
+
+	// Case 2: Existing item update (Key != "", Version > 0) -> retain key and version
+	itemExisting := ItemGeneric{
+		ItemDataBase: ItemDataBase{
+			Key:      "ITEM123",
+			Version:  45,
+			ItemType: "book",
+		},
+		Title: "Existing Book",
+	}
+	bytesExisting, err := json.Marshal(itemExisting)
+	if err != nil {
+		t.Fatalf("failed to marshal ItemGeneric: %v", err)
+	}
+	var mapExisting map[string]any
+	if err := json.Unmarshal(bytesExisting, &mapExisting); err != nil {
+		t.Fatalf("failed to unmarshal JSON into map: %v", err)
+	}
+	if val, exists := mapExisting["key"]; !exists || val != "ITEM123" {
+		t.Errorf("expected 'key' to be 'ITEM123', got: %v", val)
+	}
+	if val, exists := mapExisting["version"]; !exists || val != float64(45) {
+		t.Errorf("expected 'version' to be 45, got: %v", val)
+	}
+}
+
+func TestItemDataAttachmentSerialization(t *testing.T) {
+	// 1. Test ItemDataAttachment struct
+	att := ItemDataAttachment{
+		ItemDataBase: ItemDataBase{
+			Key:        "ATT12345",
+			Version:    5,
+			ItemType:   "attachment",
+			ParentItem: "PARENT999",
+			Tags: []ItemTag{
+				{Tag: "pdf"},
+			},
+		},
+		Title:       "Research Paper Attachment.pdf",
+		LinkMode:    "imported_file",
+		ContentType: "application/pdf",
+		Charset:     "utf-8",
+		Filename:    "paper.pdf",
+		MD5:         "d41d8cd98f00b204e9800998ecf8427e",
+		MTime:       1609459200000,
+	}
+
+	attBytes, err := json.Marshal(att)
+	if err != nil {
+		t.Fatalf("failed to marshal ItemDataAttachment: %v", err)
+	}
+
+	var attMap map[string]any
+	if err := json.Unmarshal(attBytes, &attMap); err != nil {
+		t.Fatalf("failed to unmarshal JSON into map: %v", err)
+	}
+
+	if attMap["itemType"] != "attachment" {
+		t.Errorf("expected itemType 'attachment', got: %v", attMap["itemType"])
+	}
+	if attMap["linkMode"] != "imported_file" {
+		t.Errorf("expected linkMode 'imported_file', got: %v", attMap["linkMode"])
+	}
+	if attMap["contentType"] != "application/pdf" {
+		t.Errorf("expected contentType 'application/pdf', got: %v", attMap["contentType"])
+	}
+	if attMap["filename"] != "paper.pdf" {
+		t.Errorf("expected filename 'paper.pdf', got: %v", attMap["filename"])
+	}
+	if attMap["parentItem"] != "PARENT999" {
+		t.Errorf("expected parentItem 'PARENT999', got: %v", attMap["parentItem"])
+	}
+	if attMap["md5"] != "d41d8cd98f00b204e9800998ecf8427e" {
+		t.Errorf("expected md5 'd41d8cd98f00b204e9800998ecf8427e', got: %v", attMap["md5"])
+	}
+
+	var attUnmarshaled ItemDataAttachment
+	if err := json.Unmarshal(attBytes, &attUnmarshaled); err != nil {
+		t.Fatalf("failed to unmarshal ItemDataAttachment: %v", err)
+	}
+	if attUnmarshaled.Filename != att.Filename || attUnmarshaled.ParentItem != att.ParentItem || attUnmarshaled.LinkMode != att.LinkMode {
+		t.Errorf("unmarshaled ItemDataAttachment mismatch: %+v vs %+v", attUnmarshaled, att)
+	}
+
+	// 2. Test ItemGeneric with attachment fields
+	genAtt := ItemGeneric{
+		ItemDataBase: ItemDataBase{
+			Key:        "ATTGEN12",
+			Version:    2,
+			ItemType:   "attachment",
+			ParentItem: "PARENT888",
+		},
+		Title:       "Document Note.txt",
+		LinkMode:    "imported_file",
+		ContentType: "text/plain",
+		Filename:    "document.txt",
+		MD5:         "098f6bcd4621d373cade4e832627b4f6",
+		MTime:       1620000000000,
+	}
+
+	genBytes, err := json.Marshal(genAtt)
+	if err != nil {
+		t.Fatalf("failed to marshal ItemGeneric attachment: %v", err)
+	}
+
+	var genUnmarshaled ItemGeneric
+	if err := json.Unmarshal(genBytes, &genUnmarshaled); err != nil {
+		t.Fatalf("failed to unmarshal ItemGeneric attachment: %v", err)
+	}
+	if genUnmarshaled.ItemType != "attachment" || genUnmarshaled.LinkMode != "imported_file" || genUnmarshaled.ContentType != "text/plain" || genUnmarshaled.Filename != "document.txt" || genUnmarshaled.ParentItem != "PARENT888" {
+		t.Errorf("unmarshaled ItemGeneric attachment mismatch: %+v vs %+v", genUnmarshaled, genAtt)
 	}
 }

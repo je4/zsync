@@ -3,6 +3,7 @@ package zotero
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/je4/zsync/v2/info"
 	"github.com/rs/zerolog"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,7 @@ const (
 var (
 	localAuthMutex sync.Mutex
 	cachedLocalKey string
+	localAuthDone  bool
 )
 
 func getLocalTestConfig() (string, int64, string) {
@@ -54,7 +56,13 @@ func checkLocalZoteroAvailable(t *testing.T, endpoint string, groupId int64) {
 	}
 
 	probeUrl := fmt.Sprintf("%s/groups/%d", endpoint, groupId)
-	resp, err := client.Get(probeUrl)
+	req, err := http.NewRequest(http.MethodGet, probeUrl, nil)
+	if err != nil {
+		t.Fatalf("failed to construct probe request: %v", err)
+	}
+	req.Header.Set("User-Agent", info.GetUserAgent())
+
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Logf("Local Zotero instance unreachable at %s (%v). Skipping integration test.", probeUrl, err)
 		t.Skipf("Local Zotero instance is not available at %s - skipping test", endpoint)
@@ -89,14 +97,15 @@ func getTestClient(t *testing.T) (*Zotero, *Group) {
 
 	if strings.Contains(endpoint, "localhost") || strings.Contains(endpoint, "127.0.0.1") {
 		localAuthMutex.Lock()
-		if cachedLocalKey == "" {
+		if !localAuthDone {
+			localAuthDone = true
 			if key, authErr := zot.AuthorizeLocal("ZSyncTest"); authErr == nil && key != "" {
 				cachedLocalKey = key
 				t.Logf("Successfully obtained local authorization key: %s", key)
 			} else {
 				t.Logf("Local authorization notice: %v", authErr)
 			}
-		} else {
+		} else if cachedLocalKey != "" {
 			zot.SetApiKey(cachedLocalKey)
 		}
 		localAuthMutex.Unlock()
@@ -465,6 +474,9 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 	var currentVersion int64 = 1
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), "zsync") {
+			t.Errorf("expected User-Agent starting with 'zsync', got '%s'", r.Header.Get("User-Agent"))
+		}
 		w.Header().Set("Zotero-API-Version", "3")
 		w.Header().Set("Content-Type", "application/json")
 
@@ -619,6 +631,9 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 	var currentVersion int64 = 1
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), "zsync") {
+			t.Errorf("expected User-Agent starting with 'zsync', got '%s'", r.Header.Get("User-Agent"))
+		}
 		w.Header().Set("Zotero-API-Version", "3")
 		w.Header().Set("Content-Type", "application/json")
 
@@ -814,6 +829,9 @@ func TestLocalApi_ServerIdHeader_MockServer(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), "zsync") {
+			t.Errorf("expected User-Agent starting with 'zsync', got '%s'", r.Header.Get("User-Agent"))
+		}
 		w.Header().Set("Zotero-Server-ID", mockServerID)
 		w.Header().Set("Zotero-API-Version", "3")
 		w.Header().Set("Content-Type", "application/json")

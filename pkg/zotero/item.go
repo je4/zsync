@@ -6,6 +6,7 @@ import (
 	"emperror.dev/errors"
 	"encoding/json"
 	"fmt"
+	"github.com/je4/zsync/v2/info"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"gopkg.in/resty.v1"
 	"path/filepath"
@@ -57,6 +58,13 @@ type ItemTag struct {
 
 type Relations map[string]ZoteroStringList
 
+func (rl Relations) MarshalJSON() ([]byte, error) {
+	if rl == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(map[string]ZoteroStringList(rl))
+}
+
 func (rl *Relations) UnmarshalJSON(data []byte) error {
 	var i any
 	if err := json.Unmarshal(data, &i); err != nil {
@@ -87,12 +95,12 @@ func (rl *Relations) UnmarshalJSON(data []byte) error {
 
 type ItemDataBase struct {
 	Key          string           `json:"key,omitempty"`
-	Version      int64            `json:"version"`
+	Version      int64            `json:"version,omitempty"`
 	ItemType     string           `json:"itemType"`
 	Tags         []ItemTag        `json:"tags"`
 	Relations    Relations        `json:"relations"`
 	ParentItem   string           `json:"parentItem,omitempty"`
-	Collections  []string         `json:"collections"`
+	Collections  []string         `json:"collections,omitempty"`
 	DateAdded    string           `json:"dateAdded,omitempty"`
 	DateModified string           `json:"dateModified,omitempty"`
 	Creators     []ItemDataPerson `json:"creators,omitempty"`
@@ -328,21 +336,28 @@ func (item *Item) uploadFileCloud() error {
 		h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
 	}
 	item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
-	info, err := item.Group.Zot.Fs.FileStat(bucket, item.Key, filesystem.FileStatOptions{})
+	fInfo, err := item.Group.Zot.Fs.FileStat(bucket, item.Key, filesystem.FileStatOptions{})
 	if err != nil {
 		return errors.Wrapf(err, "cannot stat file")
 	}
-	resp, err := h.
-		SetFormData(map[string]string{
-			"md5":      fmt.Sprintf("%s", md5str),
-			"filename": item.Key,
-			"filesize": fmt.Sprintf("%v", info.Size()),
-			"mtime":    fmt.Sprintf("%v", info.ModTime().UnixNano()/int64(time.Millisecond)),
-		}).
-		Post(endpoint)
-	if err != nil {
-		return errors.Wrapf(err, "upload attachment for item %v with %s", item.Key, endpoint)
+	var resp *resty.Response
+	for {
+		resp, err = h.
+			SetFormData(map[string]string{
+				"md5":      fmt.Sprintf("%s", md5str),
+				"filename": item.Key,
+				"filesize": fmt.Sprintf("%v", fInfo.Size()),
+				"mtime":    fmt.Sprintf("%v", fInfo.ModTime().UnixNano()/int64(time.Millisecond)),
+			}).
+			Post(endpoint)
+		if err != nil {
+			return errors.Wrapf(err, "upload attachment for item %v with %s", item.Key, endpoint)
+		}
+		if !item.Group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
 	}
+	item.Group.Zot.CheckBackoff(resp.Header())
 	switch resp.StatusCode() {
 	case 200:
 	case 403:
@@ -394,6 +409,7 @@ func (item *Item) uploadFileCloud() error {
 	}
 	item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	resp, err = resty.New().R().
+		SetHeader("User-Agent", info.GetUserAgent()).
 		SetHeader("Content-Type", contenttype).
 		SetBody(append([]byte(prefix), append(data, []byte(suffix)...)...)).
 		Post(endpoint)
@@ -415,12 +431,18 @@ func (item *Item) uploadFileCloud() error {
 	} else {
 		h.SetHeader("If-Match", fmt.Sprintf("%s", item.MD5))
 	}
-	resp, err = h.
-		SetFormData(map[string]string{"upload": uploadKey}).
-		Post(endpoint)
-	if err != nil {
-		return errors.Wrapf(err, "cannot register upload %v", endpoint)
+	for {
+		resp, err = h.
+			SetFormData(map[string]string{"upload": uploadKey}).
+			Post(endpoint)
+		if err != nil {
+			return errors.Wrapf(err, "cannot register upload %v", endpoint)
+		}
+		if !item.Group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
 	}
+	item.Group.Zot.CheckBackoff(resp.Header())
 	switch resp.StatusCode() {
 	case 204:
 	case 412:
@@ -443,13 +465,21 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 	if item.Deleted {
 		endpoint := fmt.Sprintf("/groups/%v/items/%v", item.Group.Id, item.Key)
 		item.Group.Zot.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
-		resp, err := item.Group.Zot.client.R().
-			SetHeader("Accept", "application/json").
-			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
-			Delete(endpoint)
-		if err != nil {
-			return errors.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+		var resp *resty.Response
+		var err error
+		for {
+			resp, err = item.Group.Zot.client.R().
+				SetHeader("Accept", "application/json").
+				SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
+				Delete(endpoint)
+			if err != nil {
+				return errors.Wrapf(err, "delete item %v with %s", item.Key, endpoint)
+			}
+			if !item.Group.Zot.CheckRetry(resp.Header()) {
+				break
+			}
 		}
+		item.Group.Zot.CheckBackoff(resp.Header())
 		switch resp.RawResponse.StatusCode {
 		case 409:
 			return errors.New(fmt.Sprintf("delete: Conflict: the target library #%v is locked", item.Group.Id))
@@ -471,11 +501,25 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
 			SetBody(items)
 
-		resp, err := req.
-			Post(endpoint)
-		if err != nil {
-			return errors.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+		var resp *resty.Response
+		var err error
+		for {
+			resp, err = req.Post(endpoint)
+			if err != nil {
+				return errors.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+			}
+			if resp.StatusCode() == 412 {
+				if lmv, lErr := strconv.ParseInt(resp.Header().Get("Last-Modified-Version"), 10, 64); lErr == nil && lmv > 0 {
+					*lastModifiedVersion = lmv
+					req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion))
+					continue
+				}
+			}
+			if !item.Group.Zot.CheckRetry(resp.Header()) {
+				break
+			}
 		}
+		item.Group.Zot.CheckBackoff(resp.Header())
 		if resp.StatusCode() >= 400 {
 			return errors.Errorf("create item failed with status %d: %s", resp.StatusCode(), string(resp.Body()))
 		}
@@ -514,6 +558,7 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 				item.Group.ItemVersion = i.Version
 			}
 		}
+		oldKey := item.Key
 		item.Key = successKey
 		item.Data.Key = successKey
 		if successfulItem, ok := result.Successful["0"]; ok && successfulItem.Version > 0 {
@@ -521,6 +566,16 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			item.Data.Version = successfulItem.Version
 		}
 		if item.Data.ItemType == "attachment" && item.Data.LinkMode == "imported_file" {
+			if oldKey != "" && oldKey != successKey && item.Group != nil && item.Group.Zot != nil && item.Group.Zot.Fs != nil {
+				bucket, bErr := item.Group.GetFolder()
+				if bErr == nil {
+					if exists, _ := item.Group.Zot.Fs.FileExists(bucket, oldKey); exists {
+						if fileData, fErr := item.Group.Zot.Fs.FileGet(bucket, oldKey, filesystem.FileGetOptions{}); fErr == nil {
+							_ = item.Group.Zot.Fs.FilePut(bucket, successKey, fileData, filesystem.FilePutOptions{})
+						}
+					}
+				}
+			}
 			if err := item.uploadFileCloud(); err != nil {
 				return errors.Wrapf(err, "cannot upload file")
 			}
@@ -543,10 +598,18 @@ func (item *Item) DeleteCloud(lastModifiedVersion int64) error {
 	if lastModifiedVersion > 0 {
 		req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", lastModifiedVersion))
 	}
-	resp, err := req.Delete(endpoint)
-	if err != nil {
-		return errors.Wrapf(err, "delete item %v with %s", item.Key, endpoint)
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = req.Delete(endpoint)
+		if err != nil {
+			return errors.Wrapf(err, "delete item %v with %s", item.Key, endpoint)
+		}
+		if !item.Group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
 	}
+	item.Group.Zot.CheckBackoff(resp.Header())
 	switch resp.RawResponse.StatusCode {
 	case 200, 204:
 		item.Deleted = true

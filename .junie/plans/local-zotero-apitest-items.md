@@ -5,54 +5,95 @@ sessionId: session-260820-082621-1vhq
 # Requirements
 
 ### Overview & Goals
-Enable authorized write operations in local Zotero API tests and client by supporting the Zotero desktop local authorization handshake (`POST /api/local/authorize`). This allows `TestLocalApi_CreateAndRetainItems` and `TestLocalApi_CreateAndRetainCollections` to successfully authenticate, create, update, and retain test items and collections in the local Zotero `APITEST` group (`6642571`).
+Extend the test suite to test Zotero file attachments (`itemType == "attachment"`) including attachment item creation, the multi-step file upload protocol (`/items/{key}/file` upload authorization, storage upload, and registration), file downloads (`GET /items/{key}/file`), and data retention in the `APITEST` library across both Cloud API and mock environments.
 
 ### Scope
 - **In Scope:**
-  - Implement `AuthorizeLocal(appName string) (string, error)` method on `Zotero` client in `pkg/zotero/apiKey.go` or `pkg/zotero/zotero.go`.
-  - When initializing or writing to a local Zotero desktop endpoint (`localhost`/`127.0.0.1`), automatically perform local authorization if no valid API key is present or when receiving 401.
-  - Update `pkg/zotero/zotero_local_api_test.go` to obtain local authorization for write operations against the local Zotero instance.
-  - Verify write, update, and retention operations against the local `APITEST` library.
+  - Attachment item creation with `itemType: "attachment"`, `linkMode: "imported_file"`, `contentType`, `filename`, and optional `parentItem`.
+  - Multi-step file upload testing:
+    - Step 1: Upload authorization request via `POST /groups/{groupId}/items/{itemKey}/file` (`md5`, `filename`, `filesize`, `mtime`).
+    - Step 2: Direct/S3 storage upload with `prefix` + binary payload + `suffix`.
+    - Step 3: Upload registration via `POST /groups/{groupId}/items/{itemKey}/file` (`upload: uploadKey`).
+  - File download testing via `DownloadAttachmentCloud()` (`GET /groups/{groupId}/items/{itemKey}/file`).
+  - End-to-end mock server tests covering the complete attachment upload, download, and retry/rate-limiting flow.
+  - Integration tests for live Cloud API (`TestCloudApi_CreateAndUploadAttachment`, `TestCloudApi_DownloadAttachment`) using a temporary `filesystem.LocalFs` store.
+  - Retention verification update in `TestCloudApi_VerifyRetainedData` to inspect child attachment items.
+  - Serialization unit tests for `ItemDataAttachment` and `ItemGeneric` attachment fields.
 - **Out of Scope:**
-  - Cloud server database schema changes or sync daemon refactoring.
+  - Proprietary third-party storage backends (WebDAV / custom S3 sync scripts).
 
 ### User Stories
-- As a developer, I want the Zotero client and integration tests to automatically authorize against the local Zotero desktop API via `/api/local/authorize` so that write tests succeed and populate items/collections in the `APITEST` group.
+- As a developer, I want automated tests to verify that attachment items can be created, uploaded, and downloaded via the Zotero API, so that file synchronizations operate reliably.
+
+### Functional Requirements
+- Attachment items with `linkMode: "imported_file"` and associated binary files stored in `zot.Fs` must successfully execute `item.UpdateCloud()` and complete the 3-step upload protocol.
+- `item.DownloadAttachmentCloud()` must retrieve the uploaded binary content, store it in `zot.Fs`, and return the expected MD5 digest.
+- Mock server tests must validate upload authorization, prefix/suffix handling, registration, and binary download without external network dependencies.
+- Cloud integration tests must verify parent-child relationship between a bibliographic item and its attachment in group `APITEST`.
 
 # Technical Design
 
 ### Current Implementation
-- Local Zotero Desktop connector API (`http://localhost:23119/api`) requires `Zotero-Server-ID` and a session key generated via `POST /api/local/authorize` with `{"appName": "..."}`.
-- Passing arbitrary/expired cloud API keys returns `401 Unauthorized: Invalid or expired API key`.
-- `TestLocalApi_CreateAndRetainItems` and `TestLocalApi_CreateAndRetainCollections` catch 401 and invoke `t.Skipf`, leaving `APITEST` with 0 items and 0 collections.
+- `pkg/zotero/itemAttachment.go`: Defines `ItemDataAttachment` with `LinkMode`, `ContentType`, `Filename`, `MD5`, `MTime`, etc.
+- `pkg/zotero/itemGeneric.go`: Contains attachment fields on `ItemGeneric` (`LinkMode`, `ContentType`, `Filename`, `MD5`, `MTime`).
+- `pkg/zotero/item.go`:
+  - `uploadFileCloud()`: Implements the 3-step upload protocol:
+    1. `POST /groups/{groupId}/items/{itemKey}/file` with form params (`md5`, `filename`, `filesize`, `mtime`) -> receives `url`, `contentType`, `prefix`, `suffix`, `uploadKey` (or `exists`).
+    2. `POST <url>` with `prefix + data + suffix` -> `201 Created`.
+    3. `POST /groups/{groupId}/items/{itemKey}/file` with `upload=<uploadKey>` -> `204 No Content`.
+  - `DownloadAttachmentCloud()`: Queries `GET /groups/{groupId}/items/{itemKey}/file`, stores data in `item.Group.Zot.Fs`, and returns MD5.
+  - `UpdateCloud()`: Automatically triggers `uploadFileCloud()` when `item.Data.ItemType == "attachment" && item.Data.LinkMode == "imported_file"`.
 
 ### Key Decisions
-- **Local Handshake Support:** Add `AuthorizeLocal(appName string) (string, error)` in `pkg/zotero/apiKey.go`.
-  - Sends `POST /api/local/authorize` with `Zotero-Server-ID` header and payload `{"appName": appName}`.
-  - Stores returned `key` in `zot.apiKey`, updates `Zotero-API-Key` header and auth token on `zot.client`.
-- **Automatic Local Client Init:** In `getTestClient()` or `zot.Init()`, detect local endpoints and call `AuthorizeLocal("ZSync")` when appropriate.
+- **Temporary LocalFs for Attachment File Storage in Tests:**
+  - In integration tests, configure `Zotero.Fs` with a temporary directory (`t.TempDir()`) using `filesystem.NewLocalFs` so `uploadFileCloud()` and `DownloadAttachmentCloud()` can read and write actual binary files safely.
+- **Comprehensive Mock Server Lifecycle:**
+  - Create a mock HTTP server in `pkg/zotero/zotero_cloud_api_test.go` simulating upload authorization, mock storage endpoint (`/upload-mock`), registration, and file download to guarantee fast, deterministic regression testing.
+- **Parent Item Attachment Workflow in Cloud Integration Tests:**
+  - Create a parent book item first, then attach a child file attachment (`parentItem: parentKey`), verify upload, and verify download.
 
-### Proposed Changes
-- **`pkg/zotero/apiKey.go`:**
-  - Add `type LocalAuthResponse struct { Key string json:"key", Remember bool json:"remember" }`.
-  - Add `func (zot *Zotero) AuthorizeLocal(appName string) (string, error)`.
-- **`pkg/zotero/zotero_local_api_test.go`:**
-  - Update `getTestClient()` to invoke `zot.AuthorizeLocal("ZSyncTest")` for write capability against local Zotero.
-  - Run and verify `TestLocalApi_CreateAndRetainItems`, `TestLocalApi_CreateAndRetainCollections`, and `TestLocalApi_VerifyRetainedData`.
+### Architecture Diagram
+```mermaid
+graph LR
+    Test[Attachment Test] --> Client[Zotero Client]
+    Client -->|1. Create Attachment Item| API[Zotero API]
+    Client -->|2. Upload Auth Request| API
+    Client -->|3. Storage POST prefix+data+suffix| Storage[S3 / Storage Endpoint]
+    Client -->|4. Register Upload| API
+    Client -->|5. Download GET /file| API
+```
+
+### File Structure
+- `pkg/zotero/zotero_cloud_api_test.go`:
+  - Add `TestCloudApi_AttachmentUploadAndDownload_MockServer`.
+  - Add `TestCloudApi_CreateAndRetainAttachment`.
+  - Update `TestCloudApi_VerifyRetainedData` to log and verify attachments.
+- `pkg/zotero/zotero_test.go`:
+  - Add `TestItemDataAttachmentSerialization`.
 
 # Testing
 
 ### Validation Approach
-- Execute `go test -v -run TestLocalApi ./pkg/zotero/...`.
-- Verify `TestLocalApi_CreateAndRetainItems` and `TestLocalApi_CreateAndRetainCollections` succeed without skipping.
-- Verify `TestLocalApi_VerifyRetainedData` confirms created items and collections exist in local Zotero `APITEST` group (`6642571`).
+- **Unit Tests:**
+  - Validate JSON marshaling/unmarshaling of `ItemDataAttachment` and `ItemGeneric` for attachment items.
+- **Mock Server Tests:**
+  - Simulate the full upload authorization, payload framing, registration, and download cycle.
+  - Test edge cases like `"exists": 1` (file already on server) and rate limiting (HTTP 429).
+- **Live Integration Tests:**
+  - Execute `TestCloudApi_CreateAndRetainAttachment` against the live `APITEST` library to confirm end-to-end compatibility.
 
-# Delivery Steps
+### ✓ Step 1: Unit tests for attachment item serialization
+- Add unit test `TestItemDataAttachmentSerialization` in `pkg/zotero/zotero_test.go` covering JSON marshaling and unmarshaling of attachment items (`ItemDataAttachment`, `ItemGeneric`) including fields `linkMode`, `contentType`, `filename`, `md5`, `mtime`, `parentItem`.
 
-### ✓ Step 1: Implement Local Authorization Handshake in pkg/zotero
-- Add `AuthorizeLocal(appName string) (string, error)` in `pkg/zotero/apiKey.go`.
-- Ensure `Zotero-Server-ID` header and `Zotero-API-Key` header are properly set on successful authorization.
+### ✓ Step 2: Mock server tests for attachment upload and download protocol
+- Add `TestCloudApi_AttachmentUploadAndDownload_MockServer` in `pkg/zotero/zotero_cloud_api_test.go` simulating upload authorization (step 1), direct/S3 storage endpoint with prefix/suffix framing (step 2), registration (step 3), existing file case (`"exists": 1`), and file download via `DownloadAttachmentCloud()`.
 
-### ✓ Step 2: Wire Local Authorization in Integration Tests and Verify Data Creation
-- Call `AuthorizeLocal` in `pkg/zotero/zotero_local_api_test.go` test setup.
-- Run tests and verify that items and collections are successfully created and retained in local Zotero `APITEST` group.
+### ✓ Step 3: Integration tests for attachment creation, upload, download, and retention
+- In `pkg/zotero/zotero_cloud_api_test.go`, add `TestCloudApi_CreateAndRetainAttachment` (and update `TestCloudApi_VerifyRetainedData`) using temporary `filesystem.LocalFs` to test creating parent item, creating child attachment item, uploading file content, downloading file content, verifying MD5 and parent relationship against live Cloud API.
+
+### ✓ Step 4: Execute test suite and verify all tests pass
+- Run `go test -v -run TestItemDataAttachmentSerialization ./pkg/zotero/...`.
+- Run `go test -v -run TestCloudApi_AttachmentUploadAndDownload_MockServer ./pkg/zotero/...`.
+- Run `go test -v -run TestCloudApi_CreateAndRetainAttachment ./pkg/zotero/...`.
+- Run `go test -v -run TestCloudApi_VerifyRetainedData ./pkg/zotero/...`.
+- Run full test suite `go test -count=1 ./pkg/... ./info/...`.

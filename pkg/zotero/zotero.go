@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/je4/utils/v2/pkg/zLogger"
+	"github.com/je4/zsync/v2/info"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/lib/pq"
 	"gopkg.in/resty.v1"
@@ -88,6 +89,13 @@ type Deletions struct {
 
 // Relations are empty array or string map
 type RelationList map[string]string
+
+func (rl RelationList) MarshalJSON() ([]byte, error) {
+	if rl == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(map[string]string(rl))
+}
 
 func (rl *RelationList) UnmarshalJSON(data []byte) error {
 	var i any
@@ -205,6 +213,7 @@ func NewZotero(baseUrl string, apiKey string, db *sql.DB, fs filesystem.FileSyst
 func (zot *Zotero) Init() (err error) {
 	zot.client = resty.New()
 	zot.client.SetHostURL(zot.baseUrl.String())
+	zot.client.SetHeader("User-Agent", info.GetUserAgent())
 	if zot.apiKey != "" {
 		zot.client.SetAuthToken(zot.apiKey)
 		zot.client.SetHeader("Zotero-API-Key", zot.apiKey)
@@ -285,21 +294,36 @@ If a client has made too many requests within a given time period, the API may r
 Retry-After can also be included with 503 Service Unavailable responses when the server is undergoing maintenance.
 */
 func (zot *Zotero) CheckRetry(header http.Header) bool {
-	var err error
-	retryAfter := int64(0)
-	retryAfterStr := header.Get("Retry-After")
-	if retryAfterStr != "" {
-		retryAfter, err = strconv.ParseInt(retryAfterStr, 10, 64)
-		if err != nil {
+	if header == nil {
+		return false
+	}
+	retryAfterStr := strings.TrimSpace(header.Get("Retry-After"))
+	if retryAfterStr == "" {
+		return false
+	}
+	var retryAfter int64
+	if val, err := strconv.ParseInt(retryAfterStr, 10, 64); err == nil {
+		retryAfter = val
+	} else if t, err := http.ParseTime(retryAfterStr); err == nil {
+		diff := time.Until(t)
+		if diff > 0 {
+			retryAfter = int64(diff / time.Second)
+			if diff%time.Second > 0 {
+				retryAfter++
+			}
+		} else {
 			retryAfter = 0
 		}
 	}
 
 	if retryAfter > 0 {
-		zot.Logger.Info().Msgf("Sleeping %v seconds (RetryAfter)", retryAfter)
+		if zot.Logger != nil {
+			zot.Logger.Info().Msgf("Sleeping %v seconds (RetryAfter)", retryAfter)
+		}
 		time.Sleep(time.Duration(retryAfter) * time.Second)
+		return true
 	}
-	return retryAfter > 0
+	return false
 }
 
 func (zot *Zotero) GetFS() filesystem.FileSystem {
@@ -307,20 +331,25 @@ func (zot *Zotero) GetFS() filesystem.FileSystem {
 }
 
 func (zot *Zotero) CheckBackoff(header http.Header) bool {
-	var err error
-	backoff := int64(0)
-	backoffStr := header.Get("Backoff")
-	if backoffStr != "" {
-		backoff, err = strconv.ParseInt(backoffStr, 10, 64)
-		if err != nil {
-			backoff = 0
-		}
+	if header == nil {
+		return false
+	}
+	backoffStr := strings.TrimSpace(header.Get("Backoff"))
+	if backoffStr == "" {
+		return false
+	}
+	var backoff int64
+	if val, err := strconv.ParseInt(backoffStr, 10, 64); err == nil {
+		backoff = val
 	}
 	if backoff > 0 {
-		zot.Logger.Info().Msgf("Sleeping %v seconds (Backoff)", backoff)
+		if zot.Logger != nil {
+			zot.Logger.Info().Msgf("Sleeping %v seconds (Backoff)", backoff)
+		}
 		time.Sleep(time.Duration(backoff) * time.Second)
+		return true
 	}
-	return backoff > 0
+	return false
 }
 
 func (zot *Zotero) GetTypeStructs() (str string) {
@@ -413,6 +442,9 @@ func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 	}
 	if resp.StatusCode() == 404 {
 		return nil, nil
+	}
+	if resp.StatusCode() >= 400 {
+		return nil, errors.Errorf("failed to get group from %s with status %d: %s", endpoint, resp.StatusCode(), string(resp.Body()))
 	}
 	rawBody := resp.Body()
 	group := &Group{}
