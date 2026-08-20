@@ -47,6 +47,7 @@ func TextNoMeta(str string) string {
 type Zotero struct {
 	baseUrl  *url.URL
 	apiKey   string
+	ServerId string
 	client   *resty.Client
 	Logger   zLogger.ZLogger
 	db       *sql.DB
@@ -135,23 +136,32 @@ func (irl *ZoteroStringList) UnmarshalJSON(data []byte) error {
 }
 
 // zotero treats empty strings as false in ParentCollection
-type Parent string
+type ParentCollection string
 
-func (pc *Parent) UnmarshalJSON(data []byte) error {
+func (pc ParentCollection) MarshalJSON() ([]byte, error) {
+	if pc == "" {
+		return []byte("false"), nil
+	}
+	return json.Marshal(string(pc))
+}
+
+func (pc *ParentCollection) UnmarshalJSON(data []byte) error {
 	var i any
 	if err := json.Unmarshal(data, &i); err != nil {
 		return err
 	}
-	switch i.(type) {
+	switch v := i.(type) {
 	case bool:
 		*pc = ""
 	case string:
-		*pc = Parent(i.(string))
+		*pc = ParentCollection(v)
 	default:
-		return errors.New(fmt.Sprintf("invalid no string for %v", string(data)))
+		return errors.New(fmt.Sprintf("invalid type %v for %v", reflect.TypeOf(i), string(data)))
 	}
 	return nil
 }
+
+type Parent = ParentCollection
 
 func IsEmptyResult(err error) bool {
 	return err == sql.ErrNoRows
@@ -195,13 +205,76 @@ func NewZotero(baseUrl string, apiKey string, db *sql.DB, fs filesystem.FileSyst
 func (zot *Zotero) Init() (err error) {
 	zot.client = resty.New()
 	zot.client.SetHostURL(zot.baseUrl.String())
-	zot.client.SetAuthToken(zot.apiKey)
+	if zot.apiKey != "" {
+		zot.client.SetAuthToken(zot.apiKey)
+		zot.client.SetHeader("Zotero-API-Key", zot.apiKey)
+	}
 	zot.client.SetHeader("Zotero-API-Version", "3")
 	zot.client.SetContentLength(true)
 	zot.client.SetRedirectPolicy(resty.FlexibleRedirectPolicy(3))
-	zot.CurrentKey, err = zot.getCurrentKey()
+	if zot.apiKey != "" {
+		zot.CurrentKey, err = zot.getCurrentKey()
+		if err != nil {
+			if zot.Logger != nil {
+				zot.Logger.Warn().Msgf("Failed to retrieve current key (%v), falling back to server id detection", err)
+			}
+			_, _ = zot.DetectServerId()
+			if zot.CurrentKey == nil {
+				zot.CurrentKey = &ApiKey{
+					UserId:   0,
+					Username: "",
+				}
+			}
+			err = nil
+		}
+	} else {
+		_, _ = zot.DetectServerId()
+		if zot.CurrentKey == nil {
+			zot.CurrentKey = &ApiKey{
+				UserId:   0,
+				Username: "",
+			}
+		}
+	}
 
 	return
+}
+
+func (zot *Zotero) SetServerId(serverId string) {
+	zot.ServerId = serverId
+	if zot.client != nil && serverId != "" {
+		zot.client.SetHeader("Zotero-Server-ID", serverId)
+	}
+}
+
+func (zot *Zotero) DetectServerId() (string, error) {
+	resp, err := zot.client.R().Get("/")
+	if err != nil || resp.Header().Get("Zotero-Server-ID") == "" {
+		resp, err = zot.client.R().Get("")
+	}
+	if err != nil {
+		return "", errors.Wrap(err, "cannot detect server id")
+	}
+	serverId := resp.Header().Get("Zotero-Server-ID")
+	if serverId == "" {
+		serverId = resp.Header().Get("zotero-server-id")
+	}
+	if serverId != "" {
+		zot.SetServerId(serverId)
+	}
+	return serverId, nil
+}
+
+func (zot *Zotero) GetServerId() string {
+	return zot.ServerId
+}
+
+func (zot *Zotero) GetClient() *resty.Client {
+	return zot.client
+}
+
+func (zot *Zotero) GetBaseUrl() *url.URL {
+	return zot.baseUrl
 }
 
 /*
@@ -332,11 +405,14 @@ func (zot *Zotero) GetGroupCloud(groupId int64) (*Group, error) {
 	for {
 		resp, err = call.Get(endpoint)
 		if err != nil {
-			return nil, errors.Wrapf(err, "cannot get current key from %s", endpoint)
+			return nil, errors.Wrapf(err, "cannot get group from %s", endpoint)
 		}
 		if !zot.CheckRetry(resp.Header()) {
 			break
 		}
+	}
+	if resp.StatusCode() == 404 {
+		return nil, nil
 	}
 	rawBody := resp.Body()
 	group := &Group{}

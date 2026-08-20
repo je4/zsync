@@ -395,6 +395,74 @@ func (group *Group) GetItemsCloud(objectKeys []string) (*[]Item, error) {
 	return &result, nil
 }
 
+func (group *Group) GetItemByKeyCloud(key string) (*Item, error) {
+	endpoint := fmt.Sprintf("/groups/%v/items/%v", group.Id, key)
+	group.Zot.Logger.Info().Msgf("rest call: %s", endpoint)
+
+	call := group.Zot.client.R().
+		SetHeader("Accept", "application/json")
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return nil, errors.Wrapf(err, "cannot get item %s from %s", key, endpoint)
+		}
+		if !group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
+	}
+	if resp.StatusCode() == 404 {
+		return nil, nil
+	}
+	rawBody := resp.Body()
+	item := &Item{}
+	if err := json.Unmarshal(rawBody, item); err != nil {
+		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+	}
+	group.Zot.CheckBackoff(resp.Header())
+	item.Group = group
+	if item.Data.Collections == nil {
+		item.Data.Collections = []string{}
+	}
+	return item, nil
+}
+
+func (group *Group) GetItemsQueryCloud(queryParams map[string]string) (*[]Item, *resty.Response, error) {
+	endpoint := fmt.Sprintf("/groups/%v/items", group.Id)
+	group.Zot.Logger.Info().Msgf("rest call: %s", endpoint)
+
+	call := group.Zot.client.R().
+		SetHeader("Accept", "application/json").
+		SetQueryParams(queryParams)
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "cannot get items from %s", endpoint)
+		}
+		if !group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
+	}
+	group.Zot.CheckBackoff(resp.Header())
+	rawBody := resp.Body()
+	items := []Item{}
+	if err := json.Unmarshal(rawBody, &items); err != nil {
+		return nil, resp, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+	}
+	result := []Item{}
+	for _, item := range items {
+		item.Group = group
+		if item.Data.Collections == nil {
+			item.Data.Collections = []string{}
+		}
+		result = append(result, item)
+	}
+	return &result, resp, nil
+}
+
 func (group *Group) syncModifiedItems(lastModifiedVersion int64) (int64, error) {
 	var counter int64
 	sqlstr := fmt.Sprintf("SELECT COUNT(*)"+

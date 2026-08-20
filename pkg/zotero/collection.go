@@ -10,11 +10,11 @@ import (
 )
 
 type CollectionData struct {
-	Key              string       `json:"key"`
+	Key              string       `json:"key,omitempty"`
 	Name             string       `json:"name"`
 	Version          int64        `json:"version"`
 	Relations        RelationList `json:"relations"`
-	ParentCollection Parent       `json:"parentCollection,omitempty"`
+	ParentCollection Parent       `json:"parentCollection"`
 }
 
 type CollectionMeta struct {
@@ -94,13 +94,20 @@ func (collection *Collection) UpdateCloud() error {
 	} else {
 		endpoint := fmt.Sprintf("/groups/%v/collections", collection.Group.Id)
 		collection.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
-		collections := []CollectionData{collection.Data}
+		sendData := collection.Data
+		if collection.Version == 0 {
+			sendData.Key = ""
+		}
+		collections := []CollectionData{sendData}
 		resp, err := collection.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetBody(collections).
 			Post(endpoint)
 		if err != nil {
 			return errors.Wrapf(err, "create collection %v with %s", collection.Key, endpoint)
+		}
+		if resp.StatusCode() >= 400 {
+			return errors.Errorf("create collection failed with status %d: %s", resp.StatusCode(), string(resp.Body()))
 		}
 		result := ItemCollectionCreateResult{}
 		jsonstr := resp.Body()
@@ -111,15 +118,51 @@ func (collection *Collection) UpdateCloud() error {
 		if err != nil {
 			return errors.Wrapf(err, "could not create item #%v.%v", collection.Group.Id, collection.Key)
 		}
-		if successKey != collection.Key {
-			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, collection.Key))
+		collection.Key = successKey
+		collection.Data.Key = successKey
+		if successfulItem, ok := result.Successful["0"]; ok && successfulItem.Version > 0 {
+			collection.Version = successfulItem.Version
+			collection.Data.Version = successfulItem.Version
 		}
 	}
 	collection.Status = SyncStatus_Synced
-	if err := collection.UpdateLocal(); err != nil {
-		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", collection.Group.Id, collection.Key))
+	if collection.Group != nil && collection.Group.Zot != nil && collection.Group.Zot.db != nil {
+		if err := collection.UpdateLocal(); err != nil {
+			return errors.New(fmt.Sprintf("cannot store item in db %v.%v", collection.Group.Id, collection.Key))
+		}
 	}
 	return nil
+}
+
+func (collection *Collection) DeleteCloud(lastModifiedVersion int64) error {
+	endpoint := fmt.Sprintf("/groups/%v/collections/%v", collection.Group.Id, collection.Key)
+	collection.Group.Zot.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
+	req := collection.Group.Zot.client.R().
+		SetHeader("Accept", "application/json")
+	if lastModifiedVersion > 0 {
+		req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", lastModifiedVersion))
+	}
+	resp, err := req.Delete(endpoint)
+	if err != nil {
+		return errors.Wrapf(err, "delete collection %v with %s", collection.Key, endpoint)
+	}
+	switch resp.RawResponse.StatusCode {
+	case 200, 204:
+		collection.Deleted = true
+		collection.Status = SyncStatus_Synced
+		if collection.Group != nil && collection.Group.Zot != nil && collection.Group.Zot.db != nil {
+			return collection.UpdateLocal()
+		}
+		return nil
+	case 409:
+		return errors.New(fmt.Sprintf("delete: Conflict: the target library #%v is locked", collection.Group.Id))
+	case 412:
+		return errors.New(fmt.Sprintf("delete: Precondition failed: The item #%v.%v has changed since retrieval", collection.Group.Id, collection.Key))
+	case 428:
+		return errors.New(fmt.Sprintf("delete: Precondition required: If-Unmodified-Since-Version was not provided."))
+	default:
+		return errors.New(fmt.Sprintf("delete collection failed with status code %d", resp.RawResponse.StatusCode))
+	}
 }
 
 func (collection *Collection) Backup(backupFs filesystem.FileSystem) error {

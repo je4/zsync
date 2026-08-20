@@ -91,7 +91,7 @@ type ItemDataBase struct {
 	ItemType     string           `json:"itemType"`
 	Tags         []ItemTag        `json:"tags"`
 	Relations    Relations        `json:"relations"`
-	ParentItem   Parent           `json:"parentItem,omitempty"`
+	ParentItem   string           `json:"parentItem,omitempty"`
 	Collections  []string         `json:"collections"`
 	DateAdded    string           `json:"dateAdded,omitempty"`
 	DateModified string           `json:"dateModified,omitempty"`
@@ -461,7 +461,11 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 	} else {
 		endpoint := fmt.Sprintf("/groups/%v/items", item.Group.Id)
 		item.Group.Zot.Logger.Info().Msgf("rest call: POST %s", endpoint)
-		items := []ItemGeneric{item.Data}
+		sendData := item.Data
+		if item.Version == 0 {
+			sendData.Key = ""
+		}
+		items := []ItemGeneric{sendData}
 		req := item.Group.Zot.client.R().
 			SetHeader("Accept", "application/json").
 			SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", *lastModifiedVersion)).
@@ -471,6 +475,9 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			Post(endpoint)
 		if err != nil {
 			return errors.Wrapf(err, "create item %v with %s", item.Key, endpoint)
+		}
+		if resp.StatusCode() >= 400 {
+			return errors.Errorf("create item failed with status %d: %s", resp.StatusCode(), string(resp.Body()))
 		}
 		result := ItemCollectionCreateResult{}
 		jsonstr := resp.Body()
@@ -491,20 +498,27 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 			item.Version = *lastModifiedVersion
 			item.Data.Version = *lastModifiedVersion
 			item.Status = SyncStatus_Modified
-			item.UpdateLocal()
+			if item.Group != nil && item.Group.Zot != nil && item.Group.Zot.db != nil {
+				item.UpdateLocal()
+			}
 			return errors.Wrapf(err, "could not create item #%v.%v", item.Group.Id, item.Key)
 		}
 
 		for _, i := range result.Successful {
 			i.Group = item.Group
-			i.UpdateLocal()
+			if item.Group != nil && item.Group.Zot != nil && item.Group.Zot.db != nil {
+				i.UpdateLocal()
+			}
 			//item.Group.Zot.Logger.Info().Msgf( "%v: %v", key, i)
 			if item.Group.ItemVersion < i.Version {
 				item.Group.ItemVersion = i.Version
 			}
 		}
-		if successKey != item.Key {
-			return errors.New(fmt.Sprintf("invalid key %s. source key: %s", successKey, item.Key))
+		item.Key = successKey
+		item.Data.Key = successKey
+		if successfulItem, ok := result.Successful["0"]; ok && successfulItem.Version > 0 {
+			item.Version = successfulItem.Version
+			item.Data.Version = successfulItem.Version
 		}
 		if item.Data.ItemType == "attachment" && item.Data.LinkMode == "imported_file" {
 			if err := item.uploadFileCloud(); err != nil {
@@ -513,10 +527,43 @@ func (item *Item) UpdateCloud(lastModifiedVersion *int64) error {
 		}
 	}
 	item.Status = SyncStatus_Synced
-	if err := item.UpdateLocal(); err != nil {
-		return errors.New(fmt.Sprintf("cannot store item in db %v.%v", item.Group.Id, item.Key))
+	if item.Group != nil && item.Group.Zot != nil && item.Group.Zot.db != nil {
+		if err := item.UpdateLocal(); err != nil {
+			return errors.New(fmt.Sprintf("cannot store item in db %v.%v", item.Group.Id, item.Key))
+		}
 	}
 	return nil
+}
+
+func (item *Item) DeleteCloud(lastModifiedVersion int64) error {
+	endpoint := fmt.Sprintf("/groups/%v/items/%v", item.Group.Id, item.Key)
+	item.Group.Zot.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
+	req := item.Group.Zot.client.R().
+		SetHeader("Accept", "application/json")
+	if lastModifiedVersion > 0 {
+		req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", lastModifiedVersion))
+	}
+	resp, err := req.Delete(endpoint)
+	if err != nil {
+		return errors.Wrapf(err, "delete item %v with %s", item.Key, endpoint)
+	}
+	switch resp.RawResponse.StatusCode {
+	case 200, 204:
+		item.Deleted = true
+		item.Status = SyncStatus_Synced
+		if item.Group != nil && item.Group.Zot != nil && item.Group.Zot.db != nil {
+			return item.UpdateLocal()
+		}
+		return nil
+	case 409:
+		return errors.New(fmt.Sprintf("delete: Conflict: the target library #%v is locked", item.Group.Id))
+	case 412:
+		return errors.New(fmt.Sprintf("delete: Precondition failed: The item #%v.%v has changed since retrieval", item.Group.Id, item.Key))
+	case 428:
+		return errors.New(fmt.Sprintf("delete: Precondition required: If-Unmodified-Since-Version was not provided."))
+	default:
+		return errors.New(fmt.Sprintf("delete item failed with status code %d", resp.RawResponse.StatusCode))
+	}
 }
 
 func (item *Item) UpdateLocal() error {

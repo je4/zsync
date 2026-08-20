@@ -276,6 +276,68 @@ func (group *Group) GetCollectionsCloud(objectKeys []string) (*[]Collection, int
 	return &result, lastModifiedVersion, nil
 }
 
+func (group *Group) GetCollectionByKeyCloud(key string) (*Collection, error) {
+	endpoint := fmt.Sprintf("/groups/%v/collections/%v", group.Id, key)
+	group.Zot.Logger.Info().Msgf("rest call: %s", endpoint)
+
+	call := group.Zot.client.R().
+		SetHeader("Accept", "application/json")
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return nil, errors.Wrapf(err, "cannot get collection %s from %s", key, endpoint)
+		}
+		if !group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
+	}
+	if resp.StatusCode() == 404 {
+		return nil, nil
+	}
+	rawBody := resp.Body()
+	coll := &Collection{}
+	if err := json.Unmarshal(rawBody, coll); err != nil {
+		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+	}
+	group.Zot.CheckBackoff(resp.Header())
+	coll.Group = group
+	return coll, nil
+}
+
+func (group *Group) GetCollectionsQueryCloud(queryParams map[string]string) (*[]Collection, *resty.Response, error) {
+	endpoint := fmt.Sprintf("/groups/%v/collections", group.Id)
+	group.Zot.Logger.Info().Msgf("rest call: %s", endpoint)
+
+	call := group.Zot.client.R().
+		SetHeader("Accept", "application/json").
+		SetQueryParams(queryParams)
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "cannot get collections from %s", endpoint)
+		}
+		if !group.Zot.CheckRetry(resp.Header()) {
+			break
+		}
+	}
+	group.Zot.CheckBackoff(resp.Header())
+	rawBody := resp.Body()
+	collections := []Collection{}
+	if err := json.Unmarshal(rawBody, &collections); err != nil {
+		return nil, resp, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+	}
+	result := []Collection{}
+	for _, coll := range collections {
+		coll.Group = group
+		result = append(result, coll)
+	}
+	return &result, resp, nil
+}
+
 func (group *Group) syncModifiedCollections() (int64, error) {
 	var counter int64
 	sqlstr := fmt.Sprintf("SELECT key, version, data, deleted, sync"+
