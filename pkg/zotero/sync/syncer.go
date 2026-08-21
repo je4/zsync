@@ -403,7 +403,12 @@ func (s *Syncer) syncItems(group *model.Group, trashed bool) (int64, int64, erro
 		if len(part) == 0 {
 			continue
 		}
-		items, err := s.Client.GetItemsByKey(group.Id, part)
+		var items *[]model.Item
+		if trashed {
+			items, err = s.Client.GetItemsTrashByKey(group.Id, part)
+		} else {
+			items, err = s.Client.GetItemsByKey(group.Id, part)
+		}
 		if err != nil {
 			return counter, 0, errors.Wrapf(err, "cannot get items")
 		}

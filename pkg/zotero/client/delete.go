@@ -23,6 +23,13 @@ func (c *Client) GetDeleted(groupId int64, sinceVersion int64) (collections *[]s
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "cannot get deleted from %s", endpoint)
 	}
+	if resp.StatusCode() == 404 {
+		empty := []string{}
+		return &empty, &empty, &empty, nil
+	}
+	if resp.StatusCode() >= 400 {
+		return nil, nil, nil, errors.Errorf("failed to get deleted from %s with status %d: %s", endpoint, resp.StatusCode(), string(resp.Body()))
+	}
 	rawBody := resp.Body()
 	del := &model.Delete{}
 	if err := json.Unmarshal(rawBody, del); err != nil {

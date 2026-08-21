@@ -1,97 +1,13 @@
 package storage
 
 import (
-	"context"
-	"encoding/binary"
-	"errors"
-	"fmt"
-	"io"
-	"net"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/pkg/zotero/model"
-	"github.com/rs/zerolog"
 )
-
-func encodeInt8(v int64) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(v))
-	return b
-}
-
-func encodeBool(v bool) []byte {
-	if v {
-		return []byte{1}
-	}
-	return []byte{0}
-}
-
-func encodeText(s string) []byte {
-	return []byte(s)
-}
-
-func encodeTimestamp(t time.Time) []byte {
-	pgEpoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	micro := t.UTC().Sub(pgEpoch).Microseconds()
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(micro))
-	return b
-}
-
-func startMockServer(t *testing.T, script *pgmock.Script) (*Storage, func()) {
-	t.Helper()
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to listen on tcp: %v", err)
-	}
-
-	serverErrChan := make(chan error, 1)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			serverErrChan <- err
-			return
-		}
-		defer conn.Close()
-		backend := pgproto3.NewBackend(pgproto3.NewChunkReader(conn), conn)
-		serverErrChan <- script.Run(backend)
-	}()
-
-	port := ln.Addr().(*net.TCPAddr).Port
-	dbURL := fmt.Sprintf("postgres://mockuser:mockpass@127.0.0.1:%d/mockdb?sslmode=disable&default_query_exec_mode=describe_exec", port)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		_ = ln.Close()
-		t.Fatalf("failed to create connection pool to mock: %v", err)
-	}
-
-	zlog := zerolog.Nop()
-	st := NewStorage(pool, "public", true, &zlog)
-
-	cleanup := func() {
-		pool.Close()
-		_ = ln.Close()
-		select {
-		case err := <-serverErrChan:
-			if err != nil && !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "use of closed network connection") && !errors.Is(err, io.EOF) {
-				t.Errorf("mock server error: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-		}
-	}
-
-	return st, cleanup
-}
 
 func TestPgMock_LoadGroup(t *testing.T) {
 	script := &pgmock.Script{

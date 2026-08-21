@@ -118,6 +118,58 @@ func (c *Client) GetItemsByKey(groupId int64, objectKeys []string) (*[]model.Ite
 	return &result, nil
 }
 
+func (c *Client) GetItemsTrashByKey(groupId int64, objectKeys []string) (*[]model.Item, error) {
+	if len(objectKeys) == 0 {
+		return &[]model.Item{}, nil
+	}
+	if len(objectKeys) > 50 {
+		return nil, errors.New("too many objectKeys (max. 50)")
+	}
+
+	endpoint := fmt.Sprintf("/groups/%v/items/trash", groupId)
+	if c.Logger != nil {
+		c.Logger.Info().Msgf("rest call: %s", endpoint)
+	}
+
+	call := c.client.R().
+		SetHeader("Accept", "application/json").
+		SetQueryParam("itemKey", strings.Join(objectKeys, ","))
+	var resp *resty.Response
+	var err error
+	for {
+		resp, err = call.Get(endpoint)
+		if err != nil {
+			return nil, errors.Wrapf(err, "cannot get items from %s", endpoint)
+		}
+		if !c.CheckRetry(resp.Header()) {
+			break
+		}
+	}
+	if c.Logger != nil {
+		c.Logger.Debug().Msgf("status: #%v ", resp.StatusCode())
+	}
+	if resp.StatusCode() == 404 {
+		return &[]model.Item{}, nil
+	}
+	if resp.StatusCode() >= 400 {
+		return nil, errors.Errorf("failed to get items from %s with status %d: %s", endpoint, resp.StatusCode(), string(resp.Body()))
+	}
+	rawBody := resp.Body()
+	items := []model.Item{}
+	if err := json.Unmarshal(rawBody, &items); err != nil {
+		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
+	}
+	c.CheckBackoff(resp.Header())
+	result := []model.Item{}
+	for _, item := range items {
+		if item.Data.Collections == nil {
+			item.Data.Collections = []string{}
+		}
+		result = append(result, item)
+	}
+	return &result, nil
+}
+
 func (c *Client) GetItemByKey(groupId int64, key string) (*model.Item, error) {
 	endpoint := fmt.Sprintf("/groups/%v/items/%v", groupId, key)
 	if c.Logger != nil {

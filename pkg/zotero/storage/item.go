@@ -45,6 +45,9 @@ func (s *Storage) itemFromRow(groupId int64, row pgx.Row) (*model.Item, error) {
 			item.Data.Collections = []string{}
 		}
 	} else {
+		if item.Deleted || item.Status == model.SyncStatus_Incomplete {
+			return nil, nil
+		}
 		return nil, errors.Wrapf(errEmptyItem, "item has no data %v.%v", groupId, item.Key)
 	}
 	if metastr.Valid {
@@ -421,6 +424,9 @@ func (s *Storage) IterateItems(groupId int64, after *time.Time, f func(item *mod
 		if err != nil {
 			return errors.Wrapf(err, "cannot get item")
 		}
+		if item == nil {
+			continue
+		}
 		if err := f(item); err != nil {
 			return errors.Wrapf(err, "error in callback for %v", item.Key)
 		}
@@ -459,6 +465,9 @@ func (s *Storage) IterateItemsAll(groupId int64, after *time.Time, f func(item *
 		if err != nil {
 			return errors.Wrapf(err, "cannot get item")
 		}
+		if item == nil {
+			continue
+		}
 		if err := f(item); err != nil {
 			return errors.Wrapf(err, "error in callback for %v", item.Key)
 		}
@@ -486,6 +495,9 @@ func (s *Storage) GetModifiedItems(groupId int64) ([]*model.Item, error) {
 		item, err := s.itemFromRow(groupId, rows)
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot scan row")
+		}
+		if item == nil {
+			continue
 		}
 		items = append(items, item)
 	}

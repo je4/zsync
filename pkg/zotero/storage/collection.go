@@ -34,6 +34,9 @@ func (s *Storage) collectionFromRow(groupId int64, row pgx.Row) (*model.Collecti
 			return nil, errors.Wrapf(err, "cannot unmarshal data %s", datastr.String)
 		}
 	} else {
+		if coll.Deleted || coll.Status == model.SyncStatus_Incomplete {
+			return nil, nil
+		}
 		return nil, errors.Errorf("collection has no data %v.%v", groupId, coll.Key)
 	}
 	if metastr.Valid {
@@ -103,7 +106,7 @@ func (s *Storage) CreateEmptyCollection(groupId int64, collectionId string) erro
 	params := []any{
 		collectionId,
 		groupId,
-		model.SyncStatusString[model.SyncStatus_New],
+		model.SyncStatusString[model.SyncStatus_Incomplete],
 	}
 	_, err := s.db.Exec(context.Background(), sqlstr, params...)
 	if err != nil {
@@ -128,7 +131,7 @@ func (s *Storage) GetCollectionVersion(groupId int64, collectionId string) (int6
 			return 0, model.SyncStatus_Incomplete, errors.Wrapf(err, "cannot create new collection")
 		}
 		version = 0
-		status = model.SyncStatus_New
+		status = model.SyncStatus_Incomplete
 	case err != nil:
 		return 0, model.SyncStatus_Incomplete, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	case err == nil:
@@ -360,7 +363,10 @@ func (s *Storage) IterateCollections(groupId int64, after *time.Time, f func(col
 	for rows.Next() {
 		coll, err := s.collectionFromRow(groupId, rows)
 		if err != nil {
-			return errors.Wrapf(err, "cannot get item")
+			return errors.Wrapf(err, "cannot get collection")
+		}
+		if coll == nil {
+			continue
 		}
 		if err := f(coll); err != nil {
 			return errors.Wrapf(err, "error in callback for %v", coll.Key)
@@ -400,6 +406,9 @@ func (s *Storage) IterateCollectionsAll(groupId int64, after *time.Time, f func(
 		if err != nil {
 			return errors.Wrapf(err, "cannot get collection")
 		}
+		if coll == nil {
+			continue
+		}
 		if err := f(coll); err != nil {
 			return errors.Wrapf(err, "error in callback for %v", coll.Key)
 		}
@@ -427,6 +436,9 @@ func (s *Storage) GetModifiedCollections(groupId int64) ([]*model.Collection, er
 		coll, err := s.collectionFromRow(groupId, rows)
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot scan row")
+		}
+		if coll == nil {
+			continue
 		}
 		colls = append(colls, coll)
 	}

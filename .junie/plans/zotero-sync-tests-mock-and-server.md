@@ -5,111 +5,91 @@ sessionId: session-260820-180848-q2rl
 # Requirements
 
 ### Overview & Goals
-Ziel ist die Bereitstellung einer umfassenden, robusten Testsuite für das Paket `pkg/zotero/sync`. Die Tests sollen die Synchronisationslogik (`Syncer`) in zwei primären Ausprägungen abdecken:
+Ziel ist die Bereitstellung und Korrektur einer umfassenden, robusten Testsuite für das Paket `pkg/zotero/sync`. Die Tests decken die Synchronisationslogik (`Syncer`) in zwei Ausprägungen ab:
 1. **Mock-Umgebung (Hermetisch & Schnell)**: Vollständige Tests ohne externe Abhängigkeiten unter Verwendung von `pgmock` (PostgreSQL-Protokoll-Mock) und `httptest.Server` (für Zotero Local API und Cloud API).
-2. **Server-/Integrationsumgebung (Real Environment)**: Tests mit einer echten PostgreSQL-Datenbank und Anbindung an Zotero Local (Desktop-Client) sowie Zotero Cloud (`api.zotero.org`), inklusive Graceful Skipping bei fehlender Testinfrastruktur.
+2. **Server-/Integrationsumgebung (Real Environment)**: Tests mit einer echten PostgreSQL-Datenbank und Anbindung an Zotero Local (Desktop-Client) sowie Zotero Cloud (`api.zotero.org`), inklusive Graceful Skipping bei fehlender Testinfrastruktur oder fehlenden Berechtigungen.
 
 ### Scope
 - **In Scope**:
-  - Unit- und Mock-Tests für `Syncer.SyncGroup`, `SyncCollections`, `UploadItems`, `DownloadItems`, `SyncTags`, `SyncDeleted` und `BackupGroup`.
-  - Abdeckung beider Client-Modi: **Local API** (Port 23119, `Zotero-Server-ID`, lokale Authentifizierung) und **Cloud API** (`api.zotero.org`, `Zotero-API-Key`, Cloud-Versioning).
-  - Abdeckung beider Datenbank-Modi: **Mock-Datenbank** (`pgmock`) und **echte PostgreSQL-Datenbank** (`pgxpool`).
-  - Integration von Dateisystem-Operationen (`filesystem.LocalFs`) für Attachment-Upload/Download und JSON-Backups.
+  - Behebung von `TestSyncer_Integration_Database_LocalClient` und `TestSyncer_Integration_Database_CloudClient` in `pkg/zotero/sync/sync_integration_test.go`.
+  - Korrekte Verwendung der Zotero-Test-Gruppen-ID (`groupID` aus `ZOTERO_TEST_GROUP` bzw. Standard-ID) anstelle einer zufälligen synthetischen ID, damit Live-API-Aufrufe an Zotero nicht mit 404/403 fehlschlagen.
+  - Abrufen der echten Gruppenmetadaten via `client.GetGroup(groupID)` zur Initialisierung des DB-Zustands vor dem Sync.
+  - Isolierte DB-Bereinigung (`DELETE FROM ... WHERE library = groupID`) vor und nach dem Integrationslauf für die jeweilige Gruppen-ID.
+  - Robuste Verfügbarkeits- und Berechtigungsprüfungen (`checkLocalZoteroAvailable`, `checkCloudZoteroAvailable`) mit sauberem `t.Skip` bei 401/403/404 oder nicht erreichbaren Endpunkten.
+  - Beibehaltung aller hermetischen Mock-Tests in `pkg/zotero/sync/sync_mock_test.go`.
 - **Out of Scope**:
-  - Änderungen an der produktiven Sync-Logik in `syncer.go`, es sei denn, während der Testerstellung werden funktionale Regressionen aufgedeckt.
+  - Änderungen an der produktiven Sync-Logik in `syncer.go`.
   - Externe CI/CD-Runner-Konfigurationen.
 
 ### User Stories
 - **Als Entwickler** möchte ich `go test ./pkg/zotero/sync/...` offline ausführen können, damit ich Synchronisationsfehler in Local- und Cloud-Szenarien sofort ohne laufende DB oder Cloud-Zugangsdaten erkennen kann.
-- **Als Maintainer** möchte ich Integrationstests gegen eine echte PostgreSQL-Datenbank und Zotero-Server ausführen können, um die End-to-End-Konsistenz der Transaktionen, Versionsverwaltung und Dateiablage abzusichern.
+- **Als Maintainer** möchte ich Integrationstests gegen eine echte PostgreSQL-Datenbank und Zotero-Server ausführen können, um die End-to-End-Konsistenz der Synchronisation gegen echte Zotero-Gruppen abzusichern.
 
 ### Functional Requirements
-- **FR-1**: Mock-Tests für `Syncer` mit `pgmock` und `httptest.Server` (Zotero Local & Cloud) müssen alle Kernmethoden ohne externe Dienste erfolgreich durchlaufen.
-- **FR-2**: Synchronisation von Collections, Items (inkl. Attachments), Tags und Löschungen muss für beide Client-Varianten (Local & Cloud) validiert werden.
-- **FR-3**: Backup-Logik (`BackupGroup`) muss das Schreiben von JSON-Metadaten und Binär-Dateien im `filesystem.FileSystem` verifizieren.
-- **FR-4**: Integrationstests mit echten Servern müssen dynamisch prüfen, ob DB und Zotero-Endpunkte erreichbar sind, und bei fehlenden Konfigurationen sauber mit `t.Skip` überspringen.
+- **FR-1**: Mock-Tests in `sync_mock_test.go` müssen weiterhin unabhängig und ohne externe Abhängigkeiten erfolgreich durchlaufen.
+- **FR-2**: In `sync_integration_test.go` müssen `TestSyncer_Integration_Database_LocalClient` und `TestSyncer_Integration_Database_CloudClient` die konfigurierte Zotero-Gruppen-ID (`groupID`) verwenden und Gruppen-Metadaten via Zotero-Client abrufen.
+- **FR-3**: `getIntegrationTestStorage` muss die Ziel-Gruppen-ID entgegennehmen und die DB vor und nach dem Test gezielt für diese Gruppen-ID bereinigen.
+- **FR-4**: Fehlt die Datenbank (`DATABASE_URL`), der Zotero-Endpunkt oder sind Zugangsdaten / Gruppen ungültig (401/403/404/Timeout), müssen die Tests mit `t.Skip` sauber übersprungen werden.
+- **FR-5**: Nach erfolgreichem `SyncGroup` muss auch `BackupLocal` das Schreiben von JSON- und Binärdateien im Dateisystem überprüfen.
 
 ### Non-Functional Requirements
-- **Determinismus & Isolation**: Mock-Tests müssen unabhängig von Netzwerkverbindungen und parallelisierbar sein.
-- **Kompatibilität**: Nahtlose Ausrichtung an bestehenden Testmustern in `pkg/zotero/storage/storage_mock_test.go` und `pkg/zotero/client/local_api_test.go`.
+- **Determinismus & Isolation**: Saubere Isolation der Testdaten in der PostgreSQL-Datenbank ohne Kollisionen.
+- **Fehlertoleranz**: Aussagekräftige Skip- und Fehlermeldungen bei fehlender oder unvollständiger Testumgebung.
 
 # Technical Design
 
-### Current Implementation
-Aktuell enthält `pkg/zotero/sync/sync_test.go` lediglich einen rudimentären Initialisierungstest (`TestSyncerInit`), der nur `NewSyncer` und `GetGroupBucket` aufruft. Die eigentliche Synchronisationslogik (`SyncGroup`, `SyncCollections`, `DownloadItems`, `UploadItems`, `SyncTags`, `SyncDeleted`, `BackupGroup`) in `pkg/zotero/sync/syncer.go` ist noch nicht durch automatisierte Tests abgedeckt.
-
-Im Projekt existieren bereits etablierte Test-Muster:
-- `pkg/zotero/storage/storage_mock_test.go`: Verwendet `github.com/jackc/pgmock` und `github.com/jackc/pgproto3/v2` für TCP-basierte PostgreSQL Wire-Protocol Mocks.
-- `pkg/zotero/storage/storage_test.go`: Verwendet `DATABASE_URL` / `.env` und `pgxpool.Pool` für Live-Datenbanktests.
-- `pkg/zotero/client/local_api_test.go` & `cloud_api_test.go`: Verwenden `httptest.Server` für Mock-Tests und konfigurierbare Endpunkte (`ZOTERO_LOCAL_ENDPOINT`, `ZOTERO_CLOUD_ENDPOINT`, `ZOTERO_API_KEY`) für Live-Integrationstests.
+### Current Implementation & Root Cause Analysis
+In `pkg/zotero/sync/sync_integration_test.go` wurden Integrationstests für `Syncer` gegen PostgreSQL und Zotero-Clients eingeführt. Diese schlugen in Live-Umgebungen aus folgenden Gründen fehl:
+1. **Gruppen-ID Mismatch**: `getIntegrationTestStorage` erzeugte eine zufällige ID `testGroupID := int64(77770000 + ...)`. Diese Dummy-ID wurde in `group.Id` gesetzt. Beim Aufruf von `syncer.SyncGroup(group)` fragte der Zotero-Client `/groups/7777xxxx/...` an. Da diese Gruppe auf dem Zotero-Server/Desktop nicht existiert, antwortete Zotero mit `404 Not Found` bzw. `403 Forbidden`.
+2. **Fehlende Gruppen-Metadaten**: Statt die Zotero-Gruppe via `client.GetGroup(groupID)` abzufragen, wurde ein statisches Gruppen-Objekt mit Version 0 initialisiert, ohne die tatsächlichen Versionsstände und Gruppeneigenschaften zu berücksichtigen.
+3. **Verbindungs- und Berechtigungsprüfung**: `checkLocalZoteroAvailable` und `checkCloudZoteroAvailable` prüften nicht alle HTTP-Fehlercodes (z.B. 401 Unauthorized, 404 Group Not Found) und übersprangen Tests bei fehlender Gruppenberechtigung nicht konsistent mit `t.Skip`.
 
 ### Key Decisions
-1. **Zweiteilung der Testdateien in `pkg/zotero/sync`**:
-   - `sync_mock_test.go`: Hermetische Mock-Tests mit `pgmock` und `httptest.Server` (Local & Cloud).
-   - `sync_integration_test.go`: Echte Server-Integrationstests mit Live-PostgreSQL-DB und Live-/Simulierten Zotero-Servern.
-   *Begründung*: Trennt schnelle Unit-/Mock-Tests von potentiell langsamen oder umgebungsabhängigen Integrationstests.
-2. **Kombination von Client-Modi (Local vs. Cloud)**:
-   - Parametrisierte oder dedizierte Testfälle für Local-spezifische Eigenschaften (z.B. `Zotero-Server-ID`, UserId 0, Local Key) und Cloud-spezifische Eigenschaften (Group-Rechte, Cloud Key).
-3. **Dateisystem-Anbindung**:
-   - Verwendung von `filesystem.NewLocalFs(t.TempDir(), ...)` zur Überprüfung von Attachment-Download, Attachment-Upload und `BackupGroup`.
+1. **Verwendung der konfigurierten Zotero Test Group ID**:
+   - `getLocalTestConfig()` und `getCloudTestConfig()` lesen `ZOTERO_TEST_GROUP` (Default: `6642571`).
+   - Diese `groupID` wird für alle Zotero-API-Aufrufe, Datenbank-Einträge und Bereinigungen verwendet.
+2. **Gruppenbezogene DB-Initialisierung und Isolation**:
+   - `getIntegrationTestStorage(t, groupID)` bereinigt die Tabellen `tags`, `items`, `collections`, `syncgroups` und `groups` für `groupID` vor dem Testlauf und im `defer cleanupDB()`.
+   - `cl.GetGroup(groupID)` liest die Gruppe vom Zotero-Server; falls nicht gefunden oder Fehler, überspringt der Test mit `t.Skipf`.
+3. **Erweiterte Availability- & Auth-Prüfungen**:
+   - `checkLocalZoteroAvailable`: Prüft `/groups/{groupID}`. Bei 404/401/403/503/Connection-Error -> `t.Skipf`.
+   - `checkCloudZoteroAvailable`: Prüft `/groups/{groupID}/items?limit=1` mit `Zotero-API-Key`. Bei 401/403/404/Connection-Error -> `t.Skipf`.
 
 ### Architecture Diagram
 ```mermaid
 graph TD
-    subgraph TestSuite ["pkg/zotero/sync Test Suite"]
-        SyncMockTest["sync_mock_test.go (Hermetic Unit/Mock)"]
-        SyncIntegTest["sync_integration_test.go (Live Integration)"]
+    subgraph IntegrationTestSuite ["pkg/zotero/sync/sync_integration_test.go"]
+        ConfigLoad["Load Env & Config (ZOTERO_TEST_GROUP, API Keys)"]
+        AvailCheck["checkLocal / checkCloud Available (Probe & Skip on 404/403/Down)"]
+        DBSetup["getIntegrationTestStorage(groupID) (Schema & DB Clean for groupID)"]
+        GroupInit["cl.GetGroup(groupID) -> st.UpdateGroup(group)"]
+        SyncExec["syncer.SyncGroup(group) & syncer.BackupLocal(group, fs)"]
     end
 
-    subgraph SyncerCore ["pkg/zotero/sync/syncer.go"]
-        SyncerInstance["Syncer (SyncGroup / BackupGroup)"]
+    subgraph Backends ["Live Infrastructure"]
+        PgLive["PostgreSQL Database (DATABASE_URL)"]
+        ZoteroServer["Zotero Server (Local: :23119 / Cloud: api.zotero.org)"]
+        LocalFS["Filesystem (t.TempDir)"]
     end
 
-    subgraph Backends ["Database Layer"]
-        PgMock["pgmock.Script (Mock DB)"]
-        PgReal["pgxpool.Pool (PostgreSQL Server)"]
-    end
-
-    subgraph Clients ["Zotero Client Layer"]
-        HttpMockLocal["httptest.Server (Local API Mock)"]
-        HttpMockCloud["httptest.Server (Cloud API Mock)"]
-        LiveLocal["Zotero Desktop Client (:23119)"]
-        LiveCloud["Zotero Cloud API (api.zotero.org)"]
-    end
-
-    subgraph FilesystemLayer ["Filesystem Layer"]
-        TempFs["filesystem.LocalFs (t.TempDir)"]
-    end
-
-    SyncMockTest --> SyncerInstance
-    SyncIntegTest --> SyncerInstance
-
-    SyncerInstance --> PgMock
-    SyncerInstance --> PgReal
-    SyncerInstance --> HttpMockLocal
-    SyncerInstance --> HttpMockCloud
-    SyncerInstance --> LiveLocal
-    SyncerInstance --> LiveCloud
-    SyncerInstance --> TempFs
+    ConfigLoad --> AvailCheck
+    AvailCheck --> DBSetup
+    DBSetup --> PgLive
+    DBSetup --> GroupInit
+    GroupInit --> ZoteroServer
+    GroupInit --> PgLive
+    GroupInit --> SyncExec
+    SyncExec --> ZoteroServer
+    SyncExec --> PgLive
+    SyncExec --> LocalFS
 ```
 
 ### Proposed Changes & File Structure
-- **`pkg/zotero/sync/sync_mock_test.go`** (Neu):
-  - `startMockDatabase(t *testing.T, script *pgmock.Script) (*storage.Storage, func())`: Startet temporären `pgmock`-Server.
-  - `startMockZoteroLocalServer(t *testing.T) (*client.Client, func())`: Simuliert lokale Zotero-API.
-  - `startMockZoteroCloudServer(t *testing.T) (*client.Client, func())`: Simuliert Zotero-Cloud-API.
-  - Testfälle:
-    - `TestSyncer_Mock_Local_SyncCollections`: Sync von Collections mit Local Client & Mock DB.
-    - `TestSyncer_Mock_Cloud_DownloadAndUploadItems`: Item- & Attachment-Sync mit Cloud Client & Mock DB.
-    - `TestSyncer_Mock_SyncTagsAndDeleted`: Tag- und Deletion-Sync.
-    - `TestSyncer_Mock_BackupGroup`: Backup-Generierung ins Dateisystem.
-- **`pkg/zotero/sync/sync_integration_test.go`** (Neu):
-  - `getIntegrationTestSyncer(t *testing.T, isLocal bool) (*Syncer, *model.Group, func())`: Baut Verbindung zu echter DB und konfiguriertem Client auf.
-  - Testfälle:
-    - `TestSyncer_Integration_Database_LocalClient`: Vollständiger Sync gegen Live-DB und Local-Client.
-    - `TestSyncer_Integration_Database_CloudClient`: Vollständiger Sync gegen Live-DB und Cloud-Client.
-- **`pkg/zotero/sync/sync_test.go`** (Bestehend):
-  - Beibehaltung von `TestSyncerInit` und gemeinsamen Hilfsstrukturen.
+- **`pkg/zotero/sync/sync_integration_test.go`** (Anpassung):
+  - Signatur von `getIntegrationTestStorage(t *testing.T, groupID int64)` anpassen; sauberes Pre- und Post-Cleanup für `groupID`.
+  - `checkLocalZoteroAvailable` und `checkCloudZoteroAvailable` robuster gestalten (Skip bei 404, 401, 403, 5xx, Verbindungsausfall).
+  - In `TestSyncer_Integration_Database_LocalClient`: `groupID` aus `getLocalTestConfig()` verwenden, `cl.GetGroup(groupID)` abfragen, `group.Direction = model.SyncDirection_BothLocal` setzen und `syncer.SyncGroup` + `BackupLocal` ausführen.
+  - In `TestSyncer_Integration_Database_CloudClient`: `groupID` aus `getCloudTestConfig()` verwenden, `cl.GetGroup(groupID)` abfragen, `group.Direction = model.SyncDirection_BothCloud` setzen und `syncer.SyncGroup` + `BackupLocal` ausführen.
 
 # Testing
 
@@ -124,8 +104,8 @@ Die Überprüfung der Tests erfolgt über standardmäßige Go-Test-Tools und sep
 2. **Mock Cloud Client + Mock DB**:
    - Items mit Anhängen (`imported_file`) werden heruntergeladen und im Dateisystem abgelegt.
    - Modifizierte Items werden zum Cloud-Mock hochgeladen.
-3. **BackupGroup Test**:
-   - `BackupGroup` iteriert Collections und Items und schreibt gültige JSON-Dateien sowie `.bin` Binärdateien im Temp-Verzeichnis.
+3. **BackupLocal Test**:
+   - `BackupLocal` iteriert Collections und Items und schreibt gültige JSON-Dateien sowie `.bin` Binärdateien im Temp-Verzeichnis.
 4. **Real Database + Live/Mock Server**:
    - Bei gesetztem `DATABASE_URL` wird eine echte Transaktion ausgeführt, Datensätze in PostgreSQL persistiert und die Konsistenz validiert.
    - Bei nicht gesetzter Umgebung wird der Test via `t.Skip` sauber übersprungen.
@@ -138,19 +118,17 @@ Die Überprüfung der Tests erfolgt über standardmäßige Go-Test-Tools und sep
 
 # Delivery Steps
 
-### * Step 1: Mock-basierte Syncer-Tests mit Mock-DB und Mock-Server für Local- und Cloud-Client
-Vollständige, isolierte Unit- und Komponententests für `Syncer` in `pkg/zotero/sync` laufen deterministisch und ohne externe Infrastruktur über `pgmock` und `httptest.Server`.
+### ✓ Step 1: Bereinigungs- und Gruppen-ID-Handling in `sync_integration_test.go` korrigieren
+`getIntegrationTestStorage` nimmt die Ziel-Gruppen-ID entgegen und isoliert die DB-Daten für den jeweiligen Testlauf.
 
-- Mock-Server-Infrastruktur für Zotero Local API (`Zotero-Server-ID`, Local-Key-Header) und Zotero Cloud API (Cloud API Keys, Versioning, Attachment Endpoints) bereitstellen.
-- Mock-PostgreSQL-Backend mit `pgmock` und `pgproto3` für `Storage`-Interaktionen konfigurieren (Tabellen `groups`, `collections`, `items`, `tags`, `deleted`, `syncgroups`).
-- Testsuite für `Syncer.SyncGroup`, `SyncCollections`, `UploadItems`, `DownloadItems`, `SyncTags`, `SyncDeleted` und `BackupGroup` mit Local- und Cloud-Client-Mock erstellen.
-- Lokales Dateisystem (`filesystem.NewLocalFs` mit `t.TempDir()`) für Attachment-Synchronisation und Backup-Generierung einbinden.
-- Ausführung und Verifikation via `go test ./pkg/zotero/sync/...` sicherstellen.
+- Signatur von `getIntegrationTestStorage(t *testing.T, groupID int64)` anpassen.
+- Pre-Test Cleanup und Defer Cleanup für `tags`, `items`, `collections`, `syncgroups` und `groups` auf `groupID` ausrichten.
+- Übergabe der echten `groupID` aus `getLocalTestConfig()` und `getCloudTestConfig()`.
 
-###   Step 2: Integrationstests mit echter Datenbank und Live-Zotero-Clients (Local & Cloud)
-Live-Integrationstests für `Syncer` gegen eine echte PostgreSQL-Datenbank mit Anbindung an Zotero Local und Cloud APIs sind implementiert und überspringen graceful (`t.Skip`), falls Dienste nicht konfiguriert sind.
+### ✓ Step 2: Verfügbarkeits- und Gruppenabruf-Logik für Local- und Cloud-Tests anbinden
+`TestSyncer_Integration_Database_LocalClient` und `TestSyncer_Integration_Database_CloudClient` rufen die Zotero-Gruppe via Client ab und überspringen bei fehlenden Rechten/Endpunkten zuverlässig.
 
-- Umgebungs- und Verbindungshandler (`loadEnv`, `getTestStorage`, `checkLocalZoteroAvailable`, `checkCloudZoteroAvailable`) für Integrationstests in `pkg/zotero/sync` aufbauen.
-- End-to-End Integrations-Tests für `SyncGroup` mit bidirektionalem Sync (ToLocal, ToRemote, Both) auf einer realen PostgreSQL-Instanz durchführen.
-- Testfälle für Zotero Local API (Desktop-Client HTTP-Endpunkt auf `localhost:23119/api`) und Cloud API (`api.zotero.org`) implementieren.
-- Überprüfung von Versionserhöhung (`CollectionVersion`, `ItemVersion`, `TagVersion`), Konfliktbehandlung und Attachment-Ablage im Dateisystem.
+- `checkLocalZoteroAvailable` und `checkCloudZoteroAvailable` mit detaillierter HTTP-Statuscode-Auswertung (401, 403, 404, 5xx) und Graceful Skipping versehen.
+- In den Testfunktionen `cl.GetGroup(groupID)` aufrufen; bei Nichtverfügbarkeit mit `t.Skipf` überspringen, ansonsten Gruppe für DB initialisieren.
+- Ausführung von `syncer.SyncGroup(group)` und anschließendem `syncer.BackupLocal(group, backupFs)` validieren.
+- Testausführung via `go test -v ./pkg/zotero/sync/...` und `go test ./...` verifizieren.

@@ -5,125 +5,101 @@ sessionId: session-260820-165341-v8vd
 # Requirements
 
 ### Overview & Goals
-Enhance the testing suite for `pkg/zotero/storage`:
-1. Ensure integration tests gracefully skip (`t.Skip`) when database connectivity fails (e.g. `pool.Ping` fails or database is unreachable), rather than failing the test suite.
-2. Implement a standalone mock-based test suite using `github.com/jackc/pgmock` to validate `Storage` operations (query generation, response parsing, error handling) completely offline without requiring a live PostgreSQL instance.
+Extract shared test code and helper utilities in `pkg/zotero/storage` into a dedicated test helper file `pkg/zotero/storage/storage_test_helpers_test.go`:
+1. Centralize test infrastructure (environment loading `loadEnv`, schema migration DDL `ensureSchema`, live DB setup/teardown `getTestStorage`).
+2. Centralize mock server lifecycle (`startMockServer`) and wire-protocol binary encoder utilities (`encodeInt8`, `encodeBool`, `encodeText`, `encodeTimestamp`).
+3. Provide reusable test data factories/fixtures (`sampleGroupData`, `sampleCollectionData`, `sampleItemData`, `sampleTag`) shared by both integration and mock tests.
+4. Clean up `storage_integration_test.go` and `storage_mock_test.go` so they contain only test scenario logic.
 
 ### Scope
 - **In Scope**:
-  - Updating `getTestStorage` in `pkg/zotero/storage/storage_test.go` to call `t.Skipf` when connection pool creation, `pool.Ping()`, or schema initialization fails due to connection issues.
-  - Adding `github.com/jackc/pgmock` (and `github.com/jackc/pgproto3/v2`) to `go.mod`.
-  - Implementing dedicated mock tests in `pkg/zotero/storage/storage_mock_test.go` using `pgmock.Script` and `pgproto3` message flows to test `Storage` methods (e.g. `LoadGroup`, `GetCollectionByKey`, `GetItemByKey`, `CreateTag`, and constraint error scenarios).
+  - Creating `pkg/zotero/storage/storage_test_helpers_test.go` containing all shared test setup, mock utilities, and test data generators.
+  - Refactoring `pkg/zotero/storage/storage_integration_test.go` to remove duplicated helper functions and utilize shared helpers.
+  - Refactoring `pkg/zotero/storage/storage_mock_test.go` to remove duplicated server/encoder functions and utilize shared helpers.
+  - Keeping `pkg/zotero/storage/storage_test.go` dedicated to fast offline unit tests.
+  - Verifying all test suites (`go test -v ./pkg/zotero/storage/...` and `go test ./...`) and builds (`go build ./...`) succeed.
 - **Out of Scope**:
-  - Modifying the underlying `Storage` business logic or API contracts (already migrated to `pgx/v5`).
-  - Replacing live integration tests (both mock tests and live integration tests will coexist).
+  - Changing production storage APIs or SQL queries.
+  - Modifying tests outside `pkg/zotero/storage`.
 
 ### User Stories
-- **As a Developer / CI Pipeline**, I want storage integration tests to automatically skip when no database is running or reachable so that builds and CI workflows do not fail due to missing database infrastructure.
-- **As a Developer**, I want isolated unit tests using `jackc/pgmock` so that I can reliably test SQL interaction, protocol handling, and edge cases for `Storage` in fast, hermetic test runs.
+- **As a Developer**, I want shared test helper utilities, mock server setups, and test fixture factories in a dedicated file (`storage_test_helpers_test.go`) so that test files are clean, maintainable, DRY, and easy to read.
 
 ### Functional Requirements
-- **FR-1**: If `DATABASE_URL` is empty or if connecting/pinging the database fails in `getTestStorage`, the test must call `t.Skip(...)` (not `t.Fatalf`).
-- **FR-2**: Mock tests using `jackc/pgmock` must spin up a local TCP listener, serve simulated PostgreSQL protocol messages (startup handshake, query parse/bind/execute, row descriptions, data rows, command complete, error responses), and verify `Storage` behaviors without requiring an actual PostgreSQL server.
-- **FR-3**: Mock tests must cover key CRUD and query workflows such as `LoadGroup`, `GetCollectionByKey`, `GetItemByKey`, and error responses (e.g. `pgconn.PgError` unique violation handling).
+- **FR-1**: `storage_test_helpers_test.go` must contain shared environment loading (`loadEnv`), DDL table/view creation (`ensureSchema`), and connection test runner (`getTestStorage`).
+- **FR-2**: `storage_test_helpers_test.go` must contain mock server runner (`startMockServer`) and binary field encoders (`encodeInt8`, `encodeBool`, `encodeText`, `encodeTimestamp`).
+- **FR-3**: `storage_test_helpers_test.go` must provide shared test fixtures / factories (`sampleGroupData`, `sampleCollectionData`, `sampleItemData`, `sampleTag`) for consistent test entity creation.
+- **FR-4**: `storage_integration_test.go` must contain only `TestIntegration_*` lifecycle tests.
+- **FR-5**: `storage_mock_test.go` must contain only `TestPgMock_*` mock tests.
+- **FR-6**: `storage_test.go` must contain only unit tests (`TestIsEmptyResult`, `TestIsUniqueViolation`, `TestStorageAccessors`).
 
 ### Non-Functional Requirements
-- **Hermetic & Fast**: `pgmock` tests must execute in milliseconds without external network dependencies.
-- **Compatibility**: Ensure full project compilation and test execution (`go test ./...` and `go build ./...`).
+- **Maintainability & DRY**: Eliminate redundant helper logic across test files.
+- **Build & Test Cleanliness**: All test suites in `pkg/zotero/storage` continue to pass without regression.
 
 # Technical Design
 
 ### Current Implementation
-- `pkg/zotero/storage/storage_test.go` defines integration tests (`TestIntegration_GroupLifecycle`, `TestIntegration_CollectionLifecycle`, `TestIntegration_ItemLifecycle`, `TestIntegration_TagLifecycle`) that use `getTestStorage(t)`.
-- If `DATABASE_URL` is empty, `t.Skip` is called; however, if `DATABASE_URL` is provided but the host is unreachable, `pool.Ping(ctx)` fails with `t.Fatalf`, causing the test run to fail.
+- `pkg/zotero/storage/storage_integration_test.go` contains `loadEnv()`, `ensureSchema()`, `getTestStorage()`, and integration tests.
+- `pkg/zotero/storage/storage_mock_test.go` contains `startMockServer()`, `encodeInt8()`, `encodeBool()`, `encodeText()`, `encodeTimestamp()`, and mock tests.
+- Test entities (Group, Collection, Item, Tag models) are instantiated ad-hoc inside each test function.
 
 ### Key Decisions
-- **Graceful Skip on Unreachable DB**: Wrap connection and ping checks in `getTestStorage` with `t.Skipf(...)` so that when a database server is not reachable, integration tests are skipped rather than failing.
-- **Mock Server with `jackc/pgmock`**: Use `github.com/jackc/pgmock` and `github.com/jackc/pgproto3/v2` to simulate a PostgreSQL server over an in-process TCP listener (`net.Listen("tcp", "127.0.0.1:0")`).
-- **Protocol Simulation**: Use `pgmock.AcceptUnauthenticatedConnRequestSteps()` for connection handshake and define `pgmock.Step` sequences (expecting frontend queries/extended protocol messages and sending backend `RowDescription`, `DataRow`, `CommandComplete`, and `ReadyForQuery` or `ErrorResponse`).
-- **Connection to Mock Server**: Instantiate `pgxpool.New` with connection string targeting the mock listener (`postgres://user:pass@127.0.0.1:<port>/zotero?sslmode=disable`).
+- **Dedicated Helper File**: Place all shared test utilities in `pkg/zotero/storage/storage_test_helpers_test.go`. Since it belongs to package `storage` with the `_test.go` suffix, all symbols are directly accessible to all test files in the package during `go test`, while being excluded from production binaries.
+- **Shared Test Data Factories**: Introduce helper functions to construct standard test entities (`sampleGroupData`, `sampleCollectionData`, `sampleItemData`, `sampleTag`), ensuring consistent data shapes between mock tests and live integration tests.
 
-### Proposed Changes
-
-#### 1. Integration Test Ping Skip (`pkg/zotero/storage/storage_test.go`)
-- Update `getTestStorage`:
-  ```go
-  pool, err := pgxpool.New(ctx, dbURL)
-  if err != nil {
-      t.Skipf("cannot create connection pool (%v); skipping integration tests", err)
-      return nil, 0, nil
-  }
-  if err := pool.Ping(ctx); err != nil {
-      pool.Close()
-      t.Skipf("cannot ping database (%v); skipping integration tests", err)
-      return nil, 0, nil
-  }
-  if err := ensureSchema(ctx, pool, schema); err != nil {
-      pool.Close()
-      t.Skipf("cannot ensure schema (%v); skipping integration tests", err)
-      return nil, 0, nil
-  }
-  ```
-
-#### 2. Mock Test Suite (`pkg/zotero/storage/storage_mock_test.go`)
-- Implement a helper to start a mock PostgreSQL server:
-  ```go
-  func startMockServer(t *testing.T, script *pgmock.Script) (*Storage, func())
-  ```
-- Implement test cases:
-  - `TestPgMock_LoadGroup`: Simulates `SELECT version, created, modified, data, active... FROM public.groups...` returning row data, verifying `LoadGroup` parses group fields properly.
-  - `TestPgMock_GetCollectionByKey`: Simulates querying `public.collections` by key and verifies model deserialization.
-  - `TestPgMock_GetItemByKey`: Simulates querying `public.items` by key and verifies model deserialization.
-  - `TestPgMock_IsUniqueViolation`: Simulates returning a PostgreSQL `ErrorResponse` (Code `23505`, Constraint `items_oldid_constraint`) and verifies error handling in `Storage`.
+### Proposed File Structure
+- `pkg/zotero/storage/storage_test_helpers_test.go` (NEW):
+  - Environment & DB setup: `loadEnv()`, `ensureSchema(...)`, `getTestStorage(...)`
+  - Mock server infrastructure: `startMockServer(...)`, `encodeInt8(...)`, `encodeBool(...)`, `encodeText(...)`, `encodeTimestamp(...)`
+  - Test data fixtures: `sampleGroupData(...)`, `sampleCollectionData(...)`, `sampleItemData(...)`, `sampleTag(...)`
+- `pkg/zotero/storage/storage_integration_test.go`:
+  - Contains `TestIntegration_GroupLifecycle`, `TestIntegration_CollectionLifecycle`, `TestIntegration_ItemLifecycle`, `TestIntegration_TagLifecycle`.
+- `pkg/zotero/storage/storage_mock_test.go`:
+  - Contains `TestPgMock_*` test functions.
+- `pkg/zotero/storage/storage_test.go`:
+  - Contains `TestIsEmptyResult`, `TestIsUniqueViolation`, `TestStorageAccessors`.
 
 ### Architecture Diagram
 ```mermaid
 graph TD
-    subgraph MockTest [Mock Testing Suite: storage_mock_test.go]
-        TestRunner[TestRunner]
-        PgMockServer[pgmock Server / TCP Listener]
-        PgxPool[pgxpool.Pool]
-        StorageInstance[storage.Storage]
+    subgraph StorageTestPackage [pkg/zotero/storage test package]
+        Helpers[storage_test_helpers_test.go<br/>- loadEnv / ensureSchema / getTestStorage<br/>- startMockServer / encode*<br/>- sample* fixture factories]
+        IntegrationTests[storage_integration_test.go<br/>- TestIntegration_GroupLifecycle<br/>- TestIntegration_CollectionLifecycle<br/>- TestIntegration_ItemLifecycle<br/>- TestIntegration_TagLifecycle]
+        MockTests[storage_mock_test.go<br/>- TestPgMock_LoadGroup<br/>- TestPgMock_GetCollectionByKey<br/>- TestPgMock_GetItemByKey<br/>- TestPgMock_CreateTag<br/>- TestPgMock_CreateEmptyGroup]
+        UnitTests[storage_test.go<br/>- TestIsEmptyResult<br/>- TestIsUniqueViolation<br/>- TestStorageAccessors]
     end
 
-    TestRunner -->|Starts| PgMockServer
-    TestRunner -->|Connects to 127.0.0.1:port| PgxPool
-    PgxPool --> StorageInstance
-    StorageInstance -->|pgx queries / extended protocol| PgMockServer
-    PgMockServer -->|pgproto3 Backend Messages| StorageInstance
+    Helpers --> IntegrationTests
+    Helpers --> MockTests
 ```
-
-### File Structure & Changes
-- Modified: `pkg/zotero/storage/storage_test.go` (graceful skip on ping/connect failure)
-- Added: `pkg/zotero/storage/storage_mock_test.go` (pgmock unit tests)
-- Modified: `go.mod`, `go.sum` (add `github.com/jackc/pgmock` dependency)
 
 # Testing
 
 ### Validation Approach
-- **Ping Skip Verification**: Run tests with invalid `DATABASE_URL` (e.g. `postgres://localhost:54329/nonexistent`) to verify that tests are gracefully skipped (`SKIP`) instead of failing (`FAIL`).
-- **PgMock Unit Tests**: Run `go test -v -run TestPgMock ./pkg/zotero/storage/...` to verify all mock server tests pass without any live database.
-- **Full Test Suite**: Execute `go test ./...` and `go build ./...` across the entire workspace.
-
-### Key Scenarios
-- **Unreachable Database**: `getTestStorage` calls `t.Skipf` when `pool.Ping` fails, allowing test suite to pass.
-- **Mock LoadGroup**: `Storage.LoadGroup(groupId)` correctly issues query to mock server and constructs `model.Group`.
-- **Mock GetCollectionByKey**: `Storage.GetCollectionByKey(groupId, key)` correctly receives mocked `DataRow` and parses metadata and JSON data.
-- **Mock GetItemByKey**: `Storage.GetItemByKey(groupId, key)` correctly parses item properties and metadata from mocked responses.
-- **Mock Error Handling**: Server error responses (code `23505`) are correctly propagated and identified as unique violations.
+- Run all unit, mock, and integration tests in storage:
+  ```powershell
+  go test -v ./pkg/zotero/storage/...
+  ```
+- Run full workspace tests and verify compilation:
+  ```powershell
+  go test ./...
+  go build ./...
+  ```
 
 # Delivery Steps
 
-### ✓ Step 1: Update integration test helper to skip on database ping / connection failure
-The test helper in `pkg/zotero/storage/storage_test.go` skips tests gracefully when database connection or ping fails.
+### ✓ Step 1: Create storage_test_helpers_test.go with shared test infrastructure and fixture factories
+All shared test utilities, mock server setup, binary encoders, and sample data factories are centralized in `pkg/zotero/storage/storage_test_helpers_test.go`.
 
-- Update `getTestStorage(t *testing.T)` in `pkg/zotero/storage/storage_test.go` to replace `t.Fatalf` with `t.Skipf` on `pgxpool.New`, `pool.Ping`, and `ensureSchema` errors.
-- Ensure that if a database is not running or ping times out, all integration tests report as skipped rather than failing.
+- Create `pkg/zotero/storage/storage_test_helpers_test.go` with `package storage`.
+- Move `loadEnv`, `ensureSchema`, and `getTestStorage` (with graceful skip) into this file.
+- Move `startMockServer`, `encodeInt8`, `encodeBool`, `encodeText`, and `encodeTimestamp` into this file.
+- Add shared sample data factory functions (`sampleGroupData`, `sampleCollectionData`, `sampleItemData`, `sampleTag`) for consistent test entity generation.
 
-### ✓ Step 2: Implement mock-based test suite using jackc/pgmock
-A new test suite in `pkg/zotero/storage/storage_mock_test.go` validates `Storage` using `github.com/jackc/pgmock` without requiring a real PostgreSQL instance.
+### ✓ Step 2: Refactor storage_integration_test.go and storage_mock_test.go to use shared helpers
+`storage_integration_test.go` and `storage_mock_test.go` are streamlined to focus solely on test execution logic.
 
-- Add `github.com/jackc/pgmock` to dependencies in `go.mod` and run `go mod tidy`.
-- Create `pkg/zotero/storage/storage_mock_test.go` with mock server lifecycle helper using `net.Listen` and `pgmock.Script`.
-- Implement mock test cases for `LoadGroup`, `GetCollectionByKey`, `GetItemByKey`, and constraint violation handling.
-- Verify tests pass with `go test -v ./pkg/zotero/storage/...` and workspace build passes with `go build ./...`.
+- Remove extracted helper functions and encoders from `storage_integration_test.go` and `storage_mock_test.go`.
+- Ensure all test cases invoke the shared helpers and fixtures seamlessly.
+- Execute `go test -v ./pkg/zotero/storage/...` and workspace tests (`go test ./...`, `go build ./...`) to ensure 100% test pass.
