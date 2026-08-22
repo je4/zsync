@@ -63,17 +63,14 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 			continue
 		}
 
-		for _, gid := range cfg.ClearBeforeSync {
-			if gid == group.Id {
-				if err := zotStorage.ClearGroup(groupId); err != nil {
-					logger.Error().Msgf("cannot clear group %v: %v", groupId, err)
-					return
-				}
-				group.CollectionVersion = 0
-				group.ItemVersion = 0
-				group.Version = 0
-				break
+		if slices.Contains(cfg.ClearBeforeSync, group.Id) {
+			if err := zotStorage.ClearGroup(groupId); err != nil {
+				logger.Error().Msgf("cannot clear group %v: %v", groupId, err)
+				return
 			}
+			group.CollectionVersion = 0
+			group.ItemVersion = 0
+			group.Version = 0
 		}
 
 		if err := syncer.SyncGroup(group); err != nil {

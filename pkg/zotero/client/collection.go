@@ -3,7 +3,6 @@ package client
 import (
 	"encoding/json/v2"
 	"fmt"
-	"maps"
 	"strconv"
 	"strings"
 
@@ -14,60 +13,14 @@ import (
 
 func (c *Client) GetCollectionVersions(groupId int64, sinceVersion int64) (*map[string]int64, int64, error) {
 	endpoint := fmt.Sprintf("/groups/%v/collections", groupId)
-
-	totalObjects := &map[string]int64{}
-	var lastModifiedVersion int64
-	limit := int64(500)
-	start := int64(0)
-	for {
-		if c.Logger != nil {
-			c.Logger.Info().Msgf("rest call: %s [%v, %v]", endpoint, start, limit)
-		}
-
-		call := c.client.R().
-			SetHeader("Accept", "application/json").
-			SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
-			SetQueryParam("format", "versions").
-			SetQueryParam("limit", strconv.FormatInt(limit, 10)).
-			SetQueryParam("start", strconv.FormatInt(start, 10))
-		var resp *resty.Response
-		var err error
-		for {
-			resp, err = call.Get(endpoint)
-			if err != nil {
-				return nil, 0, errors.Wrapf(err, "cannot get collection versions from %s", endpoint)
-			}
-			if !c.CheckRetry(resp.Header()) {
-				break
-			}
-		}
-		totalResult, err := strconv.ParseInt(resp.RawResponse.Header.Get("Total-Results"), 10, 64)
-		if err != nil {
-			return nil, 0, errors.Wrapf(err, "cannot parse Total-Results %v", resp.RawResponse.Header.Get("Total-Results"))
-		}
-		rawBody := resp.Body()
-		objects := &map[string]int64{}
-		if err := json.Unmarshal(rawBody, objects); err != nil {
-			return nil, 0, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
-		}
-		limv := resp.RawResponse.Header.Get("Last-Modified-Version")
-		h, err := strconv.ParseInt(limv, 10, 64)
-		if err != nil {
-			return nil, 0, errors.Wrapf(err, "cannot convert 'Last-Modified-Version' - %v", limv)
-		}
-		if h > lastModifiedVersion {
-			lastModifiedVersion = h
-		}
-
-		c.CheckBackoff(resp.Header())
-		maps.Copy((*totalObjects), *objects)
-		if totalResult <= start+limit {
-			break
-		}
-		start += limit
+	res, lmv, err := fetchPaginatedMap[string, int64](c, endpoint, 500, func(req *resty.Request) {
+		req.SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
+			SetQueryParam("format", "versions")
+	})
+	if err != nil {
+		return nil, 0, err
 	}
-
-	return totalObjects, lastModifiedVersion, nil
+	return &res, lmv, nil
 }
 
 func (c *Client) GetCollectionsByKey(groupId int64, objectKeys []string) (*[]model.Collection, int64, error) {

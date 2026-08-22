@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -198,14 +199,7 @@ func (s *Syncer) syncCollections(group *model.Group) (int64, int64, error) {
 			collectionUpdate = append(collectionUpdate, collectionid)
 		}
 	}
-	numCollections := len(collectionUpdate)
-	for i := 0; i < (numCollections/50)+1; i++ {
-		start := i * 50
-		end := min(numCollections, start+50)
-		part := collectionUpdate[start:end]
-		if len(part) == 0 {
-			continue
-		}
+	for part := range slices.Chunk(collectionUpdate, 50) {
 		collections, _, err := s.Client.GetCollectionsByKey(group.Id, part)
 		if err != nil {
 			return counter, 0, errors.Wrapf(err, "cannot get collections")
@@ -397,13 +391,7 @@ func (s *Syncer) syncItems(group *model.Group, trashed bool) (int64, int64, erro
 		}
 	}
 	numItems := len(itemsUpdate)
-	for i := 0; i < (numItems/50)+1; i++ {
-		start := i * 50
-		end := min(numItems, start+50)
-		part := itemsUpdate[start:end]
-		if len(part) == 0 {
-			continue
-		}
+	for part := range slices.Chunk(itemsUpdate, 50) {
 		var items *[]model.Item
 		if trashed {
 			items, err = s.Client.GetItemsTrashByKey(group.Id, part)
