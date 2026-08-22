@@ -1,7 +1,8 @@
 package sync
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -535,7 +536,7 @@ func (s *Syncer) BackupLocal(group *model.Group, backupFs filesystem.FileSystem)
 			Data:      coll.Data,
 			Meta:      coll.Meta,
 		}
-		b, err := json.MarshalIndent(data, "", "  ")
+		b, err := json.Marshal(data, jsontext.WithIndent("  "))
 		if err != nil {
 			return errors.Wrapf(err, "cannot marshal collection backup data %v", data)
 		}
@@ -568,7 +569,7 @@ func (s *Syncer) BackupLocal(group *model.Group, backupFs filesystem.FileSystem)
 			Data:      item.Data,
 			Meta:      item.Meta,
 		}
-		b, err := json.MarshalIndent(data, "", "  ")
+		b, err := json.Marshal(data, jsontext.WithIndent("  "))
 		if err != nil {
 			return errors.Wrapf(err, "cannot marshal item backup data %v", data)
 		}
@@ -611,7 +612,7 @@ func (s *Syncer) BackupLocal(group *model.Group, backupFs filesystem.FileSystem)
 		ItemVersion:       group.ItemVersion,
 		TagVersion:        group.TagVersion,
 	}
-	b, err := json.MarshalIndent(groupData, "", "  ")
+	b, err := json.Marshal(groupData, jsontext.WithIndent("  "))
 	if err != nil {
 		return errors.Wrapf(err, "cannot marshal group backup data %v", groupData)
 	}

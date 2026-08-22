@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/info"
 	"github.com/je4/zsync/v2/pkg/filesystem"
@@ -66,6 +67,8 @@ func loadEnv() {
 
 func ensureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	ddl := fmt.Sprintf(`
+CREATE SCHEMA IF NOT EXISTS %s;
+
 CREATE TABLE IF NOT EXISTS %s.groups (
     id bigint NOT NULL PRIMARY KEY,
     version bigint NOT NULL DEFAULT 0,
@@ -151,7 +154,7 @@ BEGIN
     REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA;
 END;
 $$ LANGUAGE plpgsql;
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 
 	_, err := pool.Exec(ctx, ddl)
 	return err
@@ -170,7 +173,29 @@ func getIntegrationTestStorage(t *testing.T, groupID int64) (*storage.Storage, *
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, dbURL)
+	cfg, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		t.Skipf("cannot parse database url (%v); skipping integration test", err)
+		return nil, nil, "", nil
+	}
+
+	schema := "public"
+	if s := os.Getenv("DATABASE_SCHEMA"); s != "" {
+		schema = s
+	}
+
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	if _, ok := cfg.ConnConfig.RuntimeParams["search_path"]; !ok {
+		cfg.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s, public", schema)
+	}
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, fmt.Sprintf("SET search_path = %s, public", schema))
+		return err
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Skipf("cannot connect to database (%v); skipping integration test", err)
 		return nil, nil, "", nil
@@ -180,11 +205,6 @@ func getIntegrationTestStorage(t *testing.T, groupID int64) (*storage.Storage, *
 		pool.Close()
 		t.Skipf("database ping failed (%v); skipping integration test", err)
 		return nil, nil, "", nil
-	}
-
-	schema := "public"
-	if s := os.Getenv("DATABASE_SCHEMA"); s != "" {
-		schema = s
 	}
 
 	if err := ensureSchema(ctx, pool, schema); err != nil {

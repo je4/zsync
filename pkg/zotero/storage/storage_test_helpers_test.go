@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 	"github.com/rs/zerolog"
@@ -61,6 +62,8 @@ func loadEnv() {
 
 func ensureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	ddl := fmt.Sprintf(`
+CREATE SCHEMA IF NOT EXISTS %s;
+
 CREATE TABLE IF NOT EXISTS %s.groups (
     id bigint NOT NULL PRIMARY KEY,
     version bigint NOT NULL DEFAULT 0,
@@ -134,7 +137,7 @@ BEGIN
     REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA;
 END;
 $$ LANGUAGE plpgsql;
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 
 	_, err := pool.Exec(ctx, ddl)
 	return err
@@ -152,7 +155,30 @@ func getTestStorage(t *testing.T) (*Storage, int64, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, dbURL)
+	cfg, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		t.Skipf("cannot parse connection url (%v); skipping integration tests", err)
+		return nil, 0, nil
+	}
+
+	schema := "public"
+	if s := os.Getenv("DATABASE_SCHEMA"); s != "" {
+		schema = s
+	}
+
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	if _, ok := cfg.ConnConfig.RuntimeParams["search_path"]; !ok {
+		cfg.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s, public", schema)
+	}
+
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, fmt.Sprintf("SET search_path = %s, public", schema))
+		return err
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Skipf("cannot create connection pool (%v); skipping integration tests", err)
 		return nil, 0, nil
@@ -162,11 +188,6 @@ func getTestStorage(t *testing.T) (*Storage, int64, func()) {
 		pool.Close()
 		t.Skipf("cannot ping database (%v); skipping integration tests", err)
 		return nil, 0, nil
-	}
-
-	schema := "public"
-	if s := os.Getenv("DATABASE_SCHEMA"); s != "" {
-		schema = s
 	}
 
 	if err := ensureSchema(ctx, pool, schema); err != nil {

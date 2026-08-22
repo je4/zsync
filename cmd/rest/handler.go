@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"time"
 
+	"encoding/json/v2"
+
 	"emperror.dev/errors"
-	"encoding/json"
 	"github.com/bluele/gcache"
 	"github.com/je4/zsync/v2/pkg/filesystem"
 	"github.com/je4/zsync/v2/pkg/zotero/client"

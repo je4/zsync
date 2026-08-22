@@ -3,9 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
-	"strings"
+	"encoding/json/v2"
 	"time"
 
 	"emperror.dev/errors"
@@ -98,16 +96,15 @@ func (s *Storage) CreateItem(groupId int64, itemData *model.ItemGeneric, itemMet
 	if oldId == "" {
 		oid.Valid = false
 	}
-	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, data, oldid) VALUES( $1, $2, $3, $4, $5, $6)", s.dbSchema)
-	params := []any{
-		item.Key,
-		0,
-		item.Library.Id,
-		"new",
-		string(jsonstr),
-		oid,
+	params := pgx.NamedArgs{
+		"key":     item.Key,
+		"version": 0,
+		"library": item.Library.Id,
+		"sync":    "new",
+		"data":    string(jsonstr),
+		"oldid":   oid,
 	}
-	_, err = s.db.Exec(context.Background(), sqlstr, params...)
+	_, err = s.db.Exec(context.Background(), SQLInsertItem, params)
 	if IsUniqueViolation(err, "items_oldid_constraint") {
 		item2, err := s.GetItemByOldid(groupId, oldId)
 		if err != nil {
@@ -122,7 +119,7 @@ func (s *Storage) CreateItem(groupId int64, itemData *model.ItemGeneric, itemMet
 			return nil, errors.Wrapf(err, "cannot update item %v", oldId)
 		}
 	} else if err != nil {
-		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLInsertItem, params)
 	}
 
 	return item, nil
@@ -136,30 +133,28 @@ func (s *Storage) CreateEmptyItem(groupId int64, itemId string, oldId string) er
 	if oldId == "" {
 		oid.Valid = false
 	}
-	sqlstr := fmt.Sprintf("INSERT INTO %s.items (key, version, library, sync, oldid) VALUES( $1, 0, $2, $3, $4)", s.dbSchema)
-	params := []any{
-		itemId,
-		groupId,
-		"incomplete",
-		oid,
+	params := pgx.NamedArgs{
+		"key":     itemId,
+		"library": groupId,
+		"sync":    "incomplete",
+		"oldid":   oid,
 	}
-	_, err := s.db.Exec(context.Background(), sqlstr, params...)
+	_, err := s.db.Exec(context.Background(), SQLInsertEmptyItem, params)
 	if err != nil {
-		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return errors.Wrapf(err, "cannot execute %s: %v", SQLInsertEmptyItem, params)
 	}
 	return nil
 }
 
 func (s *Storage) GetItemVersion(groupId int64, itemId string, oldId string) (int64, model.SyncStatus, error) {
-	sqlstr := fmt.Sprintf("SELECT version, sync FROM %s.items WHERE library=$1 AND key=$2", s.dbSchema)
-	params := []any{
-		groupId,
-		itemId,
+	params := pgx.NamedArgs{
+		"library": groupId,
+		"key":     itemId,
 	}
 	var version int64
 	var syncstr string
 	var sync model.SyncStatus
-	err := s.db.QueryRow(context.Background(), sqlstr, params...).Scan(&version, &syncstr)
+	err := s.db.QueryRow(context.Background(), SQLGetItemVersion, params).Scan(&version, &syncstr)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows:
 		if err := s.CreateEmptyItem(groupId, itemId, oldId); err != nil {
@@ -168,7 +163,7 @@ func (s *Storage) GetItemVersion(groupId int64, itemId string, oldId string) (in
 		version = 0
 		sync = model.SyncStatus_New
 	case err != nil:
-		return 0, model.SyncStatus_New, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return 0, model.SyncStatus_New, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemVersion, params)
 	case err == nil:
 		sync = model.SyncStatusId[syncstr]
 	}
@@ -179,18 +174,13 @@ func (s *Storage) GetItems(groupId int64, objectKeys []string) (*[]model.Item, e
 	if len(objectKeys) == 0 {
 		return &[]model.Item{}, nil
 	}
-	params := []any{
-		groupId,
+	params := pgx.NamedArgs{
+		"library": groupId,
+		"keys":    objectKeys,
 	}
-	pstr := []string{}
-	for _, val := range objectKeys {
-		params = append(params, val)
-		pstr = append(pstr, fmt.Sprintf("$%v", len(params)))
-	}
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND key IN (%s)", s.dbSchema, strings.Join(pstr, ","))
-	rows, err := s.db.Query(context.Background(), sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), SQLGetItems, params)
 	if err != nil {
-		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItems, params)
 	}
 	defer rows.Close()
 
@@ -214,15 +204,14 @@ func (s *Storage) GetItems(groupId int64, objectKeys []string) (*[]model.Item, e
 }
 
 func (s *Storage) GetItemsVersion(groupId int64, sinceVersion int64, trashed bool) (*map[string]int64, int64, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version FROM %s.items WHERE library=$1 AND version > $2 AND trashed=$3", s.dbSchema)
-	params := []any{
-		groupId,
-		sinceVersion,
-		trashed,
+	params := pgx.NamedArgs{
+		"library":      groupId,
+		"sinceVersion": sinceVersion,
+		"trashed":      trashed,
 	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), SQLGetItemsVersion, params)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, 0, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemsVersion, params)
 	}
 	defer rows.Close()
 
@@ -243,30 +232,26 @@ func (s *Storage) GetItemsVersion(groupId int64, sinceVersion int64, trashed boo
 }
 
 func (s *Storage) GetItemByKey(groupId int64, key string) (*model.Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items"+
-		" WHERE library=$1 AND key=$2", s.dbSchema)
-	params := []any{
-		groupId,
-		key,
+	params := pgx.NamedArgs{
+		"library": groupId,
+		"key":     key,
 	}
-
-	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), sqlstr, params...))
+	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), SQLGetItemByKey, params))
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemByKey, params)
 	}
 
 	return item, nil
 }
 
 func (s *Storage) GetItemByOldid(groupId int64, oldid string) (*model.Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab FROM %s.items WHERE library=$1 AND oldid=$2", s.dbSchema)
-	params := []any{
-		groupId,
-		oldid,
+	params := pgx.NamedArgs{
+		"library": groupId,
+		"oldid":   oldid,
 	}
-	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), sqlstr, params...))
+	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), SQLGetItemByOldid, params))
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemByOldid, params)
 	}
 
 	return item, nil
@@ -297,36 +282,23 @@ func (s *Storage) UpdateItem(groupId int64, item *model.Item) error {
 		return errors.Wrapf(err, "cannot marshal meta %v", item.Meta)
 	}
 	var sqlstr string
-	var params []any
-	if item.Version > 0 {
-		sqlstr = fmt.Sprintf("UPDATE %s.items SET version=$1, data=$2, meta=$3, trashed=$4, deleted=$5, sync=$6, md5=$7, modified=NOW() "+
-			"WHERE library=$8 AND key=$9", s.dbSchema)
-		params = []any{
-			item.Version,
-			string(data),
-			string(meta),
-			item.Trashed,
-			item.Deleted,
-			model.SyncStatusString[model.SyncStatus_Modified],
-			md5val,
-			groupId,
-			item.Key,
-		}
-	} else {
-		sqlstr = fmt.Sprintf("UPDATE %s.items SET data=$1, meta=$2, trashed=$3, deleted=$4, sync=$5, md5=$6, modified=NOW() "+
-			"WHERE library=$7 AND key=$8", s.dbSchema)
-		params = []any{
-			string(data),
-			string(meta),
-			item.Trashed,
-			item.Deleted,
-			model.SyncStatusString[model.SyncStatus_Modified],
-			md5val,
-			groupId,
-			item.Key,
-		}
+	params := pgx.NamedArgs{
+		"data":    string(data),
+		"meta":    string(meta),
+		"trashed": item.Trashed,
+		"deleted": item.Deleted,
+		"sync":    model.SyncStatusString[model.SyncStatus_Modified],
+		"md5":     md5val,
+		"library": groupId,
+		"key":     item.Key,
 	}
-	_, err = s.db.Exec(context.Background(), sqlstr, params...)
+	if item.Version > 0 {
+		sqlstr = SQLUpdateItem
+		params["version"] = item.Version
+	} else {
+		sqlstr = SQLUpdateItemVersion0
+	}
+	_, err = s.db.Exec(context.Background(), sqlstr, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
@@ -334,14 +306,13 @@ func (s *Storage) UpdateItem(groupId int64, item *model.Item) error {
 }
 
 func (s *Storage) DeleteItem(groupId int64, key string) error {
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET deleted=true, sync=$1, modified=NOW() WHERE key=$2 AND library=$3", s.dbSchema)
-	params := []any{
-		model.SyncStatusString[model.SyncStatus_Modified],
-		key,
-		groupId,
+	params := pgx.NamedArgs{
+		"sync":    model.SyncStatusString[model.SyncStatus_Modified],
+		"key":     key,
+		"library": groupId,
 	}
-	if _, err := s.db.Exec(context.Background(), sqlstr, params...); err != nil {
-		return errors.Wrapf(err, "error executing %s: %v", sqlstr, params)
+	if _, err := s.db.Exec(context.Background(), SQLDeleteItem, params); err != nil {
+		return errors.Wrapf(err, "error executing %s: %v", SQLDeleteItem, params)
 	}
 	return nil
 }
@@ -350,19 +321,16 @@ func (s *Storage) GetChildren(groupId int64, key string) (*[]model.Item, error) 
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("get children of item [#%s]", key)
 	}
-	sqlstr := fmt.Sprintf("SELECT i.key, i.version, i.data, i.meta, i.trashed, i.deleted, i.sync, i.md5, i.gitlab"+
-		" FROM %s.items i, %s.item_type_hier ith"+
-		" WHERE i.trashed=false AND i.deleted=false AND i.key=ith.key AND i.library=ith.library AND i.library=$1 AND ith.parent=$2", s.dbSchema, s.dbSchema)
-	params := []any{
-		groupId,
-		key,
+	params := pgx.NamedArgs{
+		"library": groupId,
+		"parent":  key,
 	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), SQLGetChildren, params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
 			return &[]model.Item{}, nil
 		}
-		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", SQLGetChildren, params)
 	}
 	defer rows.Close()
 	items := []model.Item{}
@@ -394,26 +362,26 @@ func (s *Storage) DeleteItemRecursive(groupId int64, key string) error {
 }
 
 func (s *Storage) IterateItems(groupId int64, after *time.Time, f func(item *model.Item) error) error {
-	sqlstr0 := fmt.Sprintf("SELECT COUNT(*) "+
-		"FROM %s.items WHERE library=$1 AND deleted=false", s.dbSchema)
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab "+
-		"FROM %s.items WHERE library=$1 AND deleted=false", s.dbSchema)
-	params := []any{
-		groupId,
+	var sqlstr0, sqlstr string
+	params := pgx.NamedArgs{
+		"library": groupId,
 	}
 	if after != nil {
-		sqlstr0 += " AND (modified > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
-		sqlstr += " AND (modified > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
-		params = append(params, after.Format("2006-01-02 15:04:05"))
+		sqlstr0 = SQLIterateItemsAfterCount
+		sqlstr = SQLIterateItemsAfter
+		params["after"] = after.Format("2006-01-02 15:04:05")
+	} else {
+		sqlstr0 = SQLIterateItemsCount
+		sqlstr = SQLIterateItems
 	}
 	var num int64
-	if err := s.db.QueryRow(context.Background(), sqlstr0, params...).Scan(&num); err != nil {
+	if err := s.db.QueryRow(context.Background(), sqlstr0, params).Scan(&num); err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v items found", num)
 	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -435,26 +403,26 @@ func (s *Storage) IterateItems(groupId int64, after *time.Time, f func(item *mod
 }
 
 func (s *Storage) IterateItemsAll(groupId int64, after *time.Time, f func(item *model.Item) error) error {
-	sqlstr0 := fmt.Sprintf("SELECT COUNT(*) "+
-		"FROM %s.items WHERE library=$1", s.dbSchema)
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab "+
-		"FROM %s.items WHERE library=$1", s.dbSchema)
-	params := []any{
-		groupId,
+	var sqlstr0, sqlstr string
+	params := pgx.NamedArgs{
+		"library": groupId,
 	}
 	if after != nil {
-		sqlstr0 += " AND (modified > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
-		sqlstr += " AND (modified > TO_TIMESTAMP($2, 'YYYY-MM-DD HH24:MI:SS'))"
-		params = append(params, after.Format("2006-01-02 15:04:05"))
+		sqlstr0 = SQLIterateItemsAllAfterCount
+		sqlstr = SQLIterateItemsAllAfter
+		params["after"] = after.Format("2006-01-02 15:04:05")
+	} else {
+		sqlstr0 = SQLIterateItemsAllCount
+		sqlstr = SQLIterateItemsAll
 	}
 	var num int64
-	if err := s.db.QueryRow(context.Background(), sqlstr0, params...).Scan(&num); err != nil {
+	if err := s.db.QueryRow(context.Background(), sqlstr0, params).Scan(&num); err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v items found", num)
 	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), sqlstr, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -476,17 +444,14 @@ func (s *Storage) IterateItemsAll(groupId int64, after *time.Time, f func(item *
 }
 
 func (s *Storage) GetModifiedItems(groupId int64) ([]*model.Item, error) {
-	sqlstr := fmt.Sprintf("SELECT key, version, data, meta, trashed, deleted, sync, md5, gitlab"+
-		" FROM %s.items"+
-		" WHERE library=$1 AND (sync=$2 or sync=$3)", s.dbSchema)
-	params := []any{
-		groupId,
-		"new",
-		"modified",
+	params := pgx.NamedArgs{
+		"library":      groupId,
+		"syncNew":      "new",
+		"syncModified": "modified",
 	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params...)
+	rows, err := s.db.Query(context.Background(), SQLGetModifiedItems, params)
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetModifiedItems, params)
 	}
 	defer rows.Close()
 
@@ -508,26 +473,25 @@ func (s *Storage) RefreshItemTypeHier() error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("refreshing materialized view item_type_hier")
 	}
-	sqlstr := fmt.Sprintf("SELECT %s.refresh_item_type_hier()", s.dbSchema)
-	if _, err := s.db.Exec(context.Background(), sqlstr); err != nil {
-		return errors.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", sqlstr)
+	if _, err := s.db.Exec(context.Background(), SQLRefreshItemTypeHier); err != nil {
+		return errors.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", SQLRefreshItemTypeHier)
 	}
 	return nil
 }
 
 func (s *Storage) UpdateItemsGitlabTimestamp(groupId int64, now time.Time, gitlab *time.Time) error {
-	sqlstr := fmt.Sprintf("UPDATE %s.items SET gitlab=TO_TIMESTAMP($1, 'YYYY-MM-DD HH24:MI:SS') "+
-		"WHERE library=$2 AND (TO_TIMESTAMP($3, 'YYYY-MM-DD HH24:MI:SS') > gitlab OR gitlab IS NULL)", s.dbSchema)
-	params := []any{
-		now.Format("2006-01-02 15:04:05"),
-		groupId,
-		now.Format("2006-01-02 15:04:05"),
+	var sqlstr string
+	params := pgx.NamedArgs{
+		"now":     now.Format("2006-01-02 15:04:05"),
+		"library": groupId,
 	}
 	if gitlab != nil {
-		sqlstr += " AND (gitlab >= TO_TIMESTAMP($4, 'YYYY-MM-DD HH24:MI:SS') OR gitlab IS NULL)"
-		params = append(params, gitlab.Format("2006-01-02 15:04:05"))
+		sqlstr = SQLUpdateItemsGitlabTimestampWithFilter
+		params["gitlab"] = gitlab.Format("2006-01-02 15:04:05")
+	} else {
+		sqlstr = SQLUpdateItemsGitlabTimestamp
 	}
-	if _, err := s.db.Exec(context.Background(), sqlstr, params...); err != nil {
+	if _, err := s.db.Exec(context.Background(), sqlstr, params); err != nil {
 		return errors.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 	return nil

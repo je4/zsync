@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
@@ -25,8 +25,7 @@ func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 		}
 
 		var itemData model.ItemGeneric
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&itemData); err != nil {
+		if err := json.UnmarshalRead(r.Body, &itemData); err != nil {
 			handlers.logger.Errorf("cannot decode json: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("cannot decode json: %v", err))
 			return

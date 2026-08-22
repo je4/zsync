@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
@@ -20,8 +20,7 @@ func (handlers *Handlers) makeCollectionCreateHandler() http.HandlerFunc {
 			return
 		}
 		var collectionData model.CollectionData
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&collectionData); err != nil {
+		if err := json.UnmarshalRead(r.Body, &collectionData); err != nil {
 			handlers.logger.Errorf("cannot decode json: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("cannot decode json: %v", err))
 			return

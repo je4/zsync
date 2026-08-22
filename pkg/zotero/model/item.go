@@ -1,7 +1,7 @@
 package model
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
@@ -79,7 +79,7 @@ type ItemDataPerson struct {
 
 type ItemDataBase struct {
 	Key          string           `json:"key,omitempty"`
-	Version      int64            `json:"version,omitempty"`
+	Version      int64            `json:"version,omitzero"`
 	ItemType     string           `json:"itemType"`
 	Tags         []ItemTag        `json:"tags"`
 	Relations    Relations        `json:"relations"`

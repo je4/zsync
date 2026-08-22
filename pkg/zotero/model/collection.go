@@ -5,7 +5,7 @@ import "time"
 type CollectionData struct {
 	Key              string       `json:"key,omitempty"`
 	Name             string       `json:"name"`
-	Version          int64        `json:"version,omitempty"`
+	Version          int64        `json:"version,omitzero"`
 	Relations        RelationList `json:"relations"`
 	ParentCollection Parent       `json:"parentCollection"`
 }

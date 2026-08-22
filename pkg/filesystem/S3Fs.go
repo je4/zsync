@@ -37,7 +37,7 @@ func (fs *S3Fs) Protocol() string {
 }
 
 func (fs *S3Fs) String() string {
-	return fmt.Sprintf(fs.s3.EndpointURL().String())
+	return fs.s3.EndpointURL().String()
 }
 
 func (fs *S3Fs) FileStat(folder, name string, opts FileStatOptions) (os.FileInfo, error) {

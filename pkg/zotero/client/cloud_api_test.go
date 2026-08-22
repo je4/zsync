@@ -3,7 +3,7 @@ package client
 import (
 	"bytes"
 	"crypto/md5"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -593,7 +593,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/groups/6642571":
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(model.Group{
+			json.MarshalWrite(w, model.Group{
 				Id:      6642571,
 				Version: currentVersion,
 				Data: model.GroupData{
@@ -609,11 +609,11 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 			for _, it := range itemsStore {
 				itemsList = append(itemsList, it)
 			}
-			json.NewEncoder(w).Encode(itemsList)
+			json.MarshalWrite(w, itemsList)
 
 		case r.Method == http.MethodPost && r.URL.Path == "/groups/6642571/items":
 			var posted []model.ItemGeneric
-			if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			if err := json.UnmarshalRead(r.Body, &posted); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -641,7 +641,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 				result.Successful[idxStr] = item
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(result)
+			json.MarshalWrite(w, result)
 
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/groups/6642571/items/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/items/")
@@ -651,7 +651,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 				return
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(item)
+			json.MarshalWrite(w, item)
 
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/groups/6642571/items/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/items/")
@@ -667,11 +667,11 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 			for _, cl := range collectionsStore {
 				collsList = append(collsList, cl)
 			}
-			json.NewEncoder(w).Encode(collsList)
+			json.MarshalWrite(w, collsList)
 
 		case r.Method == http.MethodPost && r.URL.Path == "/groups/6642571/collections":
 			var posted []model.CollectionData
-			if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			if err := json.UnmarshalRead(r.Body, &posted); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -698,7 +698,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 				result.Success[idxStr] = key
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(result)
+			json.MarshalWrite(w, result)
 
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/groups/6642571/collections/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/collections/")
@@ -708,7 +708,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 				return
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(coll)
+			json.MarshalWrite(w, coll)
 
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/groups/6642571/collections/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/collections/")
@@ -881,7 +881,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(model.Group{
+			json.MarshalWrite(w, model.Group{
 				Id:      6642571,
 				Version: currentVersion,
 				Data: model.GroupData{
@@ -907,7 +907,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 				Unchanged:  map[string]string{},
 				Failed:     map[string]model.ItemCollectionCreateResultFailed{},
 			}
-			json.NewEncoder(w).Encode(result)
+			json.MarshalWrite(w, result)
 
 		case r.Method == http.MethodDelete && r.URL.Path == "/groups/6642571/items/ITEM123":
 			deleteItemCalls++
@@ -937,7 +937,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 				Unchanged:  map[string]string{},
 				Failed:     map[string]model.ItemCollectionCreateResultFailed{},
 			}
-			json.NewEncoder(w).Encode(result)
+			json.MarshalWrite(w, result)
 
 		case r.Method == http.MethodDelete && r.URL.Path == "/groups/6642571/collections/COLL123":
 			deleteCollCalls++
@@ -1042,7 +1042,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 		if r.Method == http.MethodGet && r.URL.Path == "/groups/6642571" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(model.Group{
+			json.MarshalWrite(w, model.Group{
 				Id:      6642571,
 				Version: currentVersion,
 				Data: model.GroupData{
@@ -1062,7 +1062,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 			for _, it := range itemsStore {
 				itemsList = append(itemsList, it)
 			}
-			json.NewEncoder(w).Encode(itemsList)
+			json.MarshalWrite(w, itemsList)
 			return
 		}
 
@@ -1070,7 +1070,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 		if r.Method == http.MethodPost && r.URL.Path == "/groups/6642571/items" {
 			w.Header().Set("Content-Type", "application/json")
 			var rawItems []model.ItemGeneric
-			if err := json.NewDecoder(r.Body).Decode(&rawItems); err != nil {
+			if err := json.UnmarshalRead(r.Body, &rawItems); err != nil {
 				t.Fatalf("failed to decode create items payload: %v", err)
 			}
 			currentVersion++
@@ -1102,7 +1102,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 				}
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(respMap)
+			json.MarshalWrite(w, respMap)
 			return
 		}
 
@@ -1162,7 +1162,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 				if strings.Contains(targetItem.Data.Title, "Existing") {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
-					json.NewEncoder(w).Encode(map[string]string{
+					json.MarshalWrite(w, map[string]string{
 						"exists": "1",
 					})
 					return
@@ -1171,7 +1171,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 				// Standard upload authorization response
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(map[string]string{
+				json.MarshalWrite(w, map[string]string{
 					"url":         fmt.Sprintf("%s/storage/upload/%s", serverURL, itemKey),
 					"contentType": "multipart/form-data; boundary=---boundary",
 					"prefix":      "---prefix\r\n",

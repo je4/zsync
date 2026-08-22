@@ -1,7 +1,7 @@
 package model
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 )
@@ -226,12 +226,10 @@ func TestCollectionDataVersionSerialization(t *testing.T) {
 func TestItemGenericVersionSerialization(t *testing.T) {
 	// Case 1: New item creation (Key == "", Version == 0) -> omit key and version
 	itemNew := ItemGeneric{
-		ItemDataBase: ItemDataBase{
-			Key:      "",
-			Version:  0,
-			ItemType: "book",
-		},
-		Title: "New Book",
+		Key:      "",
+		Version:  0,
+		ItemType: "book",
+		Title:    "New Book",
 	}
 	bytesNew, err := json.Marshal(itemNew)
 	if err != nil {
@@ -255,12 +253,10 @@ func TestItemGenericVersionSerialization(t *testing.T) {
 
 	// Case 2: Existing item update (Key != "", Version > 0) -> retain key and version
 	itemExisting := ItemGeneric{
-		ItemDataBase: ItemDataBase{
-			Key:      "ITEM123",
-			Version:  45,
-			ItemType: "book",
-		},
-		Title: "Existing Book",
+		Key:      "ITEM123",
+		Version:  45,
+		ItemType: "book",
+		Title:    "Existing Book",
 	}
 	bytesExisting, err := json.Marshal(itemExisting)
 	if err != nil {
@@ -281,14 +277,12 @@ func TestItemGenericVersionSerialization(t *testing.T) {
 func TestItemDataAttachmentSerialization(t *testing.T) {
 	// 1. Test ItemDataAttachment struct
 	att := ItemDataAttachment{
-		ItemDataBase: ItemDataBase{
-			Key:        "ATT12345",
-			Version:    5,
-			ItemType:   "attachment",
-			ParentItem: "PARENT999",
-			Tags: []ItemTag{
-				{Tag: "pdf"},
-			},
+		Key:        "ATT12345",
+		Version:    5,
+		ItemType:   "attachment",
+		ParentItem: "PARENT999",
+		Tags: []ItemTag{
+			{Tag: "pdf"},
 		},
 		Title:       "Research Paper Attachment.pdf",
 		LinkMode:    "imported_file",
@@ -338,12 +332,10 @@ func TestItemDataAttachmentSerialization(t *testing.T) {
 
 	// 2. Test ItemGeneric with attachment fields
 	genAtt := ItemGeneric{
-		ItemDataBase: ItemDataBase{
-			Key:        "ATTGEN12",
-			Version:    2,
-			ItemType:   "attachment",
-			ParentItem: "PARENT888",
-		},
+		Key:         "ATTGEN12",
+		Version:     2,
+		ItemType:    "attachment",
+		ParentItem:  "PARENT888",
 		Title:       "Document Note.txt",
 		LinkMode:    "imported_file",
 		ContentType: "text/plain",

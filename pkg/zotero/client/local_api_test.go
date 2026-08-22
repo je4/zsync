@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -526,7 +526,7 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/groups/6642571":
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(model.Group{
+			json.MarshalWrite(w, model.Group{
 				Id:      6642571,
 				Version: currentVersion,
 				Data: model.GroupData{
@@ -537,7 +537,7 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 
 		case r.Method == http.MethodPost && r.URL.Path == "/groups/6642571/items":
 			var posted []model.ItemGeneric
-			if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			if err := json.UnmarshalRead(r.Body, &posted); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -565,7 +565,7 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 				result.Successful[idxStr] = item
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(result)
+			json.MarshalWrite(w, result)
 
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/groups/6642571/items/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/items/")
@@ -575,7 +575,7 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 				return
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(item)
+			json.MarshalWrite(w, item)
 
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/groups/6642571/items/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/items/")
@@ -695,7 +695,7 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/groups/6642571":
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(model.Group{
+			json.MarshalWrite(w, model.Group{
 				Id:      6642571,
 				Version: currentVersion,
 				Data: model.GroupData{
@@ -706,7 +706,7 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 
 		case r.Method == http.MethodPost && r.URL.Path == "/groups/6642571/collections":
 			var posted []model.CollectionData
-			if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			if err := json.UnmarshalRead(r.Body, &posted); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -733,7 +733,7 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 				result.Success[idxStr] = key
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(result)
+			json.MarshalWrite(w, result)
 
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/groups/6642571/collections/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/collections/")
@@ -743,7 +743,7 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 				return
 			}
 			w.Header().Set("Last-Modified-Version", strconv.FormatInt(currentVersion, 10))
-			json.NewEncoder(w).Encode(coll)
+			json.MarshalWrite(w, coll)
 
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/groups/6642571/collections/"):
 			key := strings.TrimPrefix(r.URL.Path, "/groups/6642571/collections/")
@@ -913,7 +913,7 @@ func TestLocalApi_ServerIdHeader_MockServer(t *testing.T) {
 
 		if strings.HasPrefix(r.URL.Path, "/users/") && strings.HasSuffix(r.URL.Path, "/groups") {
 			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(mockGroupVersions)
+			_ = json.MarshalWrite(w, mockGroupVersions)
 			return
 		}
 

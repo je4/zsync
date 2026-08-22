@@ -1,7 +1,7 @@
 package client
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -205,7 +205,7 @@ func TestServerIdHeaderMock(t *testing.T) {
 
 		if strings.HasPrefix(r.URL.Path, "/users/") && strings.HasSuffix(r.URL.Path, "/groups") {
 			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(mockGroupVersions)
+			_ = json.MarshalWrite(w, mockGroupVersions)
 			return
 		}
 

@@ -2,7 +2,7 @@ package client
 
 import (
 	"crypto/md5"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"strconv"
