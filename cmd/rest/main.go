@@ -82,7 +82,7 @@ func main() {
 	}
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-	zotStorage := storage.NewStorage(db, cfg.DB.Schema, cfg.NewGroupActive, &zlog)
+	zotStorage := storage.NewStorage(db, cfg.NewGroupActive, &zlog)
 	var zotClient *client.Client
 	if cfg.Endpoint != "" {
 		zotClient, err = client.NewClient(cfg.Endpoint, cfg.Apikey, &zlog)

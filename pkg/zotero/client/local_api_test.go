@@ -315,9 +315,9 @@ func TestLocalApi_CreateAndRetainItems(t *testing.T) {
 			},
 		},
 		Title:        initialTitle,
-		ISBN:         "978-0-123456-47-2",
 		AbstractNote: "Sample retained book entry created by automated tests for local Zotero inspection.",
 	}
+	itemData.SetString("ISBN", "978-0-123456-47-2")
 
 	// 1. Create item in APITEST (retained - no deletion in teardown)
 	_, vResp, vErr := zot.GetItemsQuery(group.Id, map[string]string{"limit": "1"})

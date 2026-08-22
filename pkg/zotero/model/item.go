@@ -15,9 +15,7 @@ func (sb *StringOrBool) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &s); err != nil {
 		s = ""
 	}
-	var h StringOrBool
-	h = StringOrBool(s)
-	sb = &h
+	*sb = StringOrBool(s)
 	return nil
 }
 

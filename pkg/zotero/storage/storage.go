@@ -12,15 +12,13 @@ import (
 
 type Storage struct {
 	db             *pgxpool.Pool
-	dbSchema       string
 	newGroupActive bool
 	Logger         zLogger.ZLogger
 }
 
-func NewStorage(db *pgxpool.Pool, dbSchema string, newGroupActive bool, logger zLogger.ZLogger) *Storage {
+func NewStorage(db *pgxpool.Pool, newGroupActive bool, logger zLogger.ZLogger) *Storage {
 	return &Storage{
 		db:             db,
-		dbSchema:       dbSchema,
 		newGroupActive: newGroupActive,
 		Logger:         logger,
 	}
@@ -32,10 +30,6 @@ func (s *Storage) GetDB() *pgxpool.Pool {
 
 func (s *Storage) GetPool() *pgxpool.Pool {
 	return s.db
-}
-
-func (s *Storage) GetSchema() string {
-	return s.dbSchema
 }
 
 func IsEmptyResult(err error) bool {

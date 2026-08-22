@@ -51,7 +51,7 @@ func backup(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger *log
 	}
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-	zotStorage := storage.NewStorage(db, cfg.DB.Schema, false, &zlog)
+	zotStorage := storage.NewStorage(db, false, &zlog)
 	syncer := sync.NewSyncer(nil, zotStorage, fs, &zlog)
 
 	grps, err := zotStorage.LoadGroups()

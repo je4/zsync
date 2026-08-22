@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/md5"
 	"encoding/json/v2"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,7 +24,41 @@ const (
 	defaultCloudEndpoint = "https://api.zotero.org"
 )
 
+func loadCloudTestEnv() {
+	candidates := []string{".env", "../.env", "../../.env", "../../../.env"}
+	for _, candidate := range candidates {
+		path, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			value := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+			if os.Getenv(key) == "" {
+				_ = os.Setenv(key, value)
+			}
+		}
+		_ = file.Close()
+	}
+}
+
 func getCloudTestConfig() (string, int64, string) {
+	loadCloudTestEnv()
+
 	endpoint := os.Getenv("ZOTERO_CLOUD_ENDPOINT")
 	if endpoint == "" {
 		endpoint = defaultCloudEndpoint
@@ -157,6 +193,32 @@ func TestCloudApi_ReadAPITESTGroup(t *testing.T) {
 	}
 }
 
+func TestCloudApi_ReadUserGroupVersions(t *testing.T) {
+	zot, group := getCloudTestClient(t)
+	if zot.CurrentKey == nil || zot.CurrentKey.UserId == 0 {
+		t.Skip("ZOTERO_API_KEY with a resolvable user ID is required to read user group versions")
+	}
+
+	versions, err := zot.GetUserGroupVersions(zot.CurrentKey)
+	if err != nil {
+		t.Fatalf("failed to retrieve cloud user group versions: %v", err)
+	}
+	if versions == nil {
+		t.Fatal("expected non-nil user group versions map")
+	}
+
+	version, ok := (*versions)[group.Id]
+	if !ok {
+		t.Fatalf("expected APITEST group %d in user group versions, got %v", group.Id, *versions)
+	}
+	if version <= 0 {
+		t.Errorf("expected positive version for group %d, got %d", group.Id, version)
+	}
+	if version != group.Version {
+		t.Errorf("expected version %d for group %d, got %d", group.Version, group.Id, version)
+	}
+}
+
 func TestCloudApi_ReadAPITESTItems(t *testing.T) {
 	zot, group := getCloudTestClient(t)
 
@@ -265,9 +327,9 @@ func TestCloudApi_CreateAndRetainItems(t *testing.T) {
 			},
 		},
 		Title:        initialTitle,
-		ISBN:         "978-0-123456-47-2",
 		AbstractNote: "Sample cloud retained book entry created by automated tests for Zotero Cloud API inspection.",
 	}
+	itemData.SetString("ISBN", "978-0-123456-47-2")
 
 	// 1. Create item in Cloud APITEST
 	_, vResp, vErr := zot.GetItemsQuery(group.Id, map[string]string{"limit": "1"})

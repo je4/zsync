@@ -18,7 +18,7 @@ func AppendIfMissing(slice []string, s string) []string {
 }
 
 // https://github.com/zotero/dataserver/blob/master/model/DataObjectUtilities.inc.php#L63
-func randomString(length int64, mode string, exclude_ambiguous bool) string {
+func randomString(length int64, mode string, excludeAmbiguous bool) string {
 	// if you want extended ascii, then add the characters to the array
 	upper := []rune{'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'}
 	lower := []rune{'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'}
@@ -37,7 +37,7 @@ func randomString(length int64, mode string, exclude_ambiguous bool) string {
 	case "lower":
 		chars = lower
 	}
-	if !exclude_ambiguous && mode != "key" {
+	if !excludeAmbiguous && mode != "key" {
 		chars = append(chars, ambigious...)
 	}
 	b := strings.Builder{}

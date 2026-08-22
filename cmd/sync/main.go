@@ -25,13 +25,13 @@ type ZotField struct {
 }
 
 func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLogger.ZLogger) {
-	zotClient, err := client.NewClient(cfg.Endpoint, cfg.Apikey, logger)
+	zotClient, err := client.NewClient(cfg.Endpoint, cfg.Apikey.String(), logger)
 	if err != nil {
 		logger.Error().Msgf("cannot create zotero client: %v", err)
 		return
 	}
 
-	zotStorage := storage.NewStorage(db, cfg.DB.Schema, cfg.NewGroupActive, logger)
+	zotStorage := storage.NewStorage(db, cfg.NewGroupActive, logger)
 	syncer := sync.NewSyncer(zotClient, zotStorage, fs, logger)
 
 	logger.Info().Msgf("current key: %v", zotClient.CurrentKey)
@@ -143,7 +143,7 @@ func main() {
 	}
 
 	// get database connection handle
-	db, err := pgxpool.New(context.Background(), cfg.DB.DSN)
+	db, err := pgxpool.New(context.Background(), cfg.DB.DSN.String())
 	if err != nil {
 		log.Fatalf("error opening database: %v", err)
 	}
@@ -170,7 +170,7 @@ func main() {
 	_logger.Level(zLogger.LogLevel(cfg.Loglevel))
 	var logger zLogger.ZLogger = &_logger
 
-	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId, cfg.S3.SecretAccessKey, cfg.S3.UseSSL)
+	fs, err := filesystem.NewS3Fs(cfg.S3.Endpoint, cfg.S3.AccessKeyId.String(), cfg.S3.SecretAccessKey.String(), cfg.S3.UseSSL)
 	if err != nil {
 		log.Fatalf("cannot connect to s3 instance: %v", err)
 	}

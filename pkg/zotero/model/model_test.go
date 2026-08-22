@@ -2,9 +2,25 @@ package model
 
 import (
 	"encoding/json/v2"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func assertJSONEqual(t *testing.T, expected, actual []byte) {
+	t.Helper()
+
+	var expectedValue, actualValue any
+	if err := json.Unmarshal(expected, &expectedValue); err != nil {
+		t.Fatalf("failed to parse expected JSON: %v", err)
+	}
+	if err := json.Unmarshal(actual, &actualValue); err != nil {
+		t.Fatalf("failed to parse actual JSON: %v", err)
+	}
+	if !reflect.DeepEqual(expectedValue, actualValue) {
+		t.Errorf("expected JSON %s, got %s", expected, actual)
+	}
+}
 
 func TestItemDataPersonSerialization(t *testing.T) {
 	// Single-field creator (organization/institution)
@@ -24,9 +40,7 @@ func TestItemDataPersonSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal single-field creator: %v", err)
 	}
-	if string(marshaled1) != singleFieldJSON {
-		t.Errorf("expected JSON '%s', got '%s'", singleFieldJSON, string(marshaled1))
-	}
+	assertJSONEqual(t, []byte(singleFieldJSON), marshaled1)
 
 	// Two-field creator (person)
 	twoFieldJSON := `{"creatorType":"author","firstName":"Ada","lastName":"Lovelace"}`
@@ -45,9 +59,7 @@ func TestItemDataPersonSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal two-field creator: %v", err)
 	}
-	if string(marshaled2) != twoFieldJSON {
-		t.Errorf("expected JSON '%s', got '%s'", twoFieldJSON, string(marshaled2))
-	}
+	assertJSONEqual(t, []byte(twoFieldJSON), marshaled2)
 }
 
 func TestRelationsDeserialization(t *testing.T) {
@@ -275,14 +287,16 @@ func TestItemGenericVersionSerialization(t *testing.T) {
 }
 
 func TestItemDataAttachmentSerialization(t *testing.T) {
-	// 1. Test ItemDataAttachment struct
-	att := ItemDataAttachment{
-		Key:        "ATT12345",
-		Version:    5,
-		ItemType:   "attachment",
-		ParentItem: "PARENT999",
-		Tags: []ItemTag{
-			{Tag: "pdf"},
+	// 1. Test the generated ItemAttachment struct
+	att := ItemAttachment{
+		ItemDataBase: ItemDataBase{
+			Key:        "ATT12345",
+			Version:    5,
+			ItemType:   "attachment",
+			ParentItem: "PARENT999",
+			Tags: []ItemTag{
+				{Tag: "pdf"},
+			},
 		},
 		Title:       "Research Paper Attachment.pdf",
 		LinkMode:    "imported_file",
@@ -295,7 +309,7 @@ func TestItemDataAttachmentSerialization(t *testing.T) {
 
 	attBytes, err := json.Marshal(att)
 	if err != nil {
-		t.Fatalf("failed to marshal ItemDataAttachment: %v", err)
+		t.Fatalf("failed to marshal ItemAttachment: %v", err)
 	}
 
 	var attMap map[string]any
@@ -322,12 +336,12 @@ func TestItemDataAttachmentSerialization(t *testing.T) {
 		t.Errorf("expected md5 'd41d8cd98f00b204e9800998ecf8427e', got: %v", attMap["md5"])
 	}
 
-	var attUnmarshaled ItemDataAttachment
+	var attUnmarshaled ItemAttachment
 	if err := json.Unmarshal(attBytes, &attUnmarshaled); err != nil {
-		t.Fatalf("failed to unmarshal ItemDataAttachment: %v", err)
+		t.Fatalf("failed to unmarshal ItemAttachment: %v", err)
 	}
 	if attUnmarshaled.Filename != att.Filename || attUnmarshaled.ParentItem != att.ParentItem || attUnmarshaled.LinkMode != att.LinkMode {
-		t.Errorf("unmarshaled ItemDataAttachment mismatch: %+v vs %+v", attUnmarshaled, att)
+		t.Errorf("unmarshaled ItemAttachment mismatch: %+v vs %+v", attUnmarshaled, att)
 	}
 
 	// 2. Test ItemGeneric with attachment fields
@@ -374,5 +388,178 @@ func TestText2Metadata(t *testing.T) {
 	noMeta := strings.TrimSpace(TextNoMeta(desc))
 	if noMeta != "some text" {
 		t.Errorf("expected 'some text', got '%s'", noMeta)
+	}
+}
+
+func TestItemGenericGetSetDelete(t *testing.T) {
+	var item ItemGeneric
+
+	// Test core field direct & dynamic access
+	item.Title = "Original Title"
+	if item.GetString("title") != "Original Title" {
+		t.Errorf("expected 'Original Title', got '%s'", item.GetString("title"))
+	}
+
+	item.SetString("title", "New Title")
+	if item.Title != "New Title" {
+		t.Errorf("expected 'New Title', got '%s'", item.Title)
+	}
+	if item.GetString("title") != "New Title" {
+		t.Errorf("expected 'New Title', got '%s'", item.GetString("title"))
+	}
+
+	// Test dynamic ExtraFields access
+	item.SetString("publisher", "Springer")
+	item.SetString("DOI", "10.1000/182")
+	item.Set("numPages", "350")
+
+	if item.GetString("publisher") != "Springer" {
+		t.Errorf("expected 'Springer', got '%s'", item.GetString("publisher"))
+	}
+	if item.GetString("DOI") != "10.1000/182" {
+		t.Errorf("expected '10.1000/182', got '%s'", item.GetString("DOI"))
+	}
+	val, ok := item.Get("numPages")
+	if !ok || val != "350" {
+		t.Errorf("expected '350', got %v (ok=%v)", val, ok)
+	}
+
+	// Test deletion
+	item.Delete("publisher")
+	if _, ok := item.Get("publisher"); ok {
+		t.Errorf("expected 'publisher' to be deleted")
+	}
+	item.Delete("title")
+	if item.Title != "" {
+		t.Errorf("expected Title to be empty after Delete, got '%s'", item.Title)
+	}
+}
+
+func TestItemGenericJSONRoundtripDynamicFields(t *testing.T) {
+	inputJSON := `{
+		"key": "ITEM456",
+		"version": 12,
+		"itemType": "book",
+		"title": "Clean Code",
+		"abstractNote": "A handbook of agile software craftsmanship",
+		"date": "2008",
+		"publisher": "Prentice Hall",
+		"numPages": "464",
+		"ISBN": "978-0132350884",
+		"creators": [
+			{"creatorType":"author","firstName":"Robert C.","lastName":"Martin"}
+		],
+		"tags": [
+			{"tag":"programming"}
+		],
+		"relations": {}
+	}`
+
+	var item ItemGeneric
+	if err := json.Unmarshal([]byte(inputJSON), &item); err != nil {
+		t.Fatalf("failed to unmarshal ItemGeneric: %v", err)
+	}
+
+	// Verify core fields
+	if item.Key != "ITEM456" || item.Version != 12 || item.ItemType != "book" || item.Title != "Clean Code" {
+		t.Fatalf("unexpected core fields: %+v", item)
+	}
+
+	// Verify dynamic fields
+	if item.GetString("publisher") != "Prentice Hall" {
+		t.Errorf("expected publisher 'Prentice Hall', got '%s'", item.GetString("publisher"))
+	}
+	if item.GetString("numPages") != "464" {
+		t.Errorf("expected numPages '464', got '%s'", item.GetString("numPages"))
+	}
+	if item.GetString("ISBN") != "978-0132350884" {
+		t.Errorf("expected ISBN '978-0132350884', got '%s'", item.GetString("ISBN"))
+	}
+
+	// Verify creators and tags
+	if len(item.Creators) != 1 || item.Creators[0].LastName != "Martin" {
+		t.Errorf("unexpected creators: %+v", item.Creators)
+	}
+	if len(item.Tags) != 1 || item.Tags[0].Tag != "programming" {
+		t.Errorf("unexpected tags: %+v", item.Tags)
+	}
+
+	// Re-marshal to JSON
+	outputBytes, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("failed to marshal ItemGeneric: %v", err)
+	}
+
+	var outputMap map[string]any
+	if err := json.Unmarshal(outputBytes, &outputMap); err != nil {
+		t.Fatalf("failed to unmarshal output JSON: %v", err)
+	}
+
+	if outputMap["publisher"] != "Prentice Hall" {
+		t.Errorf("expected publisher 'Prentice Hall' in marshaled JSON, got %v", outputMap["publisher"])
+	}
+	if outputMap["numPages"] != "464" {
+		t.Errorf("expected numPages '464' in marshaled JSON, got %v", outputMap["numPages"])
+	}
+	if outputMap["ISBN"] != "978-0132350884" {
+		t.Errorf("expected ISBN in marshaled JSON, got %v", outputMap["ISBN"])
+	}
+	if outputMap["title"] != "Clean Code" {
+		t.Errorf("expected title in marshaled JSON, got %v", outputMap["title"])
+	}
+}
+
+func TestItemGenericValidation(t *testing.T) {
+	// Valid book
+	validBook := ItemGeneric{
+		ItemDataBase: ItemDataBase{
+			ItemType: "book",
+			Creators: []ItemDataPerson{
+				{CreatorType: "author", LastName: "Martin"},
+			},
+		},
+		Title: "Clean Architecture",
+	}
+	validBook.SetString("publisher", "Prentice Hall")
+	validBook.SetString("ISBN", "9780134494166")
+
+	if err := validBook.Validate(); err != nil {
+		t.Errorf("expected valid book to pass validation, got: %v", err)
+	}
+
+	// Invalid itemType
+	invalidType := ItemGeneric{
+		ItemDataBase: ItemDataBase{
+			ItemType: "unknownItemTypeXYZ",
+		},
+	}
+	if err := invalidType.Validate(); err == nil {
+		t.Error("expected invalid itemType to fail validation")
+	}
+
+	// Invalid field for itemType
+	invalidField := ItemGeneric{
+		ItemDataBase: ItemDataBase{
+			ItemType: "book",
+		},
+		Title: "Book with invalid field",
+	}
+	invalidField.SetString("runningTime", "120 mins") // runningTime is not valid for book
+	if err := invalidField.Validate(); err == nil {
+		t.Error("expected invalid field for book to fail validation")
+	}
+
+	// Invalid creatorType for itemType
+	invalidCreator := ItemGeneric{
+		ItemDataBase: ItemDataBase{
+			ItemType: "book",
+			Creators: []ItemDataPerson{
+				{CreatorType: "programmer", LastName: "Dev"},
+			},
+		},
+		Title: "Book with invalid creator",
+	}
+	if err := invalidCreator.Validate(); err == nil {
+		t.Error("expected invalid creatorType for book to fail validation")
 	}
 }

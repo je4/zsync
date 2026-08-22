@@ -84,14 +84,6 @@ func (res *ItemCollectionCreateResult) GetFailed() map[int64]ItemCollectionCreat
 	return result
 }
 
-type Deletions struct {
-	Collections []string `json:"collections"`
-	Searches    []string `json:"searches"`
-	Items       []string `json:"items"`
-	Tags        []string `json:"tags"`
-	Settings    []string `json:"settings"`
-}
-
 // RelationList are empty array or string map
 type RelationList map[string]string
 

@@ -1,29 +1,30 @@
 package main
 
 import (
-	"github.com/BurntSushi/toml"
 	"log"
+
+	"github.com/BurntSushi/toml"
+	"github.com/je4/utils/v2/pkg/config"
 )
 
 type Cfg_database struct {
 	ServerType string
-	DSN        string
+	DSN        config.EnvString
 	ConnMax    int `toml:"connection_max"`
-	Schema     string
 }
 
 type Cfg_gitlab struct {
-	Token   string `toml:"token"`
-	Project string `toml:"project"`
-	Url     string `toml:"url"`
-	Active  bool   `toml:"active"`
+	Token   config.EnvString `toml:"token"`
+	Project string           `toml:"project"`
+	Url     string           `toml:"url"`
+	Active  bool             `toml:"active"`
 }
 
 type S3 struct {
-	Endpoint        string `toml:"endpoint"`
-	AccessKeyId     string `toml:"accessKeyId"`
-	SecretAccessKey string `toml:"secretAccessKey"`
-	UseSSL          bool   `toml:"useSSL"`
+	Endpoint        string           `toml:"endpoint"`
+	AccessKeyId     config.EnvString `toml:"accessKeyId"`
+	SecretAccessKey config.EnvString `toml:"secretAccessKey"`
+	UseSSL          bool             `toml:"useSSL"`
 }
 
 type Config struct {
@@ -31,7 +32,7 @@ type Config struct {
 	Synconly             []int64
 	ClearBeforeSync      []int64
 	Endpoint             string
-	Apikey               string
+	Apikey               config.EnvString
 	Logfile              string
 	Loglevel             string
 	AccessLog            string

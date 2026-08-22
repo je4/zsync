@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgmock"
 	"github.com/jackc/pgproto3/v2"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 	"github.com/rs/zerolog"
@@ -78,23 +77,6 @@ func getTestStorage(t *testing.T) (*Storage, int64, func()) {
 		return nil, 0, nil
 	}
 
-	schema := "public"
-	if s := os.Getenv("DATABASE_SCHEMA"); s != "" {
-		schema = s
-	}
-
-	if cfg.ConnConfig.RuntimeParams == nil {
-		cfg.ConnConfig.RuntimeParams = make(map[string]string)
-	}
-	if _, ok := cfg.ConnConfig.RuntimeParams["search_path"]; !ok {
-		cfg.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s, public", schema)
-	}
-
-	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		_, err := conn.Exec(ctx, fmt.Sprintf("SET search_path = %s, public", schema))
-		return err
-	}
-
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Skipf("cannot create connection pool (%v); skipping integration tests", err)
@@ -108,17 +90,17 @@ func getTestStorage(t *testing.T) (*Storage, int64, func()) {
 	}
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-	st := NewStorage(pool, schema, true, &zlog)
+	st := NewStorage(pool, true, &zlog)
 
 	testGroupID := int64(88880000 + (time.Now().UnixNano() % 10000))
 
 	cleanupGroup := func() {
 		bgCtx := context.Background()
-		_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.tags WHERE library=$1", schema), testGroupID)
-		_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.items WHERE library=$1", schema), testGroupID)
-		_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.collections WHERE library=$1", schema), testGroupID)
-		_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.syncgroups WHERE id=$1", schema), testGroupID)
-		_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.groups WHERE id=$1", schema), testGroupID)
+		_, _ = pool.Exec(bgCtx, "DELETE FROM tags WHERE library=$1", testGroupID)
+		_, _ = pool.Exec(bgCtx, "DELETE FROM items WHERE library=$1", testGroupID)
+		_, _ = pool.Exec(bgCtx, "DELETE FROM collections WHERE library=$1", testGroupID)
+		_, _ = pool.Exec(bgCtx, "DELETE FROM syncgroups WHERE id=$1", testGroupID)
+		_, _ = pool.Exec(bgCtx, "DELETE FROM groups WHERE id=$1", testGroupID)
 	}
 	cleanupGroup()
 
@@ -190,7 +172,7 @@ func startMockServer(t *testing.T, script *pgmock.Script) (*Storage, func()) {
 	}
 
 	zlog := zerolog.Nop()
-	st := NewStorage(pool, "public", true, &zlog)
+	st := NewStorage(pool, true, &zlog)
 
 	cleanup := func() {
 		pool.Close()

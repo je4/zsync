@@ -87,17 +87,17 @@ func TestIntegration_CollectionLifecycle(t *testing.T) {
 	}
 
 	// 1. Create Collection
-	collData := sampleCollectionData("TESTCOLL1", "Top Level Collection", "")
+	collData := sampleCollectionData("COLLKEY1", "Top Level Collection", "")
 	coll, err := st.CreateCollection(groupID, collData)
 	if err != nil {
 		t.Fatalf("CreateCollection failed: %v", err)
 	}
-	if coll.Key != "TESTCOLL1" {
-		t.Errorf("expected key TESTCOLL1, got %v", coll.Key)
+	if coll.Key != "COLLKEY1" {
+		t.Errorf("expected key COLLKEY1, got %v", coll.Key)
 	}
 
 	// 2. GetCollectionByKey
-	loadedColl, err := st.GetCollectionByKey(groupID, "TESTCOLL1")
+	loadedColl, err := st.GetCollectionByKey(groupID, "COLLKEY1")
 	if err != nil {
 		t.Fatalf("GetCollectionByKey failed: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestIntegration_CollectionLifecycle(t *testing.T) {
 	}
 
 	// 3. GetCollectionVersion
-	ver, status, err := st.GetCollectionVersion(groupID, "TESTCOLL1")
+	ver, status, err := st.GetCollectionVersion(groupID, "COLLKEY1")
 	if err != nil {
 		t.Fatalf("GetCollectionVersion failed: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestIntegration_CollectionLifecycle(t *testing.T) {
 		t.Fatalf("UpdateCollection failed: %v", err)
 	}
 
-	updatedColl, err := st.GetCollectionByKey(groupID, "TESTCOLL1")
+	updatedColl, err := st.GetCollectionByKey(groupID, "COLLKEY1")
 	if err != nil {
 		t.Fatalf("GetCollectionByKey after update failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestIntegration_CollectionLifecycle(t *testing.T) {
 	}
 
 	// 5. GetCollections
-	colls, err := st.GetCollections(groupID, []string{"TESTCOLL1"})
+	colls, err := st.GetCollections(groupID, []string{"COLLKEY1"})
 	if err != nil {
 		t.Fatalf("GetCollections failed: %v", err)
 	}
@@ -156,10 +156,10 @@ func TestIntegration_CollectionLifecycle(t *testing.T) {
 	}
 
 	// 7. DeleteCollection
-	if err := st.DeleteCollection(groupID, "TESTCOLL1"); err != nil {
+	if err := st.DeleteCollection(groupID, "COLLKEY1"); err != nil {
 		t.Fatalf("DeleteCollection failed: %v", err)
 	}
-	deletedColl, err := st.GetCollectionByKey(groupID, "TESTCOLL1")
+	deletedColl, err := st.GetCollectionByKey(groupID, "COLLKEY1")
 	if err != nil {
 		t.Fatalf("GetCollectionByKey after delete failed: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestIntegration_ItemLifecycle(t *testing.T) {
 	}
 
 	// 1. Create Item
-	itemData := sampleItemData("ITEMKEY01", "Integration Test Book", "book")
+	itemData := sampleItemData("ITEMKEY1", "Integration Test Book", "book")
 	itemMeta := &model.ItemMeta{
 		CreatorSummary: "Doe",
 		NumChildren:    0,
@@ -188,12 +188,12 @@ func TestIntegration_ItemLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateItem failed: %v", err)
 	}
-	if item.Key != "ITEMKEY01" {
-		t.Errorf("expected key ITEMKEY01, got %v", item.Key)
+	if item.Key != "ITEMKEY1" {
+		t.Errorf("expected key ITEMKEY1, got %v", item.Key)
 	}
 
 	// 2. GetItemByKey & GetItemByOldid
-	byKey, err := st.GetItemByKey(groupID, "ITEMKEY01")
+	byKey, err := st.GetItemByKey(groupID, "ITEMKEY1")
 	if err != nil {
 		t.Fatalf("GetItemByKey failed: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestIntegration_ItemLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetItemByOldid failed: %v", err)
 	}
-	if byOldID == nil || byOldID.Key != "ITEMKEY01" {
+	if byOldID == nil || byOldID.Key != "ITEMKEY1" {
 		t.Errorf("unexpected item by oldid: %+v", byOldID)
 	}
 
@@ -217,7 +217,7 @@ func TestIntegration_ItemLifecycle(t *testing.T) {
 		t.Fatalf("UpdateItem failed: %v", err)
 	}
 
-	updatedItem, err := st.GetItemByKey(groupID, "ITEMKEY01")
+	updatedItem, err := st.GetItemByKey(groupID, "ITEMKEY1")
 	if err != nil {
 		t.Fatalf("GetItemByKey after update failed: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestIntegration_ItemLifecycle(t *testing.T) {
 	}
 
 	// 4. GetItems & GetItemsVersion
-	itemsList, err := st.GetItems(groupID, []string{"ITEMKEY01"})
+	itemsList, err := st.GetItems(groupID, []string{"ITEMKEY1"})
 	if err != nil {
 		t.Fatalf("GetItems failed: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestIntegration_ItemLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetItemsVersion failed: %v", err)
 	}
-	if maxVer < 2 || (*versions)["ITEMKEY01"] != 2 {
+	if maxVer < 2 || (*versions)["ITEMKEY1"] != 2 {
 		t.Errorf("unexpected versions result: maxVer=%v, map=%v", maxVer, *versions)
 	}
 
@@ -256,11 +256,11 @@ func TestIntegration_ItemLifecycle(t *testing.T) {
 	}
 
 	// 6. DeleteItemRecursive
-	if err := st.DeleteItemRecursive(groupID, "ITEMKEY01"); err != nil {
+	if err := st.DeleteItemRecursive(groupID, "ITEMKEY1"); err != nil {
 		t.Fatalf("DeleteItemRecursive failed: %v", err)
 	}
 
-	delItem, err := st.GetItemByKey(groupID, "ITEMKEY01")
+	delItem, err := st.GetItemByKey(groupID, "ITEMKEY1")
 	if err != nil {
 		t.Fatalf("GetItemByKey after delete failed: %v", err)
 	}

@@ -137,7 +137,7 @@ func startMockDatabase(t *testing.T, script *pgmock.Script) (*storage.Storage, f
 	}
 
 	zlog := zerolog.Nop()
-	st := storage.NewStorage(pool, "public", true, &zlog)
+	st := storage.NewStorage(pool, true, &zlog)
 
 	cleanup := func() {
 		pool.Close()

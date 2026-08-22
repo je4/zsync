@@ -89,7 +89,7 @@ func main() {
 	}
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-	zotStorage := storage.NewStorage(zoteroDB, config.ZoteroDB.Schema, false, &zlog)
+	zotStorage := storage.NewStorage(zoteroDB, false, &zlog)
 
 	sqlstr := fmt.Sprintf(`SELECT "key" FROM %s.item_type_hier WHERE "library" = $1 AND "type" = $2`, config.ZoteroDB.Schema)
 	rows, err := zoteroDB.Query(context.Background(), sqlstr, zoterogroup, "attachment")

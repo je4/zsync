@@ -1,840 +1,421 @@
 package model
 
+import (
+	"encoding/json/v2"
+	"fmt"
+	"strconv"
+
+	"emperror.dev/errors"
+)
+
 type ItemGeneric struct {
 	ItemDataBase
-	NumPages             string `json:"numPages,omitempty"`             // # of Pages
-	NumberOfVolumes      string `json:"numberOfVolumes,omitempty"`      // # of Volumes
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
-	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
-	ApplicationNumber    string `json:"applicationNumber,omitempty"`    // Application Number
-	Archive              string `json:"archive,omitempty"`              // Archive
-	ArtworkSize          string `json:"artworkSize,omitempty"`          // Artwork Size
-	Assignee             string `json:"assignee,omitempty"`             // Assignee
-	BillNumber           string `json:"billNumber,omitempty"`           // Bill Number
-	BlogTitle            string `json:"blogTitle,omitempty"`            // Blog Title
-	BookTitle            string `json:"bookTitle,omitempty"`            // Book Title
-	CallNumber           string `json:"callNumber,omitempty"`           // Call Number
-	CaseName             string `json:"caseName,omitempty"`             // Case Name
-	Code                 string `json:"code,omitempty"`                 // Code
-	CodeNumber           string `json:"codeNumber,omitempty"`           // Code Number
-	CodePages            string `json:"codePages,omitempty"`            // Code Pages
-	CodeVolume           string `json:"codeVolume,omitempty"`           // Code Volume
-	Committee            string `json:"committee,omitempty"`            // Committee
-	Company              string `json:"company,omitempty"`              // Company
-	ConferenceName       string `json:"conferenceName,omitempty"`       // Conference Name
-	Country              string `json:"country,omitempty"`              // Country
-	Court                string `json:"court,omitempty"`                // Court
-	DOI                  string `json:"DOI,omitempty"`                  // DOI
-	Date                 string `json:"date,omitempty"`                 // Date
-	DateDecided          string `json:"dateDecided,omitempty"`          // Date Decided
-	DateEnacted          string `json:"dateEnacted,omitempty"`          // Date Enacted
-	DictionaryTitle      string `json:"dictionaryTitle,omitempty"`      // Dictionary Title
-	Distributor          string `json:"distributor,omitempty"`          // Distributor
-	DocketNumber         string `json:"docketNumber,omitempty"`         // Docket Number
-	DocumentNumber       string `json:"documentNumber,omitempty"`       // Document Number
-	Edition              string `json:"edition,omitempty"`              // Edition
-	EncyclopediaTitle    string `json:"encyclopediaTitle,omitempty"`    // Encyclopedia Title
-	EpisodeNumber        string `json:"episodeNumber,omitempty"`        // Episode Number
-	Extra                string `json:"extra,omitempty"`                // Extra
-	AudioFileType        string `json:"audioFileType,omitempty"`        // File Type
-	FilingDate           string `json:"filingDate,omitempty"`           // Filing Date
-	FirstPage            string `json:"firstPage,omitempty"`            // First Page
-	AudioRecordingFormat string `json:"audioRecordingFormat,omitempty"` // Format
-	VideoRecordingFormat string `json:"videoRecordingFormat,omitempty"` // Format
-	ForumTitle           string `json:"forumTitle,omitempty"`           // Forum/Listserv Title
-	Genre                string `json:"genre,omitempty"`                // Genre
-	History              string `json:"history,omitempty"`              // History
-	ISBN                 string `json:"ISBN,omitempty"`                 // ISBN
-	ISSN                 string `json:"ISSN,omitempty"`                 // ISSN
-	Institution          string `json:"institution,omitempty"`          // Institution
-	Issue                string `json:"issue,omitempty"`                // Issue
-	IssueDate            string `json:"issueDate,omitempty"`            // Issue Date
-	IssuingAuthority     string `json:"issuingAuthority,omitempty"`     // Issuing Authority
-	JournalAbbreviation  string `json:"journalAbbreviation,omitempty"`  // Journal Abbr
-	Label                string `json:"label,omitempty"`                // Label
-	Language             string `json:"language,omitempty"`             // Language
-	ProgrammingLanguage  string `json:"programmingLanguage,omitempty"`  // Language
-	LegalStatus          string `json:"legalStatus,omitempty"`          // Legal Status
-	LegislativeBody      string `json:"legislativeBody,omitempty"`      // Legislative Body
-	LibraryCatalog       string `json:"libraryCatalog,omitempty"`       // Library Catalog
-	ArchiveLocation      string `json:"archiveLocation,omitempty"`      // Loc. in Archive
-	InterviewMedium      string `json:"interviewMedium,omitempty"`      // Medium
-	ArtworkMedium        string `json:"artworkMedium,omitempty"`        // Medium
-	MeetingName          string `json:"meetingName,omitempty"`          // Meeting Name
-	NameOfAct            string `json:"nameOfAct,omitempty"`            // Name of Act
-	Network              string `json:"network,omitempty"`              // Network
-	Pages                string `json:"pages,omitempty"`                // Pages
-	PatentNumber         string `json:"patentNumber,omitempty"`         // Patent Number
-	Place                string `json:"place,omitempty"`                // Place
-	PostType             string `json:"postType,omitempty"`             // Post Type
-	PriorityNumbers      string `json:"priorityNumbers,omitempty"`      // Priority Numbers
-	ProceedingsTitle     string `json:"proceedingsTitle,omitempty"`     // Proceedings Title
-	ProgramTitle         string `json:"programTitle,omitempty"`         // Program Title
-	PublicLawNumber      string `json:"publicLawNumber,omitempty"`      // Public Law Number
-	PublicationTitle     string `json:"publicationTitle,omitempty"`     // Publication
-	Publisher            string `json:"publisher,omitempty"`            // Publisher
-	References           string `json:"references,omitempty"`           // References
-	ReportNumber         string `json:"reportNumber,omitempty"`         // Report Number
-	ReportType           string `json:"reportType,omitempty"`           // Report Type
-	Reporter             string `json:"reporter,omitempty"`             // Reporter
-	ReporterVolume       string `json:"reporterVolume,omitempty"`       // Reporter Volume
-	Rights               string `json:"rights,omitempty"`               // Rights
-	RunningTime          string `json:"runningTime,omitempty"`          // Running Time
-	Scale                string `json:"scale,omitempty"`                // Scale
-	Section              string `json:"section,omitempty"`              // Section
-	Series               string `json:"series,omitempty"`               // Series
-	SeriesNumber         string `json:"seriesNumber,omitempty"`         // Series Number
-	SeriesText           string `json:"seriesText,omitempty"`           // Series Text
-	SeriesTitle          string `json:"seriesTitle,omitempty"`          // Series Title
-	Session              string `json:"session,omitempty"`              // Session
-	ShortTitle           string `json:"shortTitle,omitempty"`           // Short Title
-	Studio               string `json:"studio,omitempty"`               // Studio
-	Subject              string `json:"subject,omitempty"`              // Subject
-	System               string `json:"system,omitempty"`               // System
-	Title                string `json:"title,omitempty"`                // Title
-	ThesisType           string `json:"thesisType,omitempty"`           // Type
-	PresentationType     string `json:"presentationType,omitempty"`     // Type
-	MapType              string `json:"mapType,omitempty"`              // Type
-	ManuscriptType       string `json:"manuscriptType,omitempty"`       // Type
-	LetterType           string `json:"letterType,omitempty"`           // Type
-	Url                  string `json:"url,omitempty"`                  // URL
-	University           string `json:"university,omitempty"`           // University
-	VersionNumber        string `json:"versionNumber,omitempty"`        // Version
-	Volume               string `json:"volume,omitempty"`               // Volume
-	WebsiteTitle         string `json:"websiteTitle,omitempty"`         // Website Title
-	WebsiteType          string `json:"websiteType,omitempty"`          // Website Type
 
-	// Attachment
+	// Core common fields
+	Title        string `json:"title,omitempty"`
+	AbstractNote string `json:"abstractNote,omitempty"`
+	Date         string `json:"date,omitempty"`
+	Url          string `json:"url,omitempty"`
+	Extra        string `json:"extra,omitempty"`
+	ShortTitle   string `json:"shortTitle,omitempty"`
+
+	// Attachment fields
 	LinkMode    string `json:"linkMode,omitempty"`
 	Note        string `json:"note,omitempty"`
 	ContentType string `json:"contentType,omitempty"`
 	Charset     string `json:"charset,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	MD5         string `json:"md5,omitempty"`
-	MTime       int64  `json:"mtime,omitempty"`
+	MTime       int64  `json:"mtime,omitzero"`
+
+	// Dynamic schema fields
+	ExtraFields map[string]string `json:"-"`
 }
 
-type ItemArtwork struct {
+type itemGenericKnown struct {
 	ItemDataBase
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	ArtworkMedium   string `json:"artworkMedium,omitempty"`   // Medium
-	ArtworkSize     string `json:"artworkSize,omitempty"`     // Artwork Size
-	Date            string `json:"date,omitempty"`            // Date
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
+
+	Title        string `json:"title,omitempty"`
+	AbstractNote string `json:"abstractNote,omitempty"`
+	Date         string `json:"date,omitempty"`
+	Url          string `json:"url,omitempty"`
+	Extra        string `json:"extra,omitempty"`
+	ShortTitle   string `json:"shortTitle,omitempty"`
+
+	LinkMode    string `json:"linkMode,omitempty"`
+	Note        string `json:"note,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Charset     string `json:"charset,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	MD5         string `json:"md5,omitempty"`
+	MTime       int64  `json:"mtime,omitzero"`
 }
 
-type ItemAudioRecording struct {
-	ItemDataBase
-	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
-	AudioRecordingFormat string `json:"audioRecordingFormat,omitempty"` // Format
-	SeriesTitle          string `json:"seriesTitle,omitempty"`          // Series Title
-	Volume               string `json:"volume,omitempty"`               // Volume
-	NumberOfVolumes      string `json:"numberOfVolumes,omitempty"`      // # of Volumes
-	Place                string `json:"place,omitempty"`                // Place
-	Label                string `json:"label,omitempty"`                // Label
-	Date                 string `json:"date,omitempty"`                 // Date
-	RunningTime          string `json:"runningTime,omitempty"`          // Running Time
-	Language             string `json:"language,omitempty"`             // Language
-	ISBN                 string `json:"ISBN,omitempty"`                 // ISBN
-	ShortTitle           string `json:"shortTitle,omitempty"`           // Short Title
-	Archive              string `json:"archive,omitempty"`              // Archive
-	ArchiveLocation      string `json:"archiveLocation,omitempty"`      // Loc. in Archive
-	LibraryCatalog       string `json:"libraryCatalog,omitempty"`       // Library Catalog
-	CallNumber           string `json:"callNumber,omitempty"`           // Call Number
-	Url                  string `json:"url,omitempty"`                  // URL
-	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
-	Rights               string `json:"rights,omitempty"`               // Rights
-	Extra                string `json:"extra,omitempty"`                // Extra
+func (item ItemGeneric) MarshalJSON() ([]byte, error) {
+	known := itemGenericKnown{
+		ItemDataBase: item.ItemDataBase,
+		Title:        item.Title,
+		AbstractNote: item.AbstractNote,
+		Date:         item.Date,
+		Url:          item.Url,
+		Extra:        item.Extra,
+		ShortTitle:   item.ShortTitle,
+		LinkMode:     item.LinkMode,
+		Note:         item.Note,
+		ContentType:  item.ContentType,
+		Charset:      item.Charset,
+		Filename:     item.Filename,
+		MD5:          item.MD5,
+		MTime:        item.MTime,
+	}
+
+	if len(item.ExtraFields) == 0 {
+		return json.Marshal(known)
+	}
+
+	knownBytes, err := json.Marshal(known)
+	if err != nil {
+		return nil, err
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(knownBytes, &m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		m = make(map[string]any)
+	}
+
+	for k, v := range item.ExtraFields {
+		if v != "" {
+			m[k] = v
+		}
+	}
+
+	return json.Marshal(m)
 }
 
-type ItemBill struct {
-	ItemDataBase
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	BillNumber      string `json:"billNumber,omitempty"`      // Bill Number
-	Code            string `json:"code,omitempty"`            // Code
-	CodeVolume      string `json:"codeVolume,omitempty"`      // Code Volume
-	Section         string `json:"section,omitempty"`         // Section
-	CodePages       string `json:"codePages,omitempty"`       // Code Pages
-	LegislativeBody string `json:"legislativeBody,omitempty"` // Legislative Body
-	Session         string `json:"session,omitempty"`         // Session
-	History         string `json:"history,omitempty"`         // History
-	Date            string `json:"date,omitempty"`            // Date
-	Language        string `json:"language,omitempty"`        // Language
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
+func (item *ItemGeneric) UnmarshalJSON(data []byte) error {
+	var known itemGenericKnown
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+
+	item.ItemDataBase = known.ItemDataBase
+	item.Title = known.Title
+	item.AbstractNote = known.AbstractNote
+	item.Date = known.Date
+	item.Url = known.Url
+	item.Extra = known.Extra
+	item.ShortTitle = known.ShortTitle
+	item.LinkMode = known.LinkMode
+	item.Note = known.Note
+	item.ContentType = known.ContentType
+	item.Charset = known.Charset
+	item.Filename = known.Filename
+	item.MD5 = known.MD5
+	item.MTime = known.MTime
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	delete(raw, "key")
+	delete(raw, "version")
+	delete(raw, "itemType")
+	delete(raw, "tags")
+	delete(raw, "relations")
+	delete(raw, "parentItem")
+	delete(raw, "collections")
+	delete(raw, "dateAdded")
+	delete(raw, "dateModified")
+	delete(raw, "creators")
+
+	delete(raw, "title")
+	delete(raw, "abstractNote")
+	delete(raw, "date")
+	delete(raw, "url")
+	delete(raw, "extra")
+	delete(raw, "shortTitle")
+
+	delete(raw, "linkMode")
+	delete(raw, "note")
+	delete(raw, "contentType")
+	delete(raw, "charset")
+	delete(raw, "filename")
+	delete(raw, "md5")
+	delete(raw, "mtime")
+
+	if len(raw) > 0 {
+		extra := make(map[string]string, len(raw))
+		for k, v := range raw {
+			if v == nil {
+				continue
+			}
+			if s, ok := v.(string); ok {
+				if s != "" {
+					extra[k] = s
+				}
+			} else {
+				extra[k] = fmt.Sprintf("%v", v)
+			}
+		}
+		if len(extra) > 0 {
+			item.ExtraFields = extra
+		} else {
+			item.ExtraFields = nil
+		}
+	} else {
+		item.ExtraFields = nil
+	}
+
+	return nil
 }
 
-type ItemBlogPost struct {
-	ItemDataBase
-	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Note
-	BlogTitle    string `json:"blogTitle,omitempty"`    // Blog Title
-	WebsiteType  string `json:"websiteType,omitempty"`  // Website Type
-	Date         string `json:"date,omitempty"`         // Date
-	Url          string `json:"url,omitempty"`          // URL
-	AccessDate   string `json:"accessDate,omitempty"`   // Accessed
-	Language     string `json:"language,omitempty"`     // Language
-	ShortTitle   string `json:"shortTitle,omitempty"`   // Short Title
-	Rights       string `json:"rights,omitempty"`       // Rights
-	Extra        string `json:"extra,omitempty"`        // Extra
+func (item *ItemGeneric) GetItemType() string {
+	return item.ItemType
 }
 
-type ItemBook struct {
-	ItemDataBase
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	Series          string `json:"series,omitempty"`          // Series
-	SeriesNumber    string `json:"seriesNumber,omitempty"`    // Series Number
-	Volume          string `json:"volume,omitempty"`          // Volume
-	NumberOfVolumes string `json:"numberOfVolumes,omitempty"` // # of Volumes
-	Edition         string `json:"edition,omitempty"`         // Edition
-	Place           string `json:"place,omitempty"`           // Place
-	Publisher       string `json:"publisher,omitempty"`       // Publisher
-	Date            string `json:"date,omitempty"`            // Date
-	NumPages        string `json:"numPages,omitempty"`        // # of Pages
-	Language        string `json:"language,omitempty"`        // Language
-	ISBN            string `json:"ISBN,omitempty"`            // ISBN
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
+func (item *ItemGeneric) ToGeneric() *ItemGeneric {
+	return item
 }
 
-type ItemBookSection struct {
-	ItemDataBase
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	BookTitle       string `json:"bookTitle,omitempty"`       // Book Title
-	Series          string `json:"series,omitempty"`          // Series
-	SeriesNumber    string `json:"seriesNumber,omitempty"`    // Series Number
-	Volume          string `json:"volume,omitempty"`          // Volume
-	NumberOfVolumes string `json:"numberOfVolumes,omitempty"` // # of Volumes
-	Edition         string `json:"edition,omitempty"`         // Edition
-	Place           string `json:"place,omitempty"`           // Place
-	Publisher       string `json:"publisher,omitempty"`       // Publisher
-	Date            string `json:"date,omitempty"`            // Date
-	Pages           string `json:"pages,omitempty"`           // Pages
-	Language        string `json:"language,omitempty"`        // Language
-	ISBN            string `json:"ISBN,omitempty"`            // ISBN
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
+func (item *ItemGeneric) FromGeneric(gen *ItemGeneric) error {
+	if gen == nil {
+		return errors.New("cannot populate from nil ItemGeneric")
+	}
+	*item = *gen
+	return nil
 }
 
-type ItemCase struct {
-	ItemDataBase
-	CaseName       string `json:"caseName,omitempty"`       // Case Name
-	AbstractNote   string `json:"abstractNote,omitempty"`   // Note
-	Reporter       string `json:"reporter,omitempty"`       // Reporter
-	ReporterVolume string `json:"reporterVolume,omitempty"` // Reporter Volume
-	Court          string `json:"court,omitempty"`          // Court
-	DocketNumber   string `json:"docketNumber,omitempty"`   // Docket Number
-	FirstPage      string `json:"firstPage,omitempty"`      // First Page
-	History        string `json:"history,omitempty"`        // History
-	DateDecided    string `json:"dateDecided,omitempty"`    // Date Decided
-	Language       string `json:"language,omitempty"`       // Language
-	ShortTitle     string `json:"shortTitle,omitempty"`     // Short Title
-	Url            string `json:"url,omitempty"`            // URL
-	AccessDate     string `json:"accessDate,omitempty"`     // Accessed
-	Rights         string `json:"rights,omitempty"`         // Rights
-	Extra          string `json:"extra,omitempty"`          // Extra
+func (item *ItemGeneric) Get(field string) (string, bool) {
+	switch field {
+	case "key":
+		return item.Key, item.Key != ""
+	case "version":
+		return strconv.FormatInt(item.Version, 10), item.Version != 0
+	case "itemType":
+		return item.ItemType, item.ItemType != ""
+	case "parentItem":
+		return item.ParentItem, item.ParentItem != ""
+	case "dateAdded":
+		return item.DateAdded, item.DateAdded != ""
+	case "dateModified":
+		return item.DateModified, item.DateModified != ""
+	case "title":
+		return item.Title, item.Title != ""
+	case "abstractNote":
+		return item.AbstractNote, item.AbstractNote != ""
+	case "date":
+		return item.Date, item.Date != ""
+	case "url":
+		return item.Url, item.Url != ""
+	case "extra":
+		return item.Extra, item.Extra != ""
+	case "shortTitle":
+		return item.ShortTitle, item.ShortTitle != ""
+	case "linkMode":
+		return item.LinkMode, item.LinkMode != ""
+	case "note":
+		return item.Note, item.Note != ""
+	case "contentType":
+		return item.ContentType, item.ContentType != ""
+	case "charset":
+		return item.Charset, item.Charset != ""
+	case "filename":
+		return item.Filename, item.Filename != ""
+	case "md5":
+		return item.MD5, item.MD5 != ""
+	case "mtime":
+		return strconv.FormatInt(item.MTime, 10), item.MTime != 0
+	default:
+		if item.ExtraFields == nil {
+			return "", false
+		}
+		val, ok := item.ExtraFields[field]
+		return val, ok
+	}
 }
 
-type ItemComputerProgram struct {
-	ItemDataBase
-	Title               string `json:"title,omitempty"`               // Title
-	AbstractNote        string `json:"abstractNote,omitempty"`        // Note
-	SeriesTitle         string `json:"seriesTitle,omitempty"`         // Series Title
-	VersionNumber       string `json:"versionNumber,omitempty"`       // Version
-	Date                string `json:"date,omitempty"`                // Date
-	System              string `json:"system,omitempty"`              // System
-	Place               string `json:"place,omitempty"`               // Place
-	Company             string `json:"company,omitempty"`             // Company
-	ProgrammingLanguage string `json:"programmingLanguage,omitempty"` // Language
-	ISBN                string `json:"ISBN,omitempty"`                // ISBN
-	ShortTitle          string `json:"shortTitle,omitempty"`          // Short Title
-	Url                 string `json:"url,omitempty"`                 // URL
-	Rights              string `json:"rights,omitempty"`              // Rights
-	Archive             string `json:"archive,omitempty"`             // Archive
-	ArchiveLocation     string `json:"archiveLocation,omitempty"`     // Loc. in Archive
-	LibraryCatalog      string `json:"libraryCatalog,omitempty"`      // Library Catalog
-	CallNumber          string `json:"callNumber,omitempty"`          // Call Number
-	AccessDate          string `json:"accessDate,omitempty"`          // Accessed
-	Extra               string `json:"extra,omitempty"`               // Extra
+func (item *ItemGeneric) GetString(field string) string {
+	val, _ := item.Get(field)
+	return val
 }
 
-type ItemConferencePaper struct {
-	ItemDataBase
-	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
-	Date             string `json:"date,omitempty"`             // Date
-	ProceedingsTitle string `json:"proceedingsTitle,omitempty"` // Proceedings Title
-	ConferenceName   string `json:"conferenceName,omitempty"`   // Conference Name
-	Place            string `json:"place,omitempty"`            // Place
-	Publisher        string `json:"publisher,omitempty"`        // Publisher
-	Volume           string `json:"volume,omitempty"`           // Volume
-	Pages            string `json:"pages,omitempty"`            // Pages
-	Series           string `json:"series,omitempty"`           // Series
-	Language         string `json:"language,omitempty"`         // Language
-	DOI              string `json:"DOI,omitempty"`              // DOI
-	ISBN             string `json:"ISBN,omitempty"`             // ISBN
-	ShortTitle       string `json:"shortTitle,omitempty"`       // Short Title
-	Url              string `json:"url,omitempty"`              // URL
-	AccessDate       string `json:"accessDate,omitempty"`       // Accessed
-	Archive          string `json:"archive,omitempty"`          // Archive
-	ArchiveLocation  string `json:"archiveLocation,omitempty"`  // Loc. in Archive
-	LibraryCatalog   string `json:"libraryCatalog,omitempty"`   // Library Catalog
-	CallNumber       string `json:"callNumber,omitempty"`       // Call Number
-	Rights           string `json:"rights,omitempty"`           // Rights
-	Extra            string `json:"extra,omitempty"`            // Extra
+func (item *ItemGeneric) Set(field, val string) {
+	switch field {
+	case "key":
+		item.Key = val
+	case "version":
+		v, _ := strconv.ParseInt(val, 10, 64)
+		item.Version = v
+	case "itemType":
+		item.ItemType = val
+	case "parentItem":
+		item.ParentItem = val
+	case "dateAdded":
+		item.DateAdded = val
+	case "dateModified":
+		item.DateModified = val
+	case "title":
+		item.Title = val
+	case "abstractNote":
+		item.AbstractNote = val
+	case "date":
+		item.Date = val
+	case "url":
+		item.Url = val
+	case "extra":
+		item.Extra = val
+	case "shortTitle":
+		item.ShortTitle = val
+	case "linkMode":
+		item.LinkMode = val
+	case "note":
+		item.Note = val
+	case "contentType":
+		item.ContentType = val
+	case "charset":
+		item.Charset = val
+	case "filename":
+		item.Filename = val
+	case "md5":
+		item.MD5 = val
+	case "mtime":
+		v, _ := strconv.ParseInt(val, 10, 64)
+		item.MTime = v
+	default:
+		if val == "" {
+			delete(item.ExtraFields, field)
+		} else {
+			if item.ExtraFields == nil {
+				item.ExtraFields = make(map[string]string)
+			}
+			item.ExtraFields[field] = val
+		}
+	}
 }
 
-type ItemDictionaryEntry struct {
-	ItemDataBase
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	DictionaryTitle string `json:"dictionaryTitle,omitempty"` // Dictionary Title
-	Series          string `json:"series,omitempty"`          // Series
-	SeriesNumber    string `json:"seriesNumber,omitempty"`    // Series Number
-	Volume          string `json:"volume,omitempty"`          // Volume
-	NumberOfVolumes string `json:"numberOfVolumes,omitempty"` // # of Volumes
-	Edition         string `json:"edition,omitempty"`         // Edition
-	Place           string `json:"place,omitempty"`           // Place
-	Publisher       string `json:"publisher,omitempty"`       // Publisher
-	Date            string `json:"date,omitempty"`            // Date
-	Pages           string `json:"pages,omitempty"`           // Pages
-	Language        string `json:"language,omitempty"`        // Language
-	ISBN            string `json:"ISBN,omitempty"`            // ISBN
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
+func (item *ItemGeneric) SetString(field, val string) {
+	item.Set(field, val)
 }
 
-type ItemDocument struct {
-	ItemDataBase
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	Publisher       string `json:"publisher,omitempty"`       // Publisher
-	Date            string `json:"date,omitempty"`            // Date
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
+func (item *ItemGeneric) Delete(field string) {
+	switch field {
+	case "key":
+		item.Key = ""
+	case "version":
+		item.Version = 0
+	case "itemType":
+		item.ItemType = ""
+	case "parentItem":
+		item.ParentItem = ""
+	case "dateAdded":
+		item.DateAdded = ""
+	case "dateModified":
+		item.DateModified = ""
+	case "title":
+		item.Title = ""
+	case "abstractNote":
+		item.AbstractNote = ""
+	case "date":
+		item.Date = ""
+	case "url":
+		item.Url = ""
+	case "extra":
+		item.Extra = ""
+	case "shortTitle":
+		item.ShortTitle = ""
+	case "linkMode":
+		item.LinkMode = ""
+	case "note":
+		item.Note = ""
+	case "contentType":
+		item.ContentType = ""
+	case "charset":
+		item.Charset = ""
+	case "filename":
+		item.Filename = ""
+	case "md5":
+		item.MD5 = ""
+	case "mtime":
+		item.MTime = 0
+	case "tags":
+		item.Tags = nil
+	case "creators":
+		item.Creators = nil
+	case "collections":
+		item.Collections = nil
+	case "relations":
+		item.Relations = nil
+	default:
+		if item.ExtraFields != nil {
+			delete(item.ExtraFields, field)
+		}
+	}
 }
 
-type ItemEmail struct {
-	ItemDataBase
-	Subject      string `json:"subject,omitempty"`      // Subject
-	AbstractNote string `json:"abstractNote,omitempty"` // Note
-	Date         string `json:"date,omitempty"`         // Date
-	ShortTitle   string `json:"shortTitle,omitempty"`   // Short Title
-	Url          string `json:"url,omitempty"`          // URL
-	AccessDate   string `json:"accessDate,omitempty"`   // Accessed
-	Language     string `json:"language,omitempty"`     // Language
-	Rights       string `json:"rights,omitempty"`       // Rights
-	Extra        string `json:"extra,omitempty"`        // Extra
-}
+func (item *ItemGeneric) Validate() error {
+	if item.ItemType == "" {
+		return fmt.Errorf("itemType is required")
+	}
+	schema := GetSchema()
+	if !schema.IsValidItemType(item.ItemType) {
+		return fmt.Errorf("invalid itemType %q", item.ItemType)
+	}
 
-type ItemEncyclopediaArticle struct {
-	ItemDataBase
-	Title             string `json:"title,omitempty"`             // Title
-	AbstractNote      string `json:"abstractNote,omitempty"`      // Note
-	EncyclopediaTitle string `json:"encyclopediaTitle,omitempty"` // Encyclopedia Title
-	Series            string `json:"series,omitempty"`            // Series
-	SeriesNumber      string `json:"seriesNumber,omitempty"`      // Series Number
-	Volume            string `json:"volume,omitempty"`            // Volume
-	NumberOfVolumes   string `json:"numberOfVolumes,omitempty"`   // # of Volumes
-	Edition           string `json:"edition,omitempty"`           // Edition
-	Place             string `json:"place,omitempty"`             // Place
-	Publisher         string `json:"publisher,omitempty"`         // Publisher
-	Date              string `json:"date,omitempty"`              // Date
-	Pages             string `json:"pages,omitempty"`             // Pages
-	ISBN              string `json:"ISBN,omitempty"`              // ISBN
-	ShortTitle        string `json:"shortTitle,omitempty"`        // Short Title
-	Url               string `json:"url,omitempty"`               // URL
-	AccessDate        string `json:"accessDate,omitempty"`        // Accessed
-	Language          string `json:"language,omitempty"`          // Language
-	Archive           string `json:"archive,omitempty"`           // Archive
-	ArchiveLocation   string `json:"archiveLocation,omitempty"`   // Loc. in Archive
-	LibraryCatalog    string `json:"libraryCatalog,omitempty"`    // Library Catalog
-	CallNumber        string `json:"callNumber,omitempty"`        // Call Number
-	Rights            string `json:"rights,omitempty"`            // Rights
-	Extra             string `json:"extra,omitempty"`             // Extra
-}
+	for _, c := range item.Creators {
+		if c.CreatorType != "" && !schema.IsValidCreatorType(item.ItemType, c.CreatorType) {
+			return fmt.Errorf("creatorType %q is not valid for itemType %q", c.CreatorType, item.ItemType)
+		}
+	}
 
-type ItemFilm struct {
-	ItemDataBase
-	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
-	Distributor          string `json:"distributor,omitempty"`          // Distributor
-	Date                 string `json:"date,omitempty"`                 // Date
-	Genre                string `json:"genre,omitempty"`                // Genre
-	VideoRecordingFormat string `json:"videoRecordingFormat,omitempty"` // Format
-	RunningTime          string `json:"runningTime,omitempty"`          // Running Time
-	Language             string `json:"language,omitempty"`             // Language
-	ShortTitle           string `json:"shortTitle,omitempty"`           // Short Title
-	Url                  string `json:"url,omitempty"`                  // URL
-	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
-	Archive              string `json:"archive,omitempty"`              // Archive
-	ArchiveLocation      string `json:"archiveLocation,omitempty"`      // Loc. in Archive
-	LibraryCatalog       string `json:"libraryCatalog,omitempty"`       // Library Catalog
-	CallNumber           string `json:"callNumber,omitempty"`           // Call Number
-	Rights               string `json:"rights,omitempty"`               // Rights
-	Extra                string `json:"extra,omitempty"`                // Extra
-}
+	if item.Title != "" && !schema.IsValidField(item.ItemType, "title") {
+		return fmt.Errorf("field 'title' is not valid for itemType %q", item.ItemType)
+	}
+	if item.AbstractNote != "" && !schema.IsValidField(item.ItemType, "abstractNote") {
+		return fmt.Errorf("field 'abstractNote' is not valid for itemType %q", item.ItemType)
+	}
+	if item.Date != "" && !schema.IsValidField(item.ItemType, "date") {
+		return fmt.Errorf("field 'date' is not valid for itemType %q", item.ItemType)
+	}
+	if item.Url != "" && !schema.IsValidField(item.ItemType, "url") {
+		return fmt.Errorf("field 'url' is not valid for itemType %q", item.ItemType)
+	}
+	if item.Extra != "" && !schema.IsValidField(item.ItemType, "extra") {
+		return fmt.Errorf("field 'extra' is not valid for itemType %q", item.ItemType)
+	}
+	if item.ShortTitle != "" && !schema.IsValidField(item.ItemType, "shortTitle") {
+		return fmt.Errorf("field 'shortTitle' is not valid for itemType %q", item.ItemType)
+	}
+	if item.LinkMode != "" && !schema.IsValidField(item.ItemType, "linkMode") {
+		return fmt.Errorf("field 'linkMode' is not valid for itemType %q", item.ItemType)
+	}
+	if item.Note != "" && !schema.IsValidField(item.ItemType, "note") {
+		return fmt.Errorf("field 'note' is not valid for itemType %q", item.ItemType)
+	}
+	if item.ContentType != "" && !schema.IsValidField(item.ItemType, "contentType") {
+		return fmt.Errorf("field 'contentType' is not valid for itemType %q", item.ItemType)
+	}
+	if item.Charset != "" && !schema.IsValidField(item.ItemType, "charset") {
+		return fmt.Errorf("field 'charset' is not valid for itemType %q", item.ItemType)
+	}
+	if item.Filename != "" && !schema.IsValidField(item.ItemType, "filename") {
+		return fmt.Errorf("field 'filename' is not valid for itemType %q", item.ItemType)
+	}
+	if item.MD5 != "" && !schema.IsValidField(item.ItemType, "md5") {
+		return fmt.Errorf("field 'md5' is not valid for itemType %q", item.ItemType)
+	}
+	if item.MTime != 0 && !schema.IsValidField(item.ItemType, "mtime") {
+		return fmt.Errorf("field 'mtime' is not valid for itemType %q", item.ItemType)
+	}
 
-type ItemForumPost struct {
-	ItemDataBase
-	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Note
-	ForumTitle   string `json:"forumTitle,omitempty"`   // Forum/Listserv Title
-	PostType     string `json:"postType,omitempty"`     // Post Type
-	Date         string `json:"date,omitempty"`         // Date
-	Language     string `json:"language,omitempty"`     // Language
-	ShortTitle   string `json:"shortTitle,omitempty"`   // Short Title
-	Url          string `json:"url,omitempty"`          // URL
-	AccessDate   string `json:"accessDate,omitempty"`   // Accessed
-	Rights       string `json:"rights,omitempty"`       // Rights
-	Extra        string `json:"extra,omitempty"`        // Extra
-}
+	for f := range item.ExtraFields {
+		if !schema.IsValidField(item.ItemType, f) {
+			return fmt.Errorf("field %q is not valid for itemType %q", f, item.ItemType)
+		}
+	}
 
-type ItemHearing struct {
-	ItemDataBase
-
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	Committee       string `json:"committee,omitempty"`       // Committee
-	Place           string `json:"place,omitempty"`           // Place
-	Publisher       string `json:"publisher,omitempty"`       // Publisher
-	NumberOfVolumes string `json:"numberOfVolumes,omitempty"` // # of Volumes
-	DocumentNumber  string `json:"documentNumber,omitempty"`  // Document Number
-	Pages           string `json:"pages,omitempty"`           // Pages
-	LegislativeBody string `json:"legislativeBody,omitempty"` // Legislative Body
-	Session         string `json:"session,omitempty"`         // Session
-	History         string `json:"history,omitempty"`         // History
-	Date            string `json:"date,omitempty"`            // Date
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemInstantMessage struct {
-	ItemDataBase
-
-	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Note
-	Date         string `json:"date,omitempty"`         // Date
-	Language     string `json:"language,omitempty"`     // Language
-	ShortTitle   string `json:"shortTitle,omitempty"`   // Short Title
-	Url          string `json:"url,omitempty"`          // URL
-	AccessDate   string `json:"accessDate,omitempty"`   // Accessed
-	Rights       string `json:"rights,omitempty"`       // Rights
-	Extra        string `json:"extra,omitempty"`        // Extra
-}
-
-type ItemInterview struct {
-	ItemDataBase
-
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	Date            string `json:"date,omitempty"`            // Date
-	InterviewMedium string `json:"interviewMedium,omitempty"` // Medium
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemJournalArticle struct {
-	ItemDataBase
-	Title               string `json:"title,omitempty"`               // Title
-	AbstractNote        string `json:"abstractNote,omitempty"`        // Note
-	PublicationTitle    string `json:"publicationTitle,omitempty"`    // Publication
-	Volume              string `json:"volume,omitempty"`              // Volume
-	Issue               string `json:"issue,omitempty"`               // Issue
-	Pages               string `json:"pages,omitempty"`               // Pages
-	Date                string `json:"date,omitempty"`                // Date
-	Series              string `json:"series,omitempty"`              // Series
-	SeriesTitle         string `json:"seriesTitle,omitempty"`         // Series Title
-	SeriesText          string `json:"seriesText,omitempty"`          // Series Text
-	JournalAbbreviation string `json:"journalAbbreviation,omitempty"` // Journal Abbr
-	Language            string `json:"language,omitempty"`            // Language
-	DOI                 string `json:"DOI,omitempty"`                 // DOI
-	ISSN                string `json:"ISSN,omitempty"`                // ISSN
-	ShortTitle          string `json:"shortTitle,omitempty"`          // Short Title
-	Url                 string `json:"url,omitempty"`                 // URL
-	AccessDate          string `json:"accessDate,omitempty"`          // Accessed
-	Archive             string `json:"archive,omitempty"`             // Archive
-	ArchiveLocation     string `json:"archiveLocation,omitempty"`     // Loc. in Archive
-	LibraryCatalog      string `json:"libraryCatalog,omitempty"`      // Library Catalog
-	CallNumber          string `json:"callNumber,omitempty"`          // Call Number
-	Rights              string `json:"rights,omitempty"`              // Rights
-	Extra               string `json:"extra,omitempty"`               // Extra
-}
-
-type ItemLetter struct {
-	ItemDataBase
-
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	LetterType      string `json:"letterType,omitempty"`      // Type
-	Date            string `json:"date,omitempty"`            // Date
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemMagazineArticle struct {
-	ItemDataBase
-	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
-	PublicationTitle string `json:"publicationTitle,omitempty"` // Publication
-	Volume           string `json:"volume,omitempty"`           // Volume
-	Issue            string `json:"issue,omitempty"`            // Issue
-	Date             string `json:"date,omitempty"`             // Date
-	Pages            string `json:"pages,omitempty"`            // Pages
-	Language         string `json:"language,omitempty"`         // Language
-	ISSN             string `json:"ISSN,omitempty"`             // ISSN
-	ShortTitle       string `json:"shortTitle,omitempty"`       // Short Title
-	Url              string `json:"url,omitempty"`              // URL
-	AccessDate       string `json:"accessDate,omitempty"`       // Accessed
-	Archive          string `json:"archive,omitempty"`          // Archive
-	ArchiveLocation  string `json:"archiveLocation,omitempty"`  // Loc. in Archive
-	LibraryCatalog   string `json:"libraryCatalog,omitempty"`   // Library Catalog
-	CallNumber       string `json:"callNumber,omitempty"`       // Call Number
-	Rights           string `json:"rights,omitempty"`           // Rights
-	Extra            string `json:"extra,omitempty"`            // Extra
-}
-
-type ItemManuscript struct {
-	ItemDataBase
-
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	ManuscriptType  string `json:"manuscriptType,omitempty"`  // Type
-	Place           string `json:"place,omitempty"`           // Place
-	Date            string `json:"date,omitempty"`            // Date
-	NumPages        string `json:"numPages,omitempty"`        // # of Pages
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemMap struct {
-	ItemDataBase
-
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	MapType         string `json:"mapType,omitempty"`         // Type
-	Scale           string `json:"scale,omitempty"`           // Scale
-	SeriesTitle     string `json:"seriesTitle,omitempty"`     // Series Title
-	Edition         string `json:"edition,omitempty"`         // Edition
-	Place           string `json:"place,omitempty"`           // Place
-	Publisher       string `json:"publisher,omitempty"`       // Publisher
-	Date            string `json:"date,omitempty"`            // Date
-	Language        string `json:"language,omitempty"`        // Language
-	ISBN            string `json:"ISBN,omitempty"`            // ISBN
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemNewspaperArticle struct {
-	ItemDataBase
-	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
-	PublicationTitle string `json:"publicationTitle,omitempty"` // Publication
-	Place            string `json:"place,omitempty"`            // Place
-	Edition          string `json:"edition,omitempty"`          // Edition
-	Date             string `json:"date,omitempty"`             // Date
-	Section          string `json:"section,omitempty"`          // Section
-	Pages            string `json:"pages,omitempty"`            // Pages
-	Language         string `json:"language,omitempty"`         // Language
-	ShortTitle       string `json:"shortTitle,omitempty"`       // Short Title
-	ISSN             string `json:"ISSN,omitempty"`             // ISSN
-	Url              string `json:"url,omitempty"`              // URL
-	AccessDate       string `json:"accessDate,omitempty"`       // Accessed
-	Archive          string `json:"archive,omitempty"`          // Archive
-	ArchiveLocation  string `json:"archiveLocation,omitempty"`  // Loc. in Archive
-	LibraryCatalog   string `json:"libraryCatalog,omitempty"`   // Library Catalog
-	CallNumber       string `json:"callNumber,omitempty"`       // Call Number
-	Rights           string `json:"rights,omitempty"`           // Rights
-	Extra            string `json:"extra,omitempty"`            // Extra
-}
-
-type ItemPatent struct {
-	ItemDataBase
-	Title             string `json:"title,omitempty"`             // Title
-	AbstractNote      string `json:"abstractNote,omitempty"`      // Note
-	Place             string `json:"place,omitempty"`             // Place
-	Country           string `json:"country,omitempty"`           // Country
-	Assignee          string `json:"assignee,omitempty"`          // Assignee
-	IssuingAuthority  string `json:"issuingAuthority,omitempty"`  // Issuing Authority
-	PatentNumber      string `json:"patentNumber,omitempty"`      // Patent Number
-	FilingDate        string `json:"filingDate,omitempty"`        // Filing Date
-	Pages             string `json:"pages,omitempty"`             // Pages
-	ApplicationNumber string `json:"applicationNumber,omitempty"` // Application Number
-	PriorityNumbers   string `json:"priorityNumbers,omitempty"`   // Priority Numbers
-	IssueDate         string `json:"issueDate,omitempty"`         // Issue Date
-	References        string `json:"references,omitempty"`        // References
-	LegalStatus       string `json:"legalStatus,omitempty"`       // Legal Status
-	Language          string `json:"language,omitempty"`          // Language
-	ShortTitle        string `json:"shortTitle,omitempty"`        // Short Title
-	Url               string `json:"url,omitempty"`               // URL
-	AccessDate        string `json:"accessDate,omitempty"`        // Accessed
-	Rights            string `json:"rights,omitempty"`            // Rights
-	Extra             string `json:"extra,omitempty"`             // Extra
-}
-
-type ItemPodcast struct {
-	ItemDataBase
-	Title         string `json:"title,omitempty"`         // Title
-	AbstractNote  string `json:"abstractNote,omitempty"`  // Note
-	SeriesTitle   string `json:"seriesTitle,omitempty"`   // Series Title
-	EpisodeNumber string `json:"episodeNumber,omitempty"` // Episode Number
-	AudioFileType string `json:"audioFileType,omitempty"` // File Type
-	RunningTime   string `json:"runningTime,omitempty"`   // Running Time
-	Url           string `json:"url,omitempty"`           // URL
-	AccessDate    string `json:"accessDate,omitempty"`    // Accessed
-	Language      string `json:"language,omitempty"`      // Language
-	ShortTitle    string `json:"shortTitle,omitempty"`    // Short Title
-	Rights        string `json:"rights,omitempty"`        // Rights
-	Extra         string `json:"extra,omitempty"`         // Extra
-}
-
-type ItemPresentation struct {
-	ItemDataBase
-	Title            string `json:"title,omitempty"`            // Title
-	AbstractNote     string `json:"abstractNote,omitempty"`     // Note
-	PresentationType string `json:"presentationType,omitempty"` // Type
-	Date             string `json:"date,omitempty"`             // Date
-	Place            string `json:"place,omitempty"`            // Place
-	MeetingName      string `json:"meetingName,omitempty"`      // Meeting Name
-	Url              string `json:"url,omitempty"`              // URL
-	AccessDate       string `json:"accessDate,omitempty"`       // Accessed
-	Language         string `json:"language,omitempty"`         // Language
-	ShortTitle       string `json:"shortTitle,omitempty"`       // Short Title
-	Rights           string `json:"rights,omitempty"`           // Rights
-	Extra            string `json:"extra,omitempty"`            // Extra
-}
-
-type ItemRadioBroadcast struct {
-	ItemDataBase
-	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
-	ProgramTitle         string `json:"programTitle,omitempty"`         // Program Title
-	EpisodeNumber        string `json:"episodeNumber,omitempty"`        // Episode Number
-	AudioRecordingFormat string `json:"audioRecordingFormat,omitempty"` // Format
-	Place                string `json:"place,omitempty"`                // Place
-	Network              string `json:"network,omitempty"`              // Network
-	Date                 string `json:"date,omitempty"`                 // Date
-	RunningTime          string `json:"runningTime,omitempty"`          // Running Time
-	Language             string `json:"language,omitempty"`             // Language
-	ShortTitle           string `json:"shortTitle,omitempty"`           // Short Title
-	Url                  string `json:"url,omitempty"`                  // URL
-	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
-	Archive              string `json:"archive,omitempty"`              // Archive
-	ArchiveLocation      string `json:"archiveLocation,omitempty"`      // Loc. in Archive
-	LibraryCatalog       string `json:"libraryCatalog,omitempty"`       // Library Catalog
-	CallNumber           string `json:"callNumber,omitempty"`           // Call Number
-	Rights               string `json:"rights,omitempty"`               // Rights
-	Extra                string `json:"extra,omitempty"`                // Extra
-}
-
-type ItemReport struct {
-	ItemDataBase
-
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	ReportNumber    string `json:"reportNumber,omitempty"`    // Report Number
-	ReportType      string `json:"reportType,omitempty"`      // Report Type
-	SeriesTitle     string `json:"seriesTitle,omitempty"`     // Series Title
-	Place           string `json:"place,omitempty"`           // Place
-	Institution     string `json:"institution,omitempty"`     // Institution
-	Date            string `json:"date,omitempty"`            // Date
-	Pages           string `json:"pages,omitempty"`           // Pages
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemStatute struct {
-	ItemDataBase
-
-	NameOfAct       string `json:"nameOfAct,omitempty"`       // Name of Act
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	Code            string `json:"code,omitempty"`            // Code
-	CodeNumber      string `json:"codeNumber,omitempty"`      // Code Number
-	PublicLawNumber string `json:"publicLawNumber,omitempty"` // Public Law Number
-	DateEnacted     string `json:"dateEnacted,omitempty"`     // Date Enacted
-	Pages           string `json:"pages,omitempty"`           // Pages
-	Section         string `json:"section,omitempty"`         // Section
-	Session         string `json:"session,omitempty"`         // Session
-	History         string `json:"history,omitempty"`         // History
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemTvBroadcast struct {
-	ItemDataBase
-	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
-	ProgramTitle         string `json:"programTitle,omitempty"`         // Program Title
-	EpisodeNumber        string `json:"episodeNumber,omitempty"`        // Episode Number
-	VideoRecordingFormat string `json:"videoRecordingFormat,omitempty"` // Format
-	Place                string `json:"place,omitempty"`                // Place
-	Network              string `json:"network,omitempty"`              // Network
-	Date                 string `json:"date,omitempty"`                 // Date
-	RunningTime          string `json:"runningTime,omitempty"`          // Running Time
-	Language             string `json:"language,omitempty"`             // Language
-	ShortTitle           string `json:"shortTitle,omitempty"`           // Short Title
-	Url                  string `json:"url,omitempty"`                  // URL
-	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
-	Archive              string `json:"archive,omitempty"`              // Archive
-	ArchiveLocation      string `json:"archiveLocation,omitempty"`      // Loc. in Archive
-	LibraryCatalog       string `json:"libraryCatalog,omitempty"`       // Library Catalog
-	CallNumber           string `json:"callNumber,omitempty"`           // Call Number
-	Rights               string `json:"rights,omitempty"`               // Rights
-	Extra                string `json:"extra,omitempty"`                // Extra
-}
-
-type ItemThesis struct {
-	ItemDataBase
-
-	Title           string `json:"title,omitempty"`           // Title
-	AbstractNote    string `json:"abstractNote,omitempty"`    // Note
-	ThesisType      string `json:"thesisType,omitempty"`      // Type
-	University      string `json:"university,omitempty"`      // University
-	Place           string `json:"place,omitempty"`           // Place
-	Date            string `json:"date,omitempty"`            // Date
-	NumPages        string `json:"numPages,omitempty"`        // # of Pages
-	Language        string `json:"language,omitempty"`        // Language
-	ShortTitle      string `json:"shortTitle,omitempty"`      // Short Title
-	Url             string `json:"url,omitempty"`             // URL
-	AccessDate      string `json:"accessDate,omitempty"`      // Accessed
-	Archive         string `json:"archive,omitempty"`         // Archive
-	ArchiveLocation string `json:"archiveLocation,omitempty"` // Loc. in Archive
-	LibraryCatalog  string `json:"libraryCatalog,omitempty"`  // Library Catalog
-	CallNumber      string `json:"callNumber,omitempty"`      // Call Number
-	Rights          string `json:"rights,omitempty"`          // Rights
-	Extra           string `json:"extra,omitempty"`           // Extra
-}
-
-type ItemVideoRecording struct {
-	ItemDataBase
-	Title                string `json:"title,omitempty"`                // Title
-	AbstractNote         string `json:"abstractNote,omitempty"`         // Note
-	VideoRecordingFormat string `json:"videoRecordingFormat,omitempty"` // Format
-	SeriesTitle          string `json:"seriesTitle,omitempty"`          // Series Title
-	Volume               string `json:"volume,omitempty"`               // Volume
-	NumberOfVolumes      string `json:"numberOfVolumes,omitempty"`      // # of Volumes
-	Place                string `json:"place,omitempty"`                // Place
-	Studio               string `json:"studio,omitempty"`               // Studio
-	Date                 string `json:"date,omitempty"`                 // Date
-	RunningTime          string `json:"runningTime,omitempty"`          // Running Time
-	Language             string `json:"language,omitempty"`             // Language
-	ISBN                 string `json:"ISBN,omitempty"`                 // ISBN
-	ShortTitle           string `json:"shortTitle,omitempty"`           // Short Title
-	Url                  string `json:"url,omitempty"`                  // URL
-	AccessDate           string `json:"accessDate,omitempty"`           // Accessed
-	Archive              string `json:"archive,omitempty"`              // Archive
-	ArchiveLocation      string `json:"archiveLocation,omitempty"`      // Loc. in Archive
-	LibraryCatalog       string `json:"libraryCatalog,omitempty"`       // Library Catalog
-	CallNumber           string `json:"callNumber,omitempty"`           // Call Number
-	Rights               string `json:"rights,omitempty"`               // Rights
-	Extra                string `json:"extra,omitempty"`                // Extra
-}
-
-type ItemWebpage struct {
-	ItemDataBase
-
-	Title        string `json:"title,omitempty"`        // Title
-	AbstractNote string `json:"abstractNote,omitempty"` // Note
-	WebsiteTitle string `json:"websiteTitle,omitempty"` // Website Title
-	WebsiteType  string `json:"websiteType,omitempty"`  // Website Type
-	Date         string `json:"date,omitempty"`         // Date
-	ShortTitle   string `json:"shortTitle,omitempty"`   // Short Title
-	Url          string `json:"url,omitempty"`          // URL
-	AccessDate   string `json:"accessDate,omitempty"`   // Accessed
-	Language     string `json:"language,omitempty"`     // Language
-	Rights       string `json:"rights,omitempty"`       // Rights
-	Extra        string `json:"extra,omitempty"`        // Extra
+	return nil
 }

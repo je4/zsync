@@ -88,7 +88,7 @@ func main() {
 	}
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-	zotStorage := storage.NewStorage(zoteroDB, config.ZoteroDB.Schema, false, &zlog)
+	zotStorage := storage.NewStorage(zoteroDB, false, &zlog)
 
 	mediasqlstr := "select " +
 		"	m.masterid, " +
@@ -162,22 +162,22 @@ func main() {
 			itemData.Title += strings.TrimSpace(titel2.String)
 		}
 		if land.Valid {
-			itemData.Country = strings.TrimSpace(land.String)
+			itemData.SetString("country", strings.TrimSpace(land.String))
 		}
 		if dauer.Valid {
-			itemData.RunningTime = strings.TrimSpace(dauer.String)
+			itemData.SetString("runningTime", strings.TrimSpace(dauer.String))
 		}
 		if jahr.Valid {
 			itemData.Date = strings.TrimSpace(jahr.String)
 		}
 		if originalsprache.Valid {
-			itemData.Language = strings.TrimSpace(originalsprache.String)
+			itemData.SetString("language", strings.TrimSpace(originalsprache.String))
 		}
 		if medium.Valid {
-			itemData.VideoRecordingFormat = strings.TrimSpace(medium.String)
+			itemData.SetString("videoRecordingFormat", strings.TrimSpace(medium.String))
 		}
 		if videothek.Valid {
-			itemData.ArchiveLocation = strings.TrimSpace(videothek.String)
+			itemData.SetString("archiveLocation", strings.TrimSpace(videothek.String))
 		}
 		if kategorie.Valid {
 			kat := strings.Split(kategorie.String, ";")

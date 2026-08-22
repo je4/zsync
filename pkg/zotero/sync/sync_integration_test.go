@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/je4/zsync/v2/info"
 	"github.com/je4/zsync/v2/pkg/filesystem"
@@ -85,22 +84,6 @@ func getIntegrationTestStorage(t *testing.T, groupID int64) (*storage.Storage, *
 		return nil, nil, "", nil
 	}
 
-	schema := "public"
-	if s := os.Getenv("DATABASE_SCHEMA"); s != "" {
-		schema = s
-	}
-
-	if cfg.ConnConfig.RuntimeParams == nil {
-		cfg.ConnConfig.RuntimeParams = make(map[string]string)
-	}
-	if _, ok := cfg.ConnConfig.RuntimeParams["search_path"]; !ok {
-		cfg.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s, public", schema)
-	}
-	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		_, err := conn.Exec(ctx, fmt.Sprintf("SET search_path = %s, public", schema))
-		return err
-	}
-
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Skipf("cannot connect to database (%v); skipping integration test", err)
@@ -115,26 +98,26 @@ func getIntegrationTestStorage(t *testing.T, groupID int64) (*storage.Storage, *
 
 	// Clean up any existing data for groupID before running the test
 	bgCtx := context.Background()
-	_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.tags WHERE library=$1", schema), groupID)
-	_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.items WHERE library=$1", schema), groupID)
-	_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.collections WHERE library=$1", schema), groupID)
-	_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.syncgroups WHERE id=$1", schema), groupID)
-	_, _ = pool.Exec(bgCtx, fmt.Sprintf("DELETE FROM %s.groups WHERE id=$1", schema), groupID)
+	_, _ = pool.Exec(bgCtx, "DELETE FROM tags WHERE library=$1", groupID)
+	_, _ = pool.Exec(bgCtx, "DELETE FROM items WHERE library=$1", groupID)
+	_, _ = pool.Exec(bgCtx, "DELETE FROM collections WHERE library=$1", groupID)
+	_, _ = pool.Exec(bgCtx, "DELETE FROM syncgroups WHERE id=$1", groupID)
+	_, _ = pool.Exec(bgCtx, "DELETE FROM groups WHERE id=$1", groupID)
 
 	zlog := zerolog.Nop()
-	st := storage.NewStorage(pool, schema, true, &zlog)
+	st := storage.NewStorage(pool, true, &zlog)
 
 	cleanup := func() {
 		cleanupCtx := context.Background()
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DELETE FROM %s.tags WHERE library=$1", schema), groupID)
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DELETE FROM %s.items WHERE library=$1", schema), groupID)
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DELETE FROM %s.collections WHERE library=$1", schema), groupID)
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DELETE FROM %s.syncgroups WHERE id=$1", schema), groupID)
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DELETE FROM %s.groups WHERE id=$1", schema), groupID)
+		_, _ = pool.Exec(cleanupCtx, "DELETE FROM tags WHERE library=$1", groupID)
+		_, _ = pool.Exec(cleanupCtx, "DELETE FROM items WHERE library=$1", groupID)
+		_, _ = pool.Exec(cleanupCtx, "DELETE FROM collections WHERE library=$1", groupID)
+		_, _ = pool.Exec(cleanupCtx, "DELETE FROM syncgroups WHERE id=$1", groupID)
+		_, _ = pool.Exec(cleanupCtx, "DELETE FROM groups WHERE id=$1", groupID)
 		pool.Close()
 	}
 
-	return st, pool, schema, cleanup
+	return st, pool, "", cleanup
 }
 
 func getLocalTestConfig() (endpoint string, groupId int64, localKey string, cloudKey string) {

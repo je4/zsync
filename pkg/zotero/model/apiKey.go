@@ -13,7 +13,7 @@ type Access struct {
 }
 
 type ApiKey struct {
-	UserId   int64  `json:"userId"`
+	UserId   int64  `json:"userID"`
 	Username string `json:"username"`
 	Access   Access `json:"access"`
 }

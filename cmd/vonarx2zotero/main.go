@@ -89,7 +89,7 @@ func main() {
 	}
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-	zotStorage := storage.NewStorage(zoteroDB, config.ZoteroDB.Schema, false, &zlog)
+	zotStorage := storage.NewStorage(zoteroDB, false, &zlog)
 
 	mediasqlstr := "select " +
 		"	m.masterid, " +
@@ -162,10 +162,10 @@ func main() {
 
 		sec, err := strconv.ParseInt(Dauer_Sekunden, 10, 64)
 		if err == nil && sec > 0 {
-			itemData.RunningTime = model.FmtDuration(time.Second * time.Duration(sec))
+			itemData.SetString("runningTime", model.FmtDuration(time.Second*time.Duration(sec)))
 		}
 		if Rollenthema != "" {
-			itemData.Genre = Rollenthema
+			itemData.SetString("genre", Rollenthema)
 		}
 
 		AutorInnen = strings.TrimSpace(AutorInnen)

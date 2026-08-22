@@ -66,7 +66,7 @@ func TestIsUniqueViolation(t *testing.T) {
 }
 
 func TestStorageAccessors(t *testing.T) {
-	st := NewStorage(nil, "public", true, nil)
+	st := NewStorage(nil, true, nil)
 	if st.GetPool() != nil {
 		t.Errorf("expected GetPool() to be nil")
 	}
