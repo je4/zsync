@@ -11,9 +11,10 @@ import (
 
 func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		vars := mux.Vars(r)
 		// get groups object from cache
-		group, err := handlers.groupFromVars(vars)
+		group, err := handlers.groupFromVars(ctx, vars)
 		if err != nil {
 			handlers.logger.Errorf("no group: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no group: %v", err))
@@ -38,7 +39,7 @@ func (handlers *Handlers) makeItemCreateHandler() http.HandlerFunc {
 				Links:    nil,
 			}
 		}
-		item, err := handlers.storage.CreateItem(group.Id, &itemData, &itemMeta, oldid)
+		item, err := handlers.storage.CreateItem(ctx, group.Id, &itemData, &itemMeta, oldid)
 		if err != nil {
 			handlers.logger.Errorf("error storing new item: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new item: %v", err))

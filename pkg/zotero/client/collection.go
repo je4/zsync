@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json/v2"
 	"fmt"
 	"strconv"
@@ -11,21 +12,17 @@ import (
 	"gopkg.in/resty.v1"
 )
 
-func (c *Client) GetCollectionVersions(groupId int64, sinceVersion int64) (*map[string]int64, int64, error) {
+func (c *Client) GetCollectionVersions(ctx context.Context, groupId int64, sinceVersion int64) (map[string]int64, int64, error) {
 	endpoint := fmt.Sprintf("/groups/%v/collections", groupId)
-	res, lmv, err := fetchPaginatedMap[string, int64](c, endpoint, 500, func(req *resty.Request) {
+	return fetchPaginatedMap[string, int64](ctx, c, endpoint, 500, func(req *resty.Request) {
 		req.SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
 			SetQueryParam("format", "versions")
 	})
-	if err != nil {
-		return nil, 0, err
-	}
-	return &res, lmv, nil
 }
 
-func (c *Client) GetCollectionsByKey(groupId int64, objectKeys []string) (*[]model.Collection, int64, error) {
+func (c *Client) GetCollectionsByKey(ctx context.Context, groupId int64, objectKeys []string) ([]model.Collection, int64, error) {
 	if len(objectKeys) == 0 {
-		return &[]model.Collection{}, 0, errors.New("no objectKeys")
+		return []model.Collection{}, 0, errors.New("no objectKeys")
 	}
 	if len(objectKeys) > 50 {
 		return nil, 0, errors.New("too many objectKeys (max. 50)")
@@ -37,6 +34,7 @@ func (c *Client) GetCollectionsByKey(groupId int64, objectKeys []string) (*[]mod
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetQueryParam("collectionKey", strings.Join(objectKeys, ","))
 
@@ -73,16 +71,17 @@ func (c *Client) GetCollectionsByKey(groupId int64, objectKeys []string) (*[]mod
 		}
 		result = append(result, coll)
 	}
-	return &result, lastModifiedVersion, nil
+	return result, lastModifiedVersion, nil
 }
 
-func (c *Client) GetCollectionByKey(groupId int64, key string) (*model.Collection, error) {
+func (c *Client) GetCollectionByKey(ctx context.Context, groupId int64, key string) (*model.Collection, error) {
 	endpoint := fmt.Sprintf("/groups/%v/collections/%v", groupId, key)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: %s", endpoint)
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json")
 	var resp *resty.Response
 	var err error
@@ -107,13 +106,14 @@ func (c *Client) GetCollectionByKey(groupId int64, key string) (*model.Collectio
 	return coll, nil
 }
 
-func (c *Client) GetCollectionsQuery(groupId int64, queryParams map[string]string) (*[]model.Collection, *resty.Response, error) {
+func (c *Client) GetCollectionsQuery(ctx context.Context, groupId int64, queryParams map[string]string) ([]model.Collection, *resty.Response, error) {
 	endpoint := fmt.Sprintf("/groups/%v/collections", groupId)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: %s", endpoint)
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetQueryParams(queryParams)
 	var resp *resty.Response
@@ -133,16 +133,17 @@ func (c *Client) GetCollectionsQuery(groupId int64, queryParams map[string]strin
 	if err := json.Unmarshal(rawBody, &collections); err != nil {
 		return nil, resp, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	return &collections, resp, nil
+	return collections, resp, nil
 }
 
-func (c *Client) CreateCollections(groupId int64, collections []model.CollectionData) (*model.ItemCollectionCreateResult, error) {
+func (c *Client) CreateCollections(ctx context.Context, groupId int64, collections []model.CollectionData) (*model.ItemCollectionCreateResult, error) {
 	endpoint := fmt.Sprintf("/groups/%v/collections", groupId)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	}
 
 	req := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetBody(collections)
 
@@ -169,7 +170,7 @@ func (c *Client) CreateCollections(groupId int64, collections []model.Collection
 	return result, nil
 }
 
-func (c *Client) UpdateCollection(groupId int64, collection *model.CollectionData, lastModifiedVersion *int64) (string, error) {
+func (c *Client) UpdateCollection(ctx context.Context, groupId int64, collection *model.CollectionData, lastModifiedVersion *int64) (string, error) {
 	endpoint := fmt.Sprintf("/groups/%v/collections", groupId)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: POST %s", endpoint)
@@ -180,6 +181,7 @@ func (c *Client) UpdateCollection(groupId int64, collection *model.CollectionDat
 	}
 	collections := []model.CollectionData{sendData}
 	req := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetBody(collections)
 	if lastModifiedVersion != nil && *lastModifiedVersion > 0 {
@@ -225,12 +227,13 @@ func (c *Client) UpdateCollection(groupId int64, collection *model.CollectionDat
 	return successKey, nil
 }
 
-func (c *Client) DeleteCollection(groupId int64, collectionKey string, lastModifiedVersion int64) error {
+func (c *Client) DeleteCollection(ctx context.Context, groupId int64, collectionKey string, lastModifiedVersion int64) error {
 	endpoint := fmt.Sprintf("/groups/%v/collections/%v", groupId, collectionKey)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
 	}
 	req := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json")
 	if lastModifiedVersion > 0 {
 		req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", lastModifiedVersion))

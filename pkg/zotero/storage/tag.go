@@ -9,7 +9,7 @@ import (
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
-func (s *Storage) CreateTag(groupId int64, tag model.Tag) error {
+func (s *Storage) CreateTag(ctx context.Context, groupId int64, tag model.Tag) error {
 	if s.Logger != nil {
 		s.Logger.Debug().Msgf("Creating Tag %s", tag.Tag)
 	}
@@ -22,7 +22,7 @@ func (s *Storage) CreateTag(groupId int64, tag model.Tag) error {
 		"meta":    metastr,
 		"library": groupId,
 	}
-	_, err = s.db.Exec(context.Background(), SQLInsertTag, params)
+	_, err = s.db.Exec(ctx, SQLInsertTag, params)
 	if err != nil {
 		if IsUniqueViolation(err, "pk_tags") {
 			return nil
@@ -32,7 +32,7 @@ func (s *Storage) CreateTag(groupId int64, tag model.Tag) error {
 	return nil
 }
 
-func (s *Storage) DeleteTag(groupId int64, tag string) error {
+func (s *Storage) DeleteTag(ctx context.Context, groupId int64, tag string) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("deleting Tag %s", tag)
 	}
@@ -40,8 +40,25 @@ func (s *Storage) DeleteTag(groupId int64, tag string) error {
 		"tag":     tag,
 		"library": groupId,
 	}
-	if _, err := s.db.Exec(context.Background(), SQLDeleteTag, params); err != nil {
+	if _, err := s.db.Exec(ctx, SQLDeleteTag, params); err != nil {
 		return errors.Wrapf(err, "error executing %s: %v", SQLDeleteTag, params)
 	}
 	return nil
+}
+
+// DeleteTags removes all given tags in a single statement.
+// It returns the number of affected rows.
+func (s *Storage) DeleteTags(ctx context.Context, groupId int64, tags []string) (int64, error) {
+	if len(tags) == 0 {
+		return 0, nil
+	}
+	params := pgx.NamedArgs{
+		"tags":    tags,
+		"library": groupId,
+	}
+	tag, err := s.db.Exec(ctx, SQLDeleteTags, params)
+	if err != nil {
+		return 0, errors.Wrapf(err, "error executing %s: %v", SQLDeleteTags, params)
+	}
+	return tag.RowsAffected(), nil
 }

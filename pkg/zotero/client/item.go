@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/json/v2"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 	"gopkg.in/resty.v1"
 )
 
-func (c *Client) GetItemsVersion(groupId int64, sinceVersion int64, trashed bool) (*map[string]int64, int64, error) {
+func (c *Client) GetItemVersions(ctx context.Context, groupId int64, sinceVersion int64, trashed bool) (map[string]int64, int64, error) {
 	var endpoint string
 	if trashed {
 		endpoint = fmt.Sprintf("/groups/%v/items/trash", groupId)
@@ -21,19 +22,15 @@ func (c *Client) GetItemsVersion(groupId int64, sinceVersion int64, trashed bool
 		endpoint = fmt.Sprintf("/groups/%v/items", groupId)
 	}
 
-	res, lmv, err := fetchPaginatedMap[string, int64](c, endpoint, 500, func(req *resty.Request) {
+	return fetchPaginatedMap[string, int64](ctx, c, endpoint, 500, func(req *resty.Request) {
 		req.SetQueryParam("since", strconv.FormatInt(sinceVersion, 10)).
 			SetQueryParam("format", "versions")
 	})
-	if err != nil {
-		return nil, 0, err
-	}
-	return &res, lmv, nil
 }
 
-func (c *Client) GetItemsByKey(groupId int64, objectKeys []string) (*[]model.Item, error) {
+func (c *Client) GetItemsByKey(ctx context.Context, groupId int64, objectKeys []string) ([]model.Item, error) {
 	if len(objectKeys) == 0 {
-		return &[]model.Item{}, nil
+		return []model.Item{}, nil
 	}
 	if len(objectKeys) > 50 {
 		return nil, errors.New("too many objectKeys (max. 50)")
@@ -45,6 +42,7 @@ func (c *Client) GetItemsByKey(groupId int64, objectKeys []string) (*[]model.Ite
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetQueryParam("itemKey", strings.Join(objectKeys, ",")).
 		SetQueryParam("includeTrashed", "1")
@@ -68,19 +66,12 @@ func (c *Client) GetItemsByKey(groupId int64, objectKeys []string) (*[]model.Ite
 		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	c.CheckBackoff(resp.Header())
-	result := []model.Item{}
-	for _, item := range items {
-		if item.Data.Collections == nil {
-			item.Data.Collections = []string{}
-		}
-		result = append(result, item)
-	}
-	return &result, nil
+	return normalizeItems(items), nil
 }
 
-func (c *Client) GetItemsTrashByKey(groupId int64, objectKeys []string) (*[]model.Item, error) {
+func (c *Client) GetItemsTrashByKey(ctx context.Context, groupId int64, objectKeys []string) ([]model.Item, error) {
 	if len(objectKeys) == 0 {
-		return &[]model.Item{}, nil
+		return []model.Item{}, nil
 	}
 	if len(objectKeys) > 50 {
 		return nil, errors.New("too many objectKeys (max. 50)")
@@ -92,6 +83,7 @@ func (c *Client) GetItemsTrashByKey(groupId int64, objectKeys []string) (*[]mode
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetQueryParam("itemKey", strings.Join(objectKeys, ","))
 	var resp *resty.Response
@@ -109,7 +101,7 @@ func (c *Client) GetItemsTrashByKey(groupId int64, objectKeys []string) (*[]mode
 		c.Logger.Debug().Msgf("status: #%v ", resp.StatusCode())
 	}
 	if resp.StatusCode() == 404 {
-		return &[]model.Item{}, nil
+		return []model.Item{}, nil
 	}
 	if resp.StatusCode() >= 400 {
 		return nil, errors.Errorf("failed to get items from %s with status %d: %s", endpoint, resp.StatusCode(), string(resp.Body()))
@@ -120,23 +112,17 @@ func (c *Client) GetItemsTrashByKey(groupId int64, objectKeys []string) (*[]mode
 		return nil, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
 	c.CheckBackoff(resp.Header())
-	result := []model.Item{}
-	for _, item := range items {
-		if item.Data.Collections == nil {
-			item.Data.Collections = []string{}
-		}
-		result = append(result, item)
-	}
-	return &result, nil
+	return normalizeItems(items), nil
 }
 
-func (c *Client) GetItemByKey(groupId int64, key string) (*model.Item, error) {
+func (c *Client) GetItemByKey(ctx context.Context, groupId int64, key string) (*model.Item, error) {
 	endpoint := fmt.Sprintf("/groups/%v/items/%v", groupId, key)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: %s", endpoint)
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json")
 	var resp *resty.Response
 	var err error
@@ -164,13 +150,14 @@ func (c *Client) GetItemByKey(groupId int64, key string) (*model.Item, error) {
 	return item, nil
 }
 
-func (c *Client) GetItemsQuery(groupId int64, queryParams map[string]string) (*[]model.Item, *resty.Response, error) {
+func (c *Client) GetItemsQuery(ctx context.Context, groupId int64, queryParams map[string]string) ([]model.Item, *resty.Response, error) {
 	endpoint := fmt.Sprintf("/groups/%v/items", groupId)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: %s", endpoint)
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetQueryParams(queryParams)
 	var resp *resty.Response
@@ -190,22 +177,27 @@ func (c *Client) GetItemsQuery(groupId int64, queryParams map[string]string) (*[
 	if err := json.Unmarshal(rawBody, &items); err != nil {
 		return nil, resp, errors.Wrapf(err, "cannot unmarshal %s", string(rawBody))
 	}
-	result := []model.Item{}
-	for _, item := range items {
-		if item.Data.Collections == nil {
-			item.Data.Collections = []string{}
-		}
-		result = append(result, item)
-	}
-	return &result, resp, nil
+	return normalizeItems(items), resp, nil
 }
 
-func (c *Client) CreateItems(groupId int64, items []model.ItemGeneric, lastModifiedVersion *int64) (*model.ItemCollectionCreateResult, error) {
+// normalizeItems makes sure that the optional collections list is never nil,
+// so callers can append to it without a nil check.
+func normalizeItems(items []model.Item) []model.Item {
+	for i := range items {
+		if items[i].Data.Collections == nil {
+			items[i].Data.Collections = []string{}
+		}
+	}
+	return items
+}
+
+func (c *Client) CreateItems(ctx context.Context, groupId int64, items []model.ItemGeneric, lastModifiedVersion *int64) (*model.ItemCollectionCreateResult, error) {
 	endpoint := fmt.Sprintf("/groups/%v/items", groupId)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	}
 	req := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetBody(items)
 	if lastModifiedVersion != nil && *lastModifiedVersion > 0 {
@@ -246,7 +238,7 @@ func (c *Client) CreateItems(groupId int64, items []model.ItemGeneric, lastModif
 	return result, nil
 }
 
-func (c *Client) UpdateItem(groupId int64, item *model.ItemGeneric, lastModifiedVersion *int64) (string, error) {
+func (c *Client) UpdateItem(ctx context.Context, groupId int64, item *model.ItemGeneric, lastModifiedVersion *int64) (string, error) {
 	endpoint := fmt.Sprintf("/groups/%v/items", groupId)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: POST %s", endpoint)
@@ -257,6 +249,7 @@ func (c *Client) UpdateItem(groupId int64, item *model.ItemGeneric, lastModified
 	}
 	items := []model.ItemGeneric{sendData}
 	req := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetBody(items)
 	if lastModifiedVersion != nil && *lastModifiedVersion > 0 {
@@ -302,12 +295,13 @@ func (c *Client) UpdateItem(groupId int64, item *model.ItemGeneric, lastModified
 	return successKey, nil
 }
 
-func (c *Client) DeleteItem(groupId int64, itemKey string, lastModifiedVersion int64) error {
+func (c *Client) DeleteItem(ctx context.Context, groupId int64, itemKey string, lastModifiedVersion int64) error {
 	endpoint := fmt.Sprintf("/groups/%v/items/%v", groupId, itemKey)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: DELETE %s", endpoint)
 	}
 	req := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json")
 	if lastModifiedVersion > 0 {
 		req.SetHeader("If-Unmodified-Since-Version", fmt.Sprintf("%v", lastModifiedVersion))
@@ -339,12 +333,13 @@ func (c *Client) DeleteItem(groupId int64, itemKey string, lastModifiedVersion i
 	}
 }
 
-func (c *Client) DownloadAttachment(groupId int64, itemKey string) ([]byte, string, string, error) {
+func (c *Client) DownloadAttachment(ctx context.Context, groupId int64, itemKey string) ([]byte, string, string, error) {
 	endpoint := fmt.Sprintf("/groups/%v/items/%s/file", groupId, itemKey)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: %s", endpoint)
 	}
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json")
 	var resp *resty.Response
 	var err error
@@ -372,7 +367,7 @@ func (c *Client) DownloadAttachment(groupId int64, itemKey string) ([]byte, stri
 	return body, contentType, md5str, nil
 }
 
-func (c *Client) UploadAttachment(groupId int64, itemKey string, data []byte, filename string, contentType string, mtime int64, md5Hash string) (string, error) {
+func (c *Client) UploadAttachment(ctx context.Context, groupId int64, itemKey string, data []byte, filename string, contentType string, mtime int64, md5Hash string) (string, error) {
 	if md5Hash == "" {
 		md5sink := md5.New()
 		md5Hash = fmt.Sprintf("%x", md5sink.Sum(data))
@@ -392,6 +387,7 @@ func (c *Client) UploadAttachment(groupId int64, itemKey string, data []byte, fi
 	for {
 		authAttempts++
 		resp, err = c.client.R().
+			SetContext(ctx).
 			SetHeader("Content-Type", "application/x-www-form-urlencoded").
 			SetHeader("If-None-Match", "*").
 			SetFormData(map[string]string{
@@ -467,6 +463,7 @@ func (c *Client) UploadAttachment(groupId int64, itemKey string, data []byte, fi
 		c.Logger.Info().Msgf("rest call: POST %s", uploadUrl)
 	}
 	uploadResp, err := resty.New().R().
+		SetContext(ctx).
 		SetHeader("User-Agent", info.GetUserAgent()).
 		SetHeader("Content-Type", resultContentType).
 		SetBody(append([]byte(prefix), append(data, []byte(suffix)...)...)).
@@ -485,6 +482,7 @@ func (c *Client) UploadAttachment(groupId int64, itemKey string, data []byte, fi
 		c.Logger.Info().Msgf("rest call: POST %s", endpoint)
 	}
 	h := c.client.R().
+		SetContext(ctx).
 		SetHeader("If-None-Match", "*")
 	for {
 		resp, err = h.

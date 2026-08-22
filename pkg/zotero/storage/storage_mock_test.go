@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 	"github.com/je4/zsync/v2/pkg/zotero/model"
 )
 
-func TestPgMock_LoadGroup(t *testing.T) {
+func TestPgMock_GetGroup(t *testing.T) {
 	script := &pgmock.Script{
 		Steps: append(
 			pgmock.AcceptUnauthenticatedConnRequestSteps(),
@@ -61,9 +62,9 @@ func TestPgMock_LoadGroup(t *testing.T) {
 	st, cleanup := startMockServer(t, script)
 	defer cleanup()
 
-	group, err := st.LoadGroup(12345)
+	group, err := st.GetGroup(context.Background(), 12345)
 	if err != nil {
-		t.Fatalf("LoadGroup failed: %v", err)
+		t.Fatalf("GetGroup failed: %v", err)
 	}
 
 	if group == nil {
@@ -136,7 +137,7 @@ func TestPgMock_GetCollectionByKey(t *testing.T) {
 	st, cleanup := startMockServer(t, script)
 	defer cleanup()
 
-	coll, err := st.GetCollectionByKey(12345, "COLLKEY1")
+	coll, err := st.GetCollectionByKey(context.Background(), 12345, "COLLKEY1")
 	if err != nil {
 		t.Fatalf("GetCollectionByKey failed: %v", err)
 	}
@@ -208,7 +209,7 @@ func TestPgMock_GetItemByKey(t *testing.T) {
 	st, cleanup := startMockServer(t, script)
 	defer cleanup()
 
-	item, err := st.GetItemByKey(12345, "ITEMKEY1")
+	item, err := st.GetItemByKey(context.Background(), 12345, "ITEMKEY1")
 	if err != nil {
 		t.Fatalf("GetItemByKey failed: %v", err)
 	}
@@ -252,7 +253,7 @@ func TestPgMock_CreateTag(t *testing.T) {
 	st, cleanup := startMockServer(t, script)
 	defer cleanup()
 
-	err := st.CreateTag(12345, model.Tag{
+	err := st.CreateTag(context.Background(), 12345, model.Tag{
 		Tag:  "golang",
 		Meta: &model.TagMeta{NumItems: 5},
 	})
@@ -349,7 +350,7 @@ func TestPgMock_UniqueViolationFallback(t *testing.T) {
 	itemData.ItemType = "book"
 	itemData.Title = "Duplicate OldID Book"
 
-	item, err := st.CreateItem(12345, itemData, nil, "old-duplicate-id")
+	item, err := st.CreateItem(context.Background(), 12345, itemData, nil, "old-duplicate-id")
 	if err != nil {
 		t.Fatalf("CreateItem expected fallback to succeed on duplicate oldid, but got error: %v", err)
 	}
@@ -408,7 +409,7 @@ func TestPgMock_GetCollectionByName(t *testing.T) {
 	st, cleanup := startMockServer(t, script)
 	defer cleanup()
 
-	coll, err := st.GetCollectionByName(12345, "", "Target Collection")
+	coll, err := st.GetCollectionByName(context.Background(), 12345, "", "Target Collection")
 	if err != nil {
 		t.Fatalf("GetCollectionByName failed: %v", err)
 	}
@@ -462,7 +463,7 @@ func TestPgMock_CreateEmptyGroup(t *testing.T) {
 	st, cleanup := startMockServer(t, script)
 	defer cleanup()
 
-	active, direction, err := st.CreateEmptyGroup(99999)
+	active, direction, err := st.CreateEmptyGroup(context.Background(), 99999)
 	if err != nil {
 		t.Fatalf("CreateEmptyGroup failed: %v", err)
 	}

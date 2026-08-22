@@ -11,9 +11,10 @@ import (
 
 func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		vars := mux.Vars(r)
 		// get groups object from cache
-		group, err := handlers.groupFromVars(vars)
+		group, err := handlers.groupFromVars(ctx, vars)
 		if err != nil {
 			handlers.logger.Errorf("no group: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no group: %v", err))
@@ -25,18 +26,18 @@ func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no key in url"))
 			return
 		}
-		items, err := handlers.storage.GetItems(group.Id, []string{key})
+		items, err := handlers.storage.GetItemsByKey(ctx, group.Id, []string{key})
 		if err != nil {
 			handlers.logger.Errorf("could not load item #%v.%v", group.Id, key)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("could not load item #%v.%v", group.Id, key))
 			return
 		}
-		if len(*items) == 0 {
+		if len(items) == 0 {
 			handlers.logger.Errorf("could not find item #%v.%v", group.Id, key)
 			respondWithError(w, http.StatusNotFound, fmt.Sprintf("could not find item #%v.%v", group.Id, key))
 			return
 		}
-		item := (*items)[0]
+		item := items[0]
 		if item.Data.ItemType != "attachment" {
 			handlers.logger.Errorf("item %v.%v is not an attachment", group.Id, key)
 			respondWithError(w, http.StatusForbidden, fmt.Sprintf("item %v.%v is not an attachment", group.Id, key))
@@ -68,7 +69,7 @@ func (handlers *Handlers) makeItemAttachmentHandler() http.HandlerFunc {
 		}
 
 		item.Status = model.SyncStatus_Modified
-		if err := handlers.storage.UpdateItem(group.Id, &item); err != nil {
+		if err := handlers.storage.UpdateItem(ctx, group.Id, &item); err != nil {
 			handlers.logger.Errorf("cannot update status of %v.%v: %v", group.Id, item.Key, err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot update status of %v.%v: %v", group.Id, item.Key, err))
 			return

@@ -85,7 +85,7 @@ func main() {
 	zotStorage := storage.NewStorage(db, cfg.NewGroupActive, &zlog)
 	var zotClient *client.Client
 	if cfg.Endpoint != "" {
-		zotClient, err = client.NewClient(cfg.Endpoint, cfg.Apikey, &zlog)
+		zotClient, err = client.NewClient(context.Background(), cfg.Endpoint, cfg.Apikey, &zlog)
 		if err != nil {
 			logger.Warningf("cannot create zotero client: %v", err)
 		} else {

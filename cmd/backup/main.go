@@ -44,7 +44,7 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-func backup(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger *logging.Logger) {
+func backup(ctx context.Context, cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger *logging.Logger) {
 	backupFs, err := filesystem.NewLocalFs(cfg.Backup.Path, logger)
 	if err != nil {
 		logger.Panicf("not a git repo: %v", cfg.Backup.Path)
@@ -54,7 +54,7 @@ func backup(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger *log
 	zotStorage := storage.NewStorage(db, false, &zlog)
 	syncer := sync.NewSyncer(nil, zotStorage, fs, &zlog)
 
-	grps, err := zotStorage.LoadGroups()
+	grps, err := zotStorage.GetGroups(ctx)
 	if err != nil {
 		logger.Errorf("cannot load groups: %v", err)
 		return
@@ -75,7 +75,7 @@ func backup(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger *log
 			logger.Infof("ignoring group %v [%v]", grp.Data.Name, grp.Id)
 			continue
 		}
-		if err := syncer.BackupLocal(grp, backupFs); err != nil {
+		if err := syncer.BackupLocal(ctx, grp, backupFs); err != nil {
 			logger.Errorf("cannot backup group #%v: %v", grp.Id, err)
 		}
 	}
@@ -106,5 +106,5 @@ func main() {
 		log.Fatalf("cannot connect to s3 instance: %v", err)
 	}
 
-	backup(&cfg, db, fs, logger)
+	backup(context.Background(), &cfg, db, fs, logger)
 }

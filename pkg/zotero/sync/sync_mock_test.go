@@ -163,7 +163,7 @@ func startMockZoteroLocalServer(t *testing.T, handler http.HandlerFunc) (*client
 	}))
 
 	zlog := zerolog.Nop()
-	c, err := client.NewClient(server.URL, "", &zlog)
+	c, err := client.NewClient(testCtx, server.URL, "", &zlog)
 	if err != nil {
 		server.Close()
 		t.Fatalf("failed to create mock local client: %v", err)
@@ -205,7 +205,7 @@ func startMockZoteroCloudServer(t *testing.T, apiKey string, handler http.Handle
 	}))
 
 	zlog := zerolog.Nop()
-	c, err := client.NewClient(server.URL, apiKey, &zlog)
+	c, err := client.NewClient(testCtx, server.URL, apiKey, &zlog)
 	if err != nil {
 		server.Close()
 		t.Fatalf("failed to create mock cloud client: %v", err)
@@ -303,7 +303,7 @@ func TestSyncer_Mock_Local_SyncCollections(t *testing.T) {
 		CollectionVersion: 0,
 	}
 
-	counter, lastModVersion, err := syncer.SyncCollections(group)
+	counter, lastModVersion, err := syncer.SyncCollections(testCtx, group)
 	if err != nil {
 		t.Fatalf("SyncCollections failed: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestSyncer_Mock_Cloud_DownloadAndUploadItems(t *testing.T) {
 		ItemVersion: 0,
 	}
 
-	counter, lastModVersion, err := syncer.DownloadItems(group)
+	counter, lastModVersion, err := syncer.DownloadItems(testCtx, group)
 	if err != nil {
 		t.Fatalf("DownloadItems failed: %v", err)
 	}
@@ -477,14 +477,14 @@ func TestSyncer_Mock_SyncTagsAndDeleted(t *testing.T) {
 			// 1. CreateTag for "mock-tag"
 			append(
 				mockExecSteps([]uint32{1043, 25, 20}, "INSERT 0 1"),
-				// 2. DeleteItem for "DELITEM01"
+				// 2. DeleteItems for ["DELITEM01"]
 				append(
-					mockExecSteps([]uint32{1043, 1043, 20}, "UPDATE 1"),
-					// 3. DeleteCollection for "DELCOLL01"
+					mockExecSteps([]uint32{1043, 20, 1009}, "UPDATE 1"),
+					// 3. DeleteCollections for ["DELCOLL01"]
 					append(
-						mockExecSteps([]uint32{1043, 20, 1043}, "UPDATE 1"),
-						// 4. DeleteTag for "deltag"
-						mockExecSteps([]uint32{1043, 20}, "DELETE 1")...,
+						mockExecSteps([]uint32{1043, 20, 1009}, "UPDATE 1"),
+						// 4. DeleteTags for ["deltag"]
+						mockExecSteps([]uint32{20, 1009}, "DELETE 1")...,
 					)...,
 				)...,
 			)...,
@@ -540,7 +540,7 @@ func TestSyncer_Mock_SyncTagsAndDeleted(t *testing.T) {
 	}
 
 	// Test SyncTags
-	tagCount, tagVersion, err := syncer.SyncTags(group)
+	tagCount, tagVersion, err := syncer.SyncTags(testCtx, group)
 	if err != nil {
 		t.Fatalf("SyncTags failed: %v", err)
 	}
@@ -552,7 +552,7 @@ func TestSyncer_Mock_SyncTagsAndDeleted(t *testing.T) {
 	}
 
 	// Test SyncDeleted
-	deletedCount, err := syncer.SyncDeleted(group)
+	deletedCount, err := syncer.SyncDeleted(testCtx, group)
 	if err != nil {
 		t.Fatalf("SyncDeleted failed: %v", err)
 	}
@@ -698,7 +698,7 @@ func TestSyncer_Mock_BackupLocal(t *testing.T) {
 		},
 	}
 
-	if err := syncer.BackupLocal(group, backupFs); err != nil {
+	if err := syncer.BackupLocal(testCtx, group, backupFs); err != nil {
 		t.Fatalf("BackupLocal failed: %v", err)
 	}
 
@@ -823,7 +823,7 @@ func TestSyncer_Mock_SyncGroup_Full(t *testing.T) {
 		},
 	}
 
-	if err := syncer.SyncGroup(group); err != nil {
+	if err := syncer.SyncGroup(testCtx, group); err != nil {
 		t.Fatalf("SyncGroup failed: %v", err)
 	}
 
@@ -1014,7 +1014,7 @@ func TestSyncer_Mock_BidirectionalSync_Roundtrip(t *testing.T) {
 	}
 
 	// 1. Upload items from DB to Zotero
-	upCount, upVer, err := syncer.UploadItems(group)
+	upCount, upVer, err := syncer.UploadItems(testCtx, group)
 	if err != nil {
 		t.Fatalf("UploadItems failed: %v", err)
 	}
@@ -1032,7 +1032,7 @@ func TestSyncer_Mock_BidirectionalSync_Roundtrip(t *testing.T) {
 	}
 
 	// 2. Download items from Zotero to DB
-	dlCount, dlVer, err := syncer.DownloadItems(group)
+	dlCount, dlVer, err := syncer.DownloadItems(testCtx, group)
 	if err != nil {
 		t.Fatalf("DownloadItems failed: %v", err)
 	}

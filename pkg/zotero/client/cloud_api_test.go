@@ -150,12 +150,12 @@ func getCloudTestClient(t *testing.T) (*Client, *model.Group) {
 	checkCloudZoteroAvailable(t, endpoint, groupId, apiKey)
 
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	zot, err := NewClient(endpoint, apiKey, &logger)
+	zot, err := NewClient(testCtx, endpoint, apiKey, &logger)
 	if err != nil {
 		t.Fatalf("failed to create authenticated Cloud Zotero client: %v", err)
 	}
 
-	group, err := zot.GetGroup(groupId)
+	group, err := zot.GetGroup(testCtx, groupId)
 	if err != nil {
 		t.Fatalf("failed to retrieve cloud test group %d: %v", groupId, err)
 	}
@@ -199,7 +199,7 @@ func TestCloudApi_ReadUserGroupVersions(t *testing.T) {
 		t.Skip("ZOTERO_API_KEY with a resolvable user ID is required to read user group versions")
 	}
 
-	versions, err := zot.GetUserGroupVersions(zot.CurrentKey)
+	versions, err := zot.GetUserGroupVersions(testCtx, zot.CurrentKey)
 	if err != nil {
 		t.Fatalf("failed to retrieve cloud user group versions: %v", err)
 	}
@@ -207,9 +207,9 @@ func TestCloudApi_ReadUserGroupVersions(t *testing.T) {
 		t.Fatal("expected non-nil user group versions map")
 	}
 
-	version, ok := (*versions)[group.Id]
+	version, ok := versions[group.Id]
 	if !ok {
-		t.Fatalf("expected APITEST group %d in user group versions, got %v", group.Id, *versions)
+		t.Fatalf("expected APITEST group %d in user group versions, got %v", group.Id, versions)
 	}
 	if version <= 0 {
 		t.Errorf("expected positive version for group %d, got %d", group.Id, version)
@@ -222,7 +222,7 @@ func TestCloudApi_ReadUserGroupVersions(t *testing.T) {
 func TestCloudApi_ReadAPITESTItems(t *testing.T) {
 	zot, group := getCloudTestClient(t)
 
-	items, resp, err := zot.GetItemsQuery(group.Id, map[string]string{"limit": "10"})
+	items, resp, err := zot.GetItemsQuery(testCtx, group.Id, map[string]string{"limit": "10"})
 	if err != nil {
 		t.Fatalf("failed to query cloud items for group %d: %v", group.Id, err)
 	}
@@ -244,7 +244,7 @@ func TestCloudApi_ReadAPITESTItems(t *testing.T) {
 func TestCloudApi_ReadAPITESTCollections(t *testing.T) {
 	zot, group := getCloudTestClient(t)
 
-	colls, resp, err := zot.GetCollectionsQuery(group.Id, map[string]string{"limit": "10"})
+	colls, resp, err := zot.GetCollectionsQuery(testCtx, group.Id, map[string]string{"limit": "10"})
 	if err != nil {
 		t.Fatalf("failed to query cloud collections for group %d: %v", group.Id, err)
 	}
@@ -266,7 +266,7 @@ func TestCloudApi_ReadAPITESTCollections(t *testing.T) {
 func TestCloudApi_ReadAPITESTTags(t *testing.T) {
 	zot, group := getCloudTestClient(t)
 
-	tags, lastModVer, err := zot.GetTagsVersion(group.Id, 0)
+	tags, lastModVer, err := zot.GetTags(testCtx, group.Id, 0)
 	if err != nil {
 		t.Fatalf("failed to query cloud tags for group %d: %v", group.Id, err)
 	}
@@ -281,7 +281,7 @@ func TestCloudApi_ReadAPITESTTags(t *testing.T) {
 func TestCloudApi_PaginationAndFilters(t *testing.T) {
 	zot, group := getCloudTestClient(t)
 
-	_, resp, err := zot.GetItemsQuery(group.Id, map[string]string{
+	_, resp, err := zot.GetItemsQuery(testCtx, group.Id, map[string]string{
 		"start": "0",
 		"limit": "5",
 	})
@@ -332,7 +332,7 @@ func TestCloudApi_CreateAndRetainItems(t *testing.T) {
 	itemData.SetString("ISBN", "978-0-123456-47-2")
 
 	// 1. Create item in Cloud APITEST
-	_, vResp, vErr := zot.GetItemsQuery(group.Id, map[string]string{"limit": "1"})
+	_, vResp, vErr := zot.GetItemsQuery(testCtx, group.Id, map[string]string{"limit": "1"})
 	var lastModifiedVersion int64 = 0
 	if vErr == nil && vResp != nil {
 		if lmv, err := strconv.ParseInt(vResp.Header().Get("Last-Modified-Version"), 10, 64); err == nil {
@@ -342,7 +342,7 @@ func TestCloudApi_CreateAndRetainItems(t *testing.T) {
 	if lastModifiedVersion <= 0 {
 		lastModifiedVersion = group.Version
 	}
-	createItemRes, err := zot.CreateItems(group.Id, []model.ItemGeneric{itemData}, &lastModifiedVersion)
+	createItemRes, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{itemData}, &lastModifiedVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "Endpoint does not support method") ||
 			strings.Contains(err.Error(), "does not support method") ||
@@ -360,7 +360,7 @@ func TestCloudApi_CreateAndRetainItems(t *testing.T) {
 	}
 
 	// 2. Read item back from Cloud APITEST
-	createdItem, err := zot.GetItemByKey(group.Id, actualItemKey)
+	createdItem, err := zot.GetItemByKey(testCtx, group.Id, actualItemKey)
 	if err != nil {
 		t.Fatalf("failed to fetch created item %s: %v", actualItemKey, err)
 	}
@@ -378,13 +378,13 @@ func TestCloudApi_CreateAndRetainItems(t *testing.T) {
 	itemData.Title = updatedTitle
 	itemData.Key = actualItemKey
 	itemData.Version = createdItem.Version
-	_, err = zot.UpdateItem(group.Id, &itemData, &lastModifiedVersion)
+	_, err = zot.UpdateItem(testCtx, group.Id, &itemData, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to update item %s: %v", actualItemKey, err)
 	}
 
 	// 4. Verify updated item persists with new title
-	updatedItem, err := zot.GetItemByKey(group.Id, actualItemKey)
+	updatedItem, err := zot.GetItemByKey(testCtx, group.Id, actualItemKey)
 	if err != nil {
 		t.Fatalf("failed to fetch updated item %s: %v", actualItemKey, err)
 	}
@@ -416,7 +416,7 @@ func TestCloudApi_CreateAndRetainCollections(t *testing.T) {
 	}
 
 	// 1. Create collection in Cloud APITEST
-	_, vResp, vErr := zot.GetCollectionsQuery(group.Id, map[string]string{"limit": "1"})
+	_, vResp, vErr := zot.GetCollectionsQuery(testCtx, group.Id, map[string]string{"limit": "1"})
 	var lastModifiedVersion int64 = 0
 	if vErr == nil && vResp != nil {
 		if lmv, err := strconv.ParseInt(vResp.Header().Get("Last-Modified-Version"), 10, 64); err == nil {
@@ -426,7 +426,7 @@ func TestCloudApi_CreateAndRetainCollections(t *testing.T) {
 	if lastModifiedVersion <= 0 {
 		lastModifiedVersion = group.Version
 	}
-	actualCollKey, err := zot.UpdateCollection(group.Id, &collData, &lastModifiedVersion)
+	actualCollKey, err := zot.UpdateCollection(testCtx, group.Id, &collData, &lastModifiedVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "Endpoint does not support method") ||
 			strings.Contains(err.Error(), "does not support method") ||
@@ -440,7 +440,7 @@ func TestCloudApi_CreateAndRetainCollections(t *testing.T) {
 	}
 
 	// 2. Read collection back from Cloud APITEST
-	createdColl, err := zot.GetCollectionByKey(group.Id, actualCollKey)
+	createdColl, err := zot.GetCollectionByKey(testCtx, group.Id, actualCollKey)
 	if err != nil {
 		t.Fatalf("failed to fetch created collection %s: %v", actualCollKey, err)
 	}
@@ -456,13 +456,13 @@ func TestCloudApi_CreateAndRetainCollections(t *testing.T) {
 
 	// 3. Update collection name in Cloud APITEST
 	createdColl.Data.Name = updatedName
-	_, err = zot.UpdateCollection(group.Id, &createdColl.Data, &lastModifiedVersion)
+	_, err = zot.UpdateCollection(testCtx, group.Id, &createdColl.Data, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to update collection %s: %v", actualCollKey, err)
 	}
 
 	// 4. Verify updated collection persists with new name
-	updatedColl, err := zot.GetCollectionByKey(group.Id, actualCollKey)
+	updatedColl, err := zot.GetCollectionByKey(testCtx, group.Id, actualCollKey)
 	if err != nil {
 		t.Fatalf("failed to fetch updated collection %s: %v", actualCollKey, err)
 	}
@@ -508,7 +508,7 @@ func TestCloudApi_CreateAndRetainAttachment(t *testing.T) {
 	}
 
 	var lastModifiedVersion int64 = 0
-	_, vResp, vErr := zot.GetItemsQuery(group.Id, map[string]string{"limit": "1"})
+	_, vResp, vErr := zot.GetItemsQuery(testCtx, group.Id, map[string]string{"limit": "1"})
 	if vErr == nil && vResp != nil {
 		if lmv, err := strconv.ParseInt(vResp.Header().Get("Last-Modified-Version"), 10, 64); err == nil {
 			lastModifiedVersion = lmv
@@ -518,7 +518,7 @@ func TestCloudApi_CreateAndRetainAttachment(t *testing.T) {
 		lastModifiedVersion = group.Version
 	}
 
-	parentCreateRes, err := zot.CreateItems(group.Id, []model.ItemGeneric{parentItem}, &lastModifiedVersion)
+	parentCreateRes, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{parentItem}, &lastModifiedVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "Endpoint does not support method") ||
 			strings.Contains(err.Error(), "does not support method") ||
@@ -557,7 +557,7 @@ func TestCloudApi_CreateAndRetainAttachment(t *testing.T) {
 		Filename:    "diagram.pdf",
 	}
 
-	attCreateRes, err := zot.CreateItems(group.Id, []model.ItemGeneric{attItem}, &lastModifiedVersion)
+	attCreateRes, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{attItem}, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to create child attachment item: %v", err)
 	}
@@ -568,7 +568,7 @@ func TestCloudApi_CreateAndRetainAttachment(t *testing.T) {
 
 	// 4. Upload binary attachment data via 3-step upload API
 	mtime := time.Now().UnixMilli()
-	uploadedMD5, err := zot.UploadAttachment(group.Id, actualAttKey, rawBinaryPayload, "diagram.pdf", "application/pdf", mtime, expectedMD5)
+	uploadedMD5, err := zot.UploadAttachment(testCtx, group.Id, actualAttKey, rawBinaryPayload, "diagram.pdf", "application/pdf", mtime, expectedMD5)
 	if err != nil {
 		t.Fatalf("UploadAttachment failed: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestCloudApi_CreateAndRetainAttachment(t *testing.T) {
 	}
 
 	// 5. Download binary attachment data and verify content and MD5
-	downloadedBytes, contentType, downloadedMD5, err := zot.DownloadAttachment(group.Id, actualAttKey)
+	downloadedBytes, contentType, downloadedMD5, err := zot.DownloadAttachment(testCtx, group.Id, actualAttKey)
 	if err != nil {
 		t.Fatalf("DownloadAttachment failed: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestCloudApi_VerifyRetainedData(t *testing.T) {
 	}
 
 	// 1. Query items in APITEST to verify retained items are accessible
-	items, resp, err := zot.GetItemsQuery(group.Id, map[string]string{
+	items, resp, err := zot.GetItemsQuery(testCtx, group.Id, map[string]string{
 		"limit": "25",
 	})
 	if err != nil {
@@ -615,10 +615,10 @@ func TestCloudApi_VerifyRetainedData(t *testing.T) {
 
 	totalResultsStr := resp.Header().Get("Total-Results")
 	totalResults, _ := strconv.ParseInt(totalResultsStr, 10, 64)
-	t.Logf("Verification: APITEST group contains %d items (Total-Results: %d, Page Count: %d)", totalResults, totalResults, len(*items))
+	t.Logf("Verification: APITEST group contains %d items (Total-Results: %d, Page Count: %d)", totalResults, totalResults, len(items))
 
 	// 2. Query collections in APITEST to verify retained collections are accessible
-	colls, collResp, err := zot.GetCollectionsQuery(group.Id, map[string]string{
+	colls, collResp, err := zot.GetCollectionsQuery(testCtx, group.Id, map[string]string{
 		"limit": "25",
 	})
 	if err != nil {
@@ -630,12 +630,12 @@ func TestCloudApi_VerifyRetainedData(t *testing.T) {
 
 	totalCollsStr := collResp.Header().Get("Total-Results")
 	totalColls, _ := strconv.ParseInt(totalCollsStr, 10, 64)
-	t.Logf("Verification: APITEST group contains %d collections (Total-Results: %d, Page Count: %d)", totalColls, totalColls, len(*colls))
+	t.Logf("Verification: APITEST group contains %d collections (Total-Results: %d, Page Count: %d)", totalColls, totalColls, len(colls))
 
-	for _, it := range *items {
+	for _, it := range items {
 		t.Logf("  - Retained Item: Key=%s Type=%s Title='%s' Version=%d", it.Key, it.Data.ItemType, it.Data.Title, it.Version)
 	}
-	for _, cl := range *colls {
+	for _, cl := range colls {
 		t.Logf("  - Retained Collection: Key=%s Name='%s' Version=%d", cl.Key, cl.Data.Name, cl.Version)
 	}
 }
@@ -786,11 +786,11 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	zot, err := NewClient(server.URL, "TEST_API_KEY", &logger)
+	zot, err := NewClient(testCtx, server.URL, "TEST_API_KEY", &logger)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
-	group, err := zot.GetGroup(6642571)
+	group, err := zot.GetGroup(testCtx, 6642571)
 	if err != nil {
 		t.Fatalf("failed to get group: %v", err)
 	}
@@ -806,7 +806,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 	}
 
 	var lastMod int64 = 1
-	cRes, err := zot.CreateItems(group.Id, []model.ItemGeneric{itemData}, &lastMod)
+	cRes, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{itemData}, &lastMod)
 	if err != nil {
 		t.Fatalf("CreateItems failed: %v", err)
 	}
@@ -814,7 +814,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 		t.Fatalf("expected 1 created item, got %d", len(cRes.Success))
 	}
 
-	fetchedItem, err := zot.GetItemByKey(group.Id, itemKey)
+	fetchedItem, err := zot.GetItemByKey(testCtx, group.Id, itemKey)
 	if err != nil {
 		t.Fatalf("GetItemByKey failed: %v", err)
 	}
@@ -824,12 +824,12 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 
 	itemData.Title = "Mock Cloud Book (Updated)"
 	itemData.Version = fetchedItem.Version
-	_, err = zot.UpdateItem(group.Id, &itemData, &lastMod)
+	_, err = zot.UpdateItem(testCtx, group.Id, &itemData, &lastMod)
 	if err != nil {
 		t.Fatalf("UpdateItem failed: %v", err)
 	}
 
-	updatedItem, err := zot.GetItemByKey(group.Id, itemKey)
+	updatedItem, err := zot.GetItemByKey(testCtx, group.Id, itemKey)
 	if err != nil {
 		t.Fatalf("GetItemByKey updated failed: %v", err)
 	}
@@ -837,12 +837,12 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 		t.Errorf("unexpected updated item: %v", updatedItem)
 	}
 
-	err = zot.DeleteItem(group.Id, itemKey, lastMod)
+	err = zot.DeleteItem(testCtx, group.Id, itemKey, lastMod)
 	if err != nil {
 		t.Fatalf("DeleteItem failed: %v", err)
 	}
 
-	deletedItem, err := zot.GetItemByKey(group.Id, itemKey)
+	deletedItem, err := zot.GetItemByKey(testCtx, group.Id, itemKey)
 	if err != nil {
 		t.Fatalf("unexpected error getting deleted item: %v", err)
 	}
@@ -857,7 +857,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 		Name: "Mock Cloud Collection",
 	}
 
-	collRes, err := zot.CreateCollections(group.Id, []model.CollectionData{collData})
+	collRes, err := zot.CreateCollections(testCtx, group.Id, []model.CollectionData{collData})
 	if err != nil {
 		t.Fatalf("CreateCollections failed: %v", err)
 	}
@@ -865,7 +865,7 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 		t.Fatalf("expected 1 created collection, got %d", len(collRes.Success))
 	}
 
-	fetchedColl, err := zot.GetCollectionByKey(group.Id, collKey)
+	fetchedColl, err := zot.GetCollectionByKey(testCtx, group.Id, collKey)
 	if err != nil {
 		t.Fatalf("GetCollectionByKey failed: %v", err)
 	}
@@ -875,12 +875,12 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 
 	collData.Name = "Mock Cloud Collection (Updated)"
 	collData.Version = fetchedColl.Version
-	_, err = zot.UpdateCollection(group.Id, &collData, &lastMod)
+	_, err = zot.UpdateCollection(testCtx, group.Id, &collData, &lastMod)
 	if err != nil {
 		t.Fatalf("UpdateCollection failed: %v", err)
 	}
 
-	updatedColl, err := zot.GetCollectionByKey(group.Id, collKey)
+	updatedColl, err := zot.GetCollectionByKey(testCtx, group.Id, collKey)
 	if err != nil {
 		t.Fatalf("GetCollectionByKey updated failed: %v", err)
 	}
@@ -888,12 +888,12 @@ func TestCloudApi_MockServerFullCycle(t *testing.T) {
 		t.Errorf("unexpected updated collection: %v", updatedColl)
 	}
 
-	err = zot.DeleteCollection(group.Id, collKey, lastMod)
+	err = zot.DeleteCollection(testCtx, group.Id, collKey, lastMod)
 	if err != nil {
 		t.Fatalf("DeleteCollection failed: %v", err)
 	}
 
-	deletedColl, err := zot.GetCollectionByKey(group.Id, collKey)
+	deletedColl, err := zot.GetCollectionByKey(testCtx, group.Id, collKey)
 	if err != nil {
 		t.Fatalf("unexpected error getting deleted collection: %v", err)
 	}
@@ -1019,7 +1019,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	zot, err := NewClient(server.URL, "TEST_API_KEY", &logger)
+	zot, err := NewClient(testCtx, server.URL, "TEST_API_KEY", &logger)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -1031,7 +1031,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 	}
 
 	// 2. Verify GetGroup retries on 429
-	group, err := zot.GetGroup(6642571)
+	group, err := zot.GetGroup(testCtx, 6642571)
 	if err != nil {
 		t.Fatalf("GetGroup failed: %v", err)
 	}
@@ -1048,7 +1048,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 		Title: "Test Retry Book",
 	}
 	var lastMod int64 = 1
-	_, err = zot.CreateItems(group.Id, []model.ItemGeneric{itemData}, &lastMod)
+	_, err = zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{itemData}, &lastMod)
 	if err != nil {
 		t.Fatalf("CreateItems failed: %v", err)
 	}
@@ -1056,7 +1056,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 		t.Errorf("expected at least 2 postItemCalls with retry, got %d", postItemCalls)
 	}
 
-	err = zot.DeleteItem(group.Id, "ITEM123", lastMod)
+	err = zot.DeleteItem(testCtx, group.Id, "ITEM123", lastMod)
 	if err != nil {
 		t.Fatalf("DeleteItem failed: %v", err)
 	}
@@ -1069,7 +1069,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 		Key:  "COLL123",
 		Name: "Test Retry Collection",
 	}
-	_, err = zot.CreateCollections(group.Id, []model.CollectionData{collData})
+	_, err = zot.CreateCollections(testCtx, group.Id, []model.CollectionData{collData})
 	if err != nil {
 		t.Fatalf("CreateCollections failed: %v", err)
 	}
@@ -1077,7 +1077,7 @@ func TestCloudApi_RetryAfterAndBackoff_MockServer(t *testing.T) {
 		t.Errorf("expected at least 2 postCollCalls with retry, got %d", postCollCalls)
 	}
 
-	err = zot.DeleteCollection(group.Id, "COLL123", lastMod)
+	err = zot.DeleteCollection(testCtx, group.Id, "COLL123", lastMod)
 	if err != nil {
 		t.Fatalf("DeleteCollection failed: %v", err)
 	}
@@ -1273,12 +1273,12 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 	serverURL = server.URL
 
 	clientLogger := zerolog.Nop()
-	zot, err := NewClient(server.URL, "TEST_API_KEY", &clientLogger)
+	zot, err := NewClient(testCtx, server.URL, "TEST_API_KEY", &clientLogger)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	group, err := zot.GetGroup(6642571)
+	group, err := zot.GetGroup(testCtx, 6642571)
 	if err != nil {
 		t.Fatalf("failed to get group: %v", err)
 	}
@@ -1294,7 +1294,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 	}
 
 	var lastMod int64 = 1
-	if _, err := zot.CreateItems(group.Id, []model.ItemGeneric{parentItem}, &lastMod); err != nil {
+	if _, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{parentItem}, &lastMod); err != nil {
 		t.Fatalf("failed to create parent item on mock server: %v", err)
 	}
 
@@ -1316,11 +1316,11 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 		Filename:    "document.pdf",
 	}
 
-	if _, err := zot.CreateItems(group.Id, []model.ItemGeneric{attItem}, &lastMod); err != nil {
+	if _, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{attItem}, &lastMod); err != nil {
 		t.Fatalf("failed to create attachment item: %v", err)
 	}
 
-	uploadedMD5, err := zot.UploadAttachment(group.Id, attKey, rawBinaryPayload, "document.pdf", "application/pdf", 1620000000, expectedMD5)
+	uploadedMD5, err := zot.UploadAttachment(testCtx, group.Id, attKey, rawBinaryPayload, "document.pdf", "application/pdf", 1620000000, expectedMD5)
 	if err != nil {
 		t.Fatalf("UploadAttachment failed: %v", err)
 	}
@@ -1338,7 +1338,7 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 	}
 
 	// 4. Download attachment
-	dlData, contentType, dlMD5, err := zot.DownloadAttachment(group.Id, attKey)
+	dlData, contentType, dlMD5, err := zot.DownloadAttachment(testCtx, group.Id, attKey)
 	if err != nil {
 		t.Fatalf("DownloadAttachment failed: %v", err)
 	}
@@ -1365,12 +1365,12 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 		ContentType: "application/pdf",
 		Filename:    "retry.pdf",
 	}
-	if _, err := zot.CreateItems(group.Id, []model.ItemGeneric{attItemRetry}, &lastMod); err != nil {
+	if _, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{attItemRetry}, &lastMod); err != nil {
 		t.Fatalf("failed to create retry attachment item: %v", err)
 	}
 	retryPayload := []byte("retry payload bytes")
 	retryMD5 := fmt.Sprintf("%x", md5.Sum(retryPayload))
-	upRetryMD5, err := zot.UploadAttachment(group.Id, attKeyRetry, retryPayload, "retry.pdf", "application/pdf", 1620000000, retryMD5)
+	upRetryMD5, err := zot.UploadAttachment(testCtx, group.Id, attKeyRetry, retryPayload, "retry.pdf", "application/pdf", 1620000000, retryMD5)
 	if err != nil {
 		t.Fatalf("UploadAttachment with retry failed: %v", err)
 	}
@@ -1394,12 +1394,12 @@ func TestCloudApi_AttachmentUploadAndDownload_MockServer(t *testing.T) {
 		ContentType: "application/pdf",
 		Filename:    "exists.pdf",
 	}
-	if _, err := zot.CreateItems(group.Id, []model.ItemGeneric{attItemExists}, &lastMod); err != nil {
+	if _, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{attItemExists}, &lastMod); err != nil {
 		t.Fatalf("failed to create exists attachment item: %v", err)
 	}
 	existsPayload := []byte("exists payload bytes")
 	existsMD5 := fmt.Sprintf("%x", md5.Sum(existsPayload))
-	upExistsMD5, err := zot.UploadAttachment(group.Id, attKeyExists, existsPayload, "exists.pdf", "application/pdf", 1620000000, existsMD5)
+	upExistsMD5, err := zot.UploadAttachment(testCtx, group.Id, attKeyExists, existsPayload, "exists.pdf", "application/pdf", 1620000000, existsMD5)
 	if err != nil {
 		t.Fatalf("UploadAttachment with exists failed: %v", err)
 	}

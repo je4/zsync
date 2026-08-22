@@ -24,8 +24,8 @@ type ZotField struct {
 	Localized string `json:"localized"`
 }
 
-func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLogger.ZLogger) {
-	zotClient, err := client.NewClient(cfg.Endpoint, cfg.Apikey.String(), logger)
+func doSync(ctx context.Context, cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLogger.ZLogger) {
+	zotClient, err := client.NewClient(ctx, cfg.Endpoint, cfg.Apikey.String(), logger)
 	if err != nil {
 		logger.Error().Msgf("cannot create zotero client: %v", err)
 		return
@@ -36,7 +36,7 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 
 	logger.Info().Msgf("current key: %v", zotClient.CurrentKey)
 
-	groupVersions, err := zotClient.GetUserGroupVersions(zotClient.CurrentKey)
+	groupVersions, err := zotClient.GetUserGroupVersions(ctx, zotClient.CurrentKey)
 	if err != nil {
 		logger.Error().Msgf("cannot get group versions: %v", err)
 		return
@@ -44,7 +44,7 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 	logger.Info().Msgf("group versions: %v", groupVersions)
 
 	groupIds := []int64{}
-	for groupId, version := range *groupVersions {
+	for groupId, version := range groupVersions {
 		groupIds = append(groupIds, groupId)
 
 		if len(cfg.Synconly) > 0 {
@@ -53,7 +53,7 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 				continue
 			}
 		}
-		group, err := zotStorage.LoadGroup(groupId)
+		group, err := zotStorage.GetGroup(ctx, groupId)
 		if err != nil {
 			logger.Error().Msgf("cannot load group local %v: %v", groupId, err)
 			return
@@ -64,7 +64,7 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 		}
 
 		if slices.Contains(cfg.ClearBeforeSync, group.Id) {
-			if err := zotStorage.ClearGroup(groupId); err != nil {
+			if err := zotStorage.ClearGroup(ctx, groupId); err != nil {
 				logger.Error().Msgf("cannot clear group %v: %v", groupId, err)
 				return
 			}
@@ -73,7 +73,7 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 			group.Version = 0
 		}
 
-		if err := syncer.SyncGroup(group); err != nil {
+		if err := syncer.SyncGroup(ctx, group); err != nil {
 			logger.Error().Msgf("cannot sync group #%v: %v", group.Id, err)
 			continue
 		}
@@ -84,7 +84,7 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 		if group.Version < version ||
 			group.Deleted ||
 			group.IsModified {
-			newGroup, err := zotClient.GetGroup(groupId)
+			newGroup, err := zotClient.GetGroup(ctx, groupId)
 			if err != nil {
 				logger.Error().Msgf("cannot get group %v: %v", groupId, err)
 				return
@@ -99,7 +99,7 @@ func doSync(cfg *Config, db *pgxpool.Pool, fs filesystem.FileSystem, logger zLog
 				newGroup.SyncTags = group.SyncTags
 
 				logger.Info().Msgf("group %v[%v]", groupId, version)
-				if err := zotStorage.UpdateGroup(newGroup); err != nil {
+				if err := zotStorage.UpdateGroup(ctx, newGroup); err != nil {
 					logger.Error().Msgf("cannot update group %v: %v", groupId, err)
 					return
 				}
@@ -175,5 +175,5 @@ func main() {
 		log.Fatalf("cannot connect to s3 instance: %v", err)
 	}
 
-	doSync(&cfg, db, fs, logger)
+	doSync(context.Background(), &cfg, db, fs, logger)
 }

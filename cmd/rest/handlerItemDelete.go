@@ -10,9 +10,10 @@ import (
 
 func (handlers *Handlers) makeItemDeleteHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		vars := mux.Vars(r)
 		// get groups object from cache
-		group, err := handlers.groupFromVars(vars)
+		group, err := handlers.groupFromVars(ctx, vars)
 		if err != nil {
 			handlers.logger.Errorf("no group: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no group: %v", err))
@@ -34,9 +35,9 @@ func (handlers *Handlers) makeItemDeleteHandler() http.HandlerFunc {
 
 		var item *model.Item
 		if key != "" {
-			item, err = handlers.storage.GetItemByKey(group.Id, key)
+			item, err = handlers.storage.GetItemByKey(ctx, group.Id, key)
 		} else if oldid != "" {
-			item, err = handlers.storage.GetItemByOldid(group.Id, oldid)
+			item, err = handlers.storage.GetItemByOldid(ctx, group.Id, oldid)
 		}
 		if err != nil {
 			handlers.logger.Errorf("cannot get item %v.%v%v: %v", group.Id, key, oldid, err)
@@ -52,7 +53,7 @@ func (handlers *Handlers) makeItemDeleteHandler() http.HandlerFunc {
 			return
 		}
 
-		if err := handlers.storage.DeleteItemRecursive(group.Id, item.Key); err != nil {
+		if err := handlers.storage.DeleteItemRecursive(ctx, group.Id, item.Key); err != nil {
 			handlers.logger.Errorf("cannot delete item %v.%v %v: %v", group.Id, item.Key, oldid, err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot delete item %v.%v %v: %v", group.Id, item.Key, oldid, err))
 			return

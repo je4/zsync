@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json/v2"
 	"maps"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 // fetchPaginatedSlices retrieves paginated JSON items as a slice of type T.
 func fetchPaginatedSlices[T any](
+	ctx context.Context,
 	c *Client,
 	endpoint string,
 	limit int64,
@@ -26,6 +28,7 @@ func fetchPaginatedSlices[T any](
 		}
 
 		call := c.client.R().
+			SetContext(ctx).
 			SetHeader("Accept", "application/json").
 			SetQueryParam("limit", strconv.FormatInt(limit, 10)).
 			SetQueryParam("start", strconv.FormatInt(start, 10))
@@ -93,6 +96,7 @@ func fetchPaginatedSlices[T any](
 
 // fetchPaginatedMap retrieves paginated JSON items as a map[K]V.
 func fetchPaginatedMap[K comparable, V any](
+	ctx context.Context,
 	c *Client,
 	endpoint string,
 	limit int64,
@@ -108,6 +112,7 @@ func fetchPaginatedMap[K comparable, V any](
 		}
 
 		call := c.client.R().
+			SetContext(ctx).
 			SetHeader("Accept", "application/json").
 			SetQueryParam("limit", strconv.FormatInt(limit, 10)).
 			SetQueryParam("start", strconv.FormatInt(start, 10))

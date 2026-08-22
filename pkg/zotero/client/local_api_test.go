@@ -113,12 +113,12 @@ func getTestClient(t *testing.T) (*Client, *model.Group) {
 	}
 
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	zot, err := NewClient(endpoint, effectiveKey, &logger)
+	zot, err := NewClient(testCtx, endpoint, effectiveKey, &logger)
 	if err != nil {
 		t.Fatalf("failed to create authenticated Zotero client: %v", err)
 	}
 
-	group, err := zot.GetGroup(groupId)
+	group, err := zot.GetGroup(testCtx, groupId)
 	if err != nil {
 		t.Fatalf("failed to retrieve test group %d: %v", groupId, err)
 	}
@@ -164,7 +164,7 @@ func getWriteTestClient(t *testing.T) (*Client, *model.Group) {
 
 		t.Logf("Local write authorization required: Please click 'Accept' in the Zotero desktop popup within 30 seconds...")
 		authCtx, authCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		key, authErr := zot.AuthorizeLocalContext(authCtx, "ZSyncTest")
+		key, authErr := zot.AuthorizeLocal(authCtx, "ZSyncTest")
 		authCancel()
 
 		if authErr != nil || key == "" {
@@ -211,7 +211,7 @@ func TestLocalApi_ReadAPITESTGroup(t *testing.T) {
 func TestLocalApi_ReadAPITESTItems(t *testing.T) {
 	zot, group := getTestClient(t)
 
-	items, resp, err := zot.GetItemsQuery(group.Id, map[string]string{"limit": "10"})
+	items, resp, err := zot.GetItemsQuery(testCtx, group.Id, map[string]string{"limit": "10"})
 	if err != nil {
 		t.Fatalf("failed to query items for group %d: %v", group.Id, err)
 	}
@@ -233,7 +233,7 @@ func TestLocalApi_ReadAPITESTItems(t *testing.T) {
 func TestLocalApi_ReadAPITESTCollections(t *testing.T) {
 	zot, group := getTestClient(t)
 
-	colls, resp, err := zot.GetCollectionsQuery(group.Id, map[string]string{"limit": "10"})
+	colls, resp, err := zot.GetCollectionsQuery(testCtx, group.Id, map[string]string{"limit": "10"})
 	if err != nil {
 		t.Fatalf("failed to query collections for group %d: %v", group.Id, err)
 	}
@@ -255,7 +255,7 @@ func TestLocalApi_ReadAPITESTCollections(t *testing.T) {
 func TestLocalApi_ReadAPITESTTags(t *testing.T) {
 	zot, group := getTestClient(t)
 
-	tags, lastModVer, err := zot.GetTagsVersion(group.Id, 0)
+	tags, lastModVer, err := zot.GetTags(testCtx, group.Id, 0)
 	if err != nil {
 		t.Fatalf("failed to query tags for group %d: %v", group.Id, err)
 	}
@@ -270,7 +270,7 @@ func TestLocalApi_ReadAPITESTTags(t *testing.T) {
 func TestLocalApi_PaginationAndFilters(t *testing.T) {
 	zot, group := getTestClient(t)
 
-	_, resp, err := zot.GetItemsQuery(group.Id, map[string]string{
+	_, resp, err := zot.GetItemsQuery(testCtx, group.Id, map[string]string{
 		"start": "0",
 		"limit": "5",
 	})
@@ -320,7 +320,7 @@ func TestLocalApi_CreateAndRetainItems(t *testing.T) {
 	itemData.SetString("ISBN", "978-0-123456-47-2")
 
 	// 1. Create item in APITEST (retained - no deletion in teardown)
-	_, vResp, vErr := zot.GetItemsQuery(group.Id, map[string]string{"limit": "1"})
+	_, vResp, vErr := zot.GetItemsQuery(testCtx, group.Id, map[string]string{"limit": "1"})
 	var lastModifiedVersion int64 = 0
 	if vErr == nil && vResp != nil {
 		if lmv, err := strconv.ParseInt(vResp.Header().Get("Last-Modified-Version"), 10, 64); err == nil {
@@ -330,7 +330,7 @@ func TestLocalApi_CreateAndRetainItems(t *testing.T) {
 	if lastModifiedVersion <= 0 {
 		lastModifiedVersion = group.Version
 	}
-	createItemRes, err := zot.CreateItems(group.Id, []model.ItemGeneric{itemData}, &lastModifiedVersion)
+	createItemRes, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{itemData}, &lastModifiedVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "Endpoint does not support method") ||
 			strings.Contains(err.Error(), "does not support method") ||
@@ -349,7 +349,7 @@ func TestLocalApi_CreateAndRetainItems(t *testing.T) {
 	}
 
 	// 2. Read item back from APITEST
-	createdItem, err := zot.GetItemByKey(group.Id, actualItemKey)
+	createdItem, err := zot.GetItemByKey(testCtx, group.Id, actualItemKey)
 	if err != nil {
 		t.Fatalf("failed to fetch created item %s: %v", actualItemKey, err)
 	}
@@ -365,13 +365,13 @@ func TestLocalApi_CreateAndRetainItems(t *testing.T) {
 
 	// 3. Update item title in APITEST
 	createdItem.Data.Title = updatedTitle
-	_, err = zot.UpdateItem(group.Id, &createdItem.Data, &lastModifiedVersion)
+	_, err = zot.UpdateItem(testCtx, group.Id, &createdItem.Data, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to update item %s: %v", actualItemKey, err)
 	}
 
 	// 4. Verify updated item persists with new title
-	updatedItem, err := zot.GetItemByKey(group.Id, actualItemKey)
+	updatedItem, err := zot.GetItemByKey(testCtx, group.Id, actualItemKey)
 	if err != nil {
 		t.Fatalf("failed to fetch updated item %s: %v", actualItemKey, err)
 	}
@@ -404,7 +404,7 @@ func TestLocalApi_CreateAndRetainCollections(t *testing.T) {
 	}
 
 	// 1. Create collection in APITEST (retained - no deletion in teardown)
-	_, vResp, vErr := zot.GetCollectionsQuery(group.Id, map[string]string{"limit": "1"})
+	_, vResp, vErr := zot.GetCollectionsQuery(testCtx, group.Id, map[string]string{"limit": "1"})
 	var lastModifiedVersion int64 = 0
 	if vErr == nil && vResp != nil {
 		if lmv, err := strconv.ParseInt(vResp.Header().Get("Last-Modified-Version"), 10, 64); err == nil {
@@ -414,7 +414,7 @@ func TestLocalApi_CreateAndRetainCollections(t *testing.T) {
 	if lastModifiedVersion <= 0 {
 		lastModifiedVersion = group.Version
 	}
-	actualCollKey, err := zot.UpdateCollection(group.Id, &collData, &lastModifiedVersion)
+	actualCollKey, err := zot.UpdateCollection(testCtx, group.Id, &collData, &lastModifiedVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "Endpoint does not support method") ||
 			strings.Contains(err.Error(), "does not support method") ||
@@ -429,7 +429,7 @@ func TestLocalApi_CreateAndRetainCollections(t *testing.T) {
 	}
 
 	// 2. Read collection back from APITEST
-	createdColl, err := zot.GetCollectionByKey(group.Id, actualCollKey)
+	createdColl, err := zot.GetCollectionByKey(testCtx, group.Id, actualCollKey)
 	if err != nil {
 		t.Fatalf("failed to fetch created collection %s: %v", actualCollKey, err)
 	}
@@ -445,13 +445,13 @@ func TestLocalApi_CreateAndRetainCollections(t *testing.T) {
 
 	// 3. Update collection name in APITEST
 	createdColl.Data.Name = updatedName
-	_, err = zot.UpdateCollection(group.Id, &createdColl.Data, &lastModifiedVersion)
+	_, err = zot.UpdateCollection(testCtx, group.Id, &createdColl.Data, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to update collection %s: %v", actualCollKey, err)
 	}
 
 	// 4. Verify updated collection persists with new name
-	updatedColl, err := zot.GetCollectionByKey(group.Id, actualCollKey)
+	updatedColl, err := zot.GetCollectionByKey(testCtx, group.Id, actualCollKey)
 	if err != nil {
 		t.Fatalf("failed to fetch updated collection %s: %v", actualCollKey, err)
 	}
@@ -475,7 +475,7 @@ func TestLocalApi_VerifyRetainedData(t *testing.T) {
 	}
 
 	// 1. Query items in APITEST to verify retained items are accessible
-	items, resp, err := zot.GetItemsQuery(group.Id, map[string]string{
+	items, resp, err := zot.GetItemsQuery(testCtx, group.Id, map[string]string{
 		"limit": "25",
 	})
 	if err != nil {
@@ -487,10 +487,10 @@ func TestLocalApi_VerifyRetainedData(t *testing.T) {
 
 	totalResultsStr := resp.Header().Get("Total-Results")
 	totalResults, _ := strconv.ParseInt(totalResultsStr, 10, 64)
-	t.Logf("Verification: APITEST group contains %d items (Total-Results: %d, Page Count: %d)", totalResults, totalResults, len(*items))
+	t.Logf("Verification: APITEST group contains %d items (Total-Results: %d, Page Count: %d)", totalResults, totalResults, len(items))
 
 	// 2. Query collections in APITEST to verify retained collections are accessible
-	colls, collResp, err := zot.GetCollectionsQuery(group.Id, map[string]string{
+	colls, collResp, err := zot.GetCollectionsQuery(testCtx, group.Id, map[string]string{
 		"limit": "25",
 	})
 	if err != nil {
@@ -502,12 +502,12 @@ func TestLocalApi_VerifyRetainedData(t *testing.T) {
 
 	totalCollsStr := collResp.Header().Get("Total-Results")
 	totalColls, _ := strconv.ParseInt(totalCollsStr, 10, 64)
-	t.Logf("Verification: APITEST group contains %d collections (Total-Results: %d, Page Count: %d)", totalColls, totalColls, len(*colls))
+	t.Logf("Verification: APITEST group contains %d collections (Total-Results: %d, Page Count: %d)", totalColls, totalColls, len(colls))
 
-	for _, it := range *items {
+	for _, it := range items {
 		t.Logf("  - Retained Item: Key=%s Type=%s Title='%s' Version=%d", it.Key, it.Data.ItemType, it.Data.Title, it.Version)
 	}
-	for _, cl := range *colls {
+	for _, cl := range colls {
 		t.Logf("  - Retained Collection: Key=%s Name='%s' Version=%d", cl.Key, cl.Data.Name, cl.Version)
 	}
 }
@@ -591,11 +591,11 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	zot, err := NewClient(server.URL, "", &logger)
+	zot, err := NewClient(testCtx, server.URL, "", &logger)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
-	group, err := zot.GetGroup(6642571)
+	group, err := zot.GetGroup(testCtx, 6642571)
 	if err != nil {
 		t.Fatalf("failed to get group: %v", err)
 	}
@@ -621,7 +621,7 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 
 	// 1. Create item on mock server
 	var lastModifiedVersion int64 = 1
-	createResult, err := zot.CreateItems(group.Id, []model.ItemGeneric{itemData}, &lastModifiedVersion)
+	createResult, err := zot.CreateItems(testCtx, group.Id, []model.ItemGeneric{itemData}, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to create item: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 	}
 
 	// 2. Read item back
-	fetchedItem, err := zot.GetItemByKey(group.Id, itemKey)
+	fetchedItem, err := zot.GetItemByKey(testCtx, group.Id, itemKey)
 	if err != nil {
 		t.Fatalf("failed to get item: %v", err)
 	}
@@ -648,13 +648,13 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 	// 3. Update item
 	itemData.Title = "Mock Computing Machinery and Intelligence (Updated)"
 	itemData.Version = fetchedItem.Version
-	_, err = zot.UpdateItem(group.Id, &itemData, &lastModifiedVersion)
+	_, err = zot.UpdateItem(testCtx, group.Id, &itemData, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to update item: %v", err)
 	}
 
 	// 4. Verify updated title
-	updatedItem, err := zot.GetItemByKey(group.Id, itemKey)
+	updatedItem, err := zot.GetItemByKey(testCtx, group.Id, itemKey)
 	if err != nil {
 		t.Fatalf("failed to get updated item: %v", err)
 	}
@@ -666,13 +666,13 @@ func TestLocalApi_ItemCRUD_MockServerFullCycle(t *testing.T) {
 	}
 
 	// 5. Delete item
-	err = zot.DeleteItem(group.Id, itemKey, lastModifiedVersion)
+	err = zot.DeleteItem(testCtx, group.Id, itemKey, lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to delete item: %v", err)
 	}
 
 	// 6. Verify item is deleted (404)
-	deletedItem, err := zot.GetItemByKey(group.Id, itemKey)
+	deletedItem, err := zot.GetItemByKey(testCtx, group.Id, itemKey)
 	if err != nil {
 		t.Fatalf("unexpected error when getting deleted item: %v", err)
 	}
@@ -759,11 +759,11 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	zot, err := NewClient(server.URL, "", &logger)
+	zot, err := NewClient(testCtx, server.URL, "", &logger)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
-	group, err := zot.GetGroup(6642571)
+	group, err := zot.GetGroup(testCtx, 6642571)
 	if err != nil {
 		t.Fatalf("failed to get group: %v", err)
 	}
@@ -776,7 +776,7 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 
 	// 1. Create collection on mock server
 	var lastModifiedVersion int64 = 1
-	createResult, err := zot.CreateCollections(group.Id, []model.CollectionData{collData})
+	createResult, err := zot.CreateCollections(testCtx, group.Id, []model.CollectionData{collData})
 	if err != nil {
 		t.Fatalf("failed to create collection: %v", err)
 	}
@@ -789,7 +789,7 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 	}
 
 	// 2. Read collection back
-	fetchedColl, err := zot.GetCollectionByKey(group.Id, collKey)
+	fetchedColl, err := zot.GetCollectionByKey(testCtx, group.Id, collKey)
 	if err != nil {
 		t.Fatalf("failed to get collection: %v", err)
 	}
@@ -803,13 +803,13 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 	// 3. Update collection
 	collData.Name = "Mock Artificial Intelligence (Renamed)"
 	collData.Version = fetchedColl.Version
-	_, err = zot.UpdateCollection(group.Id, &collData, &lastModifiedVersion)
+	_, err = zot.UpdateCollection(testCtx, group.Id, &collData, &lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to update collection: %v", err)
 	}
 
 	// 4. Verify updated name
-	updatedColl, err := zot.GetCollectionByKey(group.Id, collKey)
+	updatedColl, err := zot.GetCollectionByKey(testCtx, group.Id, collKey)
 	if err != nil {
 		t.Fatalf("failed to get updated collection: %v", err)
 	}
@@ -821,13 +821,13 @@ func TestLocalApi_CollectionCRUD_MockServerFullCycle(t *testing.T) {
 	}
 
 	// 5. Delete collection
-	err = zot.DeleteCollection(group.Id, collKey, lastModifiedVersion)
+	err = zot.DeleteCollection(testCtx, group.Id, collKey, lastModifiedVersion)
 	if err != nil {
 		t.Fatalf("failed to delete collection: %v", err)
 	}
 
 	// 6. Verify collection is deleted (404)
-	deletedColl, err := zot.GetCollectionByKey(group.Id, collKey)
+	deletedColl, err := zot.GetCollectionByKey(testCtx, group.Id, collKey)
 	if err != nil {
 		t.Fatalf("unexpected error when getting deleted collection: %v", err)
 	}
@@ -841,7 +841,7 @@ func TestLocalApi_ServerIdHeaderExtraction(t *testing.T) {
 	checkLocalZoteroAvailable(t, endpoint, groupId)
 
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	zot, err := NewClient(endpoint, "", &logger)
+	zot, err := NewClient(testCtx, endpoint, "", &logger)
 	if err != nil {
 		t.Fatalf("failed to initialize Zotero client for server ID detection: %v", err)
 	}
@@ -859,13 +859,13 @@ func TestLocalApi_UserGroupVersionsWithServerId(t *testing.T) {
 	checkLocalZoteroAvailable(t, endpoint, groupId)
 
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	zot, err := NewClient(endpoint, localKey, &logger)
+	zot, err := NewClient(testCtx, endpoint, localKey, &logger)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
 	// Test with current key
-	versionsWithKey, err := zot.GetUserGroupVersions(zot.CurrentKey)
+	versionsWithKey, err := zot.GetUserGroupVersions(testCtx, zot.CurrentKey)
 	if err != nil {
 		t.Fatalf("GetUserGroupVersions with CurrentKey failed: %v", err)
 	}
@@ -874,7 +874,7 @@ func TestLocalApi_UserGroupVersionsWithServerId(t *testing.T) {
 	}
 
 	// Test with nil key (should safely fall back to UserId 0)
-	versionsNilKey, err := zot.GetUserGroupVersions(nil)
+	versionsNilKey, err := zot.GetUserGroupVersions(testCtx, nil)
 	if err != nil {
 		t.Fatalf("GetUserGroupVersions with nil key failed: %v", err)
 	}
@@ -883,8 +883,8 @@ func TestLocalApi_UserGroupVersionsWithServerId(t *testing.T) {
 	}
 
 	// Verify APITEST group exists in the returned group versions
-	if version, ok := (*versionsWithKey)[defaultTestGroupId]; !ok {
-		t.Errorf("expected APITEST group %d in group versions, but not found (%v)", defaultTestGroupId, *versionsWithKey)
+	if version, ok := versionsWithKey[defaultTestGroupId]; !ok {
+		t.Errorf("expected APITEST group %d in group versions, but not found (%v)", defaultTestGroupId, versionsWithKey)
 	} else {
 		t.Logf("APITEST group %d version from local user groups: %d", defaultTestGroupId, version)
 	}
@@ -922,7 +922,7 @@ func TestLocalApi_ServerIdHeader_MockServer(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	zot, err := NewClient(server.URL, "", &logger)
+	zot, err := NewClient(testCtx, server.URL, "", &logger)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -934,11 +934,11 @@ func TestLocalApi_ServerIdHeader_MockServer(t *testing.T) {
 		t.Errorf("expected CurrentKey with UserId 0, got %v", zot.CurrentKey)
 	}
 
-	versions, err := zot.GetUserGroupVersions(nil)
+	versions, err := zot.GetUserGroupVersions(testCtx, nil)
 	if err != nil {
 		t.Fatalf("GetUserGroupVersions failed on mock server: %v", err)
 	}
-	if (*versions)[6642571] != 42 || (*versions)[1234567] != 10 {
-		t.Errorf("unexpected group versions result: %v", *versions)
+	if versions[6642571] != 42 || versions[1234567] != 10 {
+		t.Errorf("unexpected group versions result: %v", versions)
 	}
 }

@@ -28,10 +28,6 @@ func (s *Storage) GetDB() *pgxpool.Pool {
 	return s.db
 }
 
-func (s *Storage) GetPool() *pgxpool.Pool {
-	return s.db
-}
-
 func IsEmptyResult(err error) bool {
 	if err == nil {
 		return false

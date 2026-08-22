@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json/v2"
 	"fmt"
 	"strconv"
@@ -10,7 +11,7 @@ import (
 	"gopkg.in/resty.v1"
 )
 
-func (c *Client) GetUserGroupVersions(key *model.ApiKey) (*map[int64]int64, error) {
+func (c *Client) GetUserGroupVersions(ctx context.Context, key *model.ApiKey) (map[int64]int64, error) {
 	var endpoint string
 	if key != nil && key.UserId != 0 {
 		endpoint = fmt.Sprintf("/users/%v/groups", key.UserId)
@@ -24,6 +25,7 @@ func (c *Client) GetUserGroupVersions(key *model.ApiKey) (*map[int64]int64, erro
 	}
 
 	resp, err := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		SetQueryParam("format", "versions").
 		Get(endpoint)
@@ -46,16 +48,17 @@ func (c *Client) GetUserGroupVersions(key *model.ApiKey) (*map[int64]int64, erro
 		}
 		res[id] = version
 	}
-	return &res, nil
+	return res, nil
 }
 
-func (c *Client) GetGroup(groupId int64) (*model.Group, error) {
+func (c *Client) GetGroup(ctx context.Context, groupId int64) (*model.Group, error) {
 	endpoint := fmt.Sprintf("/groups/%v", groupId)
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: %s", endpoint)
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json")
 	var resp *resty.Response
 	var err error
@@ -84,7 +87,7 @@ func (c *Client) GetGroup(groupId int64) (*model.Group, error) {
 	return group, nil
 }
 
-func (c *Client) GetGroups() ([]*model.Group, error) {
+func (c *Client) GetGroups(ctx context.Context) ([]*model.Group, error) {
 	var endpoint string
 	if c.CurrentKey != nil && c.CurrentKey.UserId != 0 {
 		endpoint = fmt.Sprintf("/users/%v/groups", c.CurrentKey.UserId)
@@ -96,6 +99,7 @@ func (c *Client) GetGroups() ([]*model.Group, error) {
 	}
 
 	call := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json")
 	var resp *resty.Response
 	var err error

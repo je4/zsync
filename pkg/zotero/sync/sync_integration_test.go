@@ -180,7 +180,7 @@ func ensureLocalWriteAuth(t *testing.T, cl *client.Client, endpoint, localKey, c
 	t.Logf("Local write authorization required: requesting local token from Zotero desktop...")
 	authCtx, authCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer authCancel()
-	key, authErr := cl.AuthorizeLocalContext(authCtx, "ZSyncIntegrationTest")
+	key, authErr := cl.AuthorizeLocal(authCtx, "ZSyncIntegrationTest")
 	if authErr != nil || key == "" {
 		return false, authErr
 	}
@@ -285,13 +285,13 @@ func TestSyncer_Integration_Database_LocalClient(t *testing.T) {
 	defer cleanupDB()
 
 	zlog := zerolog.Nop()
-	cl, err := client.NewClient(endpoint, localKey, &zlog)
+	cl, err := client.NewClient(testCtx, endpoint, localKey, &zlog)
 	if err != nil {
 		t.Skipf("cannot create local client: %v", err)
 		return
 	}
 
-	group, err := cl.GetGroup(groupID)
+	group, err := cl.GetGroup(testCtx, groupID)
 	if err != nil || group == nil {
 		t.Skipf("failed to get group %d from local zotero: %v - skipping integration test", groupID, err)
 		return
@@ -318,11 +318,11 @@ func TestSyncer_Integration_Database_LocalClient(t *testing.T) {
 	group.ItemVersion = 0
 	group.TagVersion = 0
 
-	if err := st.UpdateGroup(group); err != nil {
+	if err := st.UpdateGroup(testCtx, group); err != nil {
 		t.Fatalf("failed to create/update test group in database: %v", err)
 	}
 
-	if err := syncer.SyncGroup(group); err != nil {
+	if err := syncer.SyncGroup(testCtx, group); err != nil {
 		t.Fatalf("SyncGroup for local client failed: %v", err)
 	}
 
@@ -336,7 +336,7 @@ func TestSyncer_Integration_Database_LocalClient(t *testing.T) {
 		t.Fatalf("failed to create backup fs: %v", err)
 	}
 
-	if err := syncer.BackupLocal(group, backupFs); err != nil {
+	if err := syncer.BackupLocal(testCtx, group, backupFs); err != nil {
 		t.Fatalf("BackupLocal failed: %v", err)
 	}
 
@@ -355,13 +355,13 @@ func TestSyncer_Integration_Database_CloudClient(t *testing.T) {
 	defer cleanupDB()
 
 	zlog := zerolog.Nop()
-	cl, err := client.NewClient(endpoint, apiKey, &zlog)
+	cl, err := client.NewClient(testCtx, endpoint, apiKey, &zlog)
 	if err != nil {
 		t.Skipf("cannot create cloud client: %v", err)
 		return
 	}
 
-	group, err := cl.GetGroup(groupID)
+	group, err := cl.GetGroup(testCtx, groupID)
 	if err != nil || group == nil {
 		t.Skipf("failed to get group %d from cloud zotero: %v - skipping integration test", groupID, err)
 		return
@@ -388,11 +388,11 @@ func TestSyncer_Integration_Database_CloudClient(t *testing.T) {
 	group.ItemVersion = 0
 	group.TagVersion = 0
 
-	if err := st.UpdateGroup(group); err != nil {
+	if err := st.UpdateGroup(testCtx, group); err != nil {
 		t.Fatalf("failed to create/update test group in database: %v", err)
 	}
 
-	if err := syncer.SyncGroup(group); err != nil {
+	if err := syncer.SyncGroup(testCtx, group); err != nil {
 		t.Fatalf("SyncGroup for cloud client failed: %v", err)
 	}
 
@@ -406,7 +406,7 @@ func TestSyncer_Integration_Database_CloudClient(t *testing.T) {
 		t.Fatalf("failed to create backup fs: %v", err)
 	}
 
-	if err := syncer.BackupLocal(group, backupFs); err != nil {
+	if err := syncer.BackupLocal(testCtx, group, backupFs); err != nil {
 		t.Fatalf("BackupLocal failed: %v", err)
 	}
 
@@ -425,13 +425,13 @@ func TestSyncer_Integration_Bidirectional_LocalClient(t *testing.T) {
 	defer cleanupDB()
 
 	zlog := zerolog.Nop()
-	cl, err := client.NewClient(endpoint, localKey, &zlog)
+	cl, err := client.NewClient(testCtx, endpoint, localKey, &zlog)
 	if err != nil {
 		t.Skipf("cannot create local client: %v", err)
 		return
 	}
 
-	group, err := cl.GetGroup(groupID)
+	group, err := cl.GetGroup(testCtx, groupID)
 	if err != nil || group == nil {
 		t.Skipf("failed to get group %d from local zotero: %v - skipping integration test", groupID, err)
 		return
@@ -463,12 +463,12 @@ func TestSyncer_Integration_Bidirectional_LocalClient(t *testing.T) {
 	group.ItemVersion = 0
 	group.TagVersion = 0
 
-	if err := st.UpdateGroup(group); err != nil {
+	if err := st.UpdateGroup(testCtx, group); err != nil {
 		t.Fatalf("failed to create/update test group in database: %v", err)
 	}
 
 	// Initial sync
-	if err := syncer.SyncGroup(group); err != nil {
+	if err := syncer.SyncGroup(testCtx, group); err != nil {
 		t.Fatalf("initial SyncGroup failed: %v", err)
 	}
 
@@ -501,7 +501,7 @@ func TestSyncer_Integration_Bidirectional_LocalClient(t *testing.T) {
 		}
 
 		var lastMod int64 = group.ItemVersion
-		createRes, err := cl.CreateItems(groupID, []model.ItemGeneric{zotItemData}, &lastMod)
+		createRes, err := cl.CreateItems(testCtx, groupID, []model.ItemGeneric{zotItemData}, &lastMod)
 		if err != nil {
 			if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "403") {
 				t.Skipf("Local Zotero API key does not have write permissions: %v", err)
@@ -517,23 +517,23 @@ func TestSyncer_Integration_Bidirectional_LocalClient(t *testing.T) {
 			t.Fatalf("create item in Local Zotero returned no successful items: %v", err)
 		}
 		defer func() {
-			_ = cl.DeleteItem(groupID, createdKey, 0)
+			_ = cl.DeleteItem(testCtx, groupID, createdKey, 0)
 		}()
 
 		// Run Sync
-		if err := syncer.SyncGroup(group); err != nil {
+		if err := syncer.SyncGroup(testCtx, group); err != nil {
 			t.Fatalf("SyncGroup failed: %v", err)
 		}
 
 		// Verify in Database
-		items, err := st.GetItems(groupID, []string{createdKey})
+		items, err := st.GetItemsByKey(testCtx, groupID, []string{createdKey})
 		if err != nil {
-			t.Fatalf("st.GetItems failed: %v", err)
+			t.Fatalf("st.GetItemsByKey failed: %v", err)
 		}
-		if len(*items) != 1 {
-			t.Fatalf("expected 1 item in database for key %s, found %d", createdKey, len(*items))
+		if len(items) != 1 {
+			t.Fatalf("expected 1 item in database for key %s, found %d", createdKey, len(items))
 		}
-		dbItem := (*items)[0]
+		dbItem := items[0]
 		if dbItem.Key != createdKey {
 			t.Errorf("expected DB item key %s, got %s", createdKey, dbItem.Key)
 		}
@@ -574,7 +574,7 @@ func TestSyncer_Integration_Bidirectional_LocalClient(t *testing.T) {
 		}
 
 		var lastMod int64 = group.ItemVersion
-		createRes, err := cl.CreateItems(groupID, []model.ItemGeneric{baseItem}, &lastMod)
+		createRes, err := cl.CreateItems(testCtx, groupID, []model.ItemGeneric{baseItem}, &lastMod)
 		if err != nil {
 			if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "403") {
 				t.Skipf("Local Zotero API key does not have write permissions: %v", err)
@@ -590,37 +590,37 @@ func TestSyncer_Integration_Bidirectional_LocalClient(t *testing.T) {
 			t.Fatalf("create base item in Local Zotero returned no successful items: %v", err)
 		}
 		defer func() {
-			_ = cl.DeleteItem(groupID, createdKey, 0)
+			_ = cl.DeleteItem(testCtx, groupID, createdKey, 0)
 		}()
 
 		// Sync down to DB
-		if err := syncer.SyncGroup(group); err != nil {
+		if err := syncer.SyncGroup(testCtx, group); err != nil {
 			t.Fatalf("SyncGroup failed: %v", err)
 		}
 
 		// Verify item exists in DB
-		dbItems, err := st.GetItems(groupID, []string{createdKey})
-		if err != nil || len(*dbItems) == 0 {
+		dbItems, err := st.GetItemsByKey(testCtx, groupID, []string{createdKey})
+		if err != nil || len(dbItems) == 0 {
 			t.Fatalf("failed to fetch synced item from DB: %v", err)
 		}
 
-		itemToModify := (*dbItems)[0]
+		itemToModify := dbItems[0]
 		updatedTitle := fmt.Sprintf("IntegrationTest Local DB2Zotero Updated %s", createdKey)
 		itemToModify.Data.Title = updatedTitle
 		itemToModify.Status = model.SyncStatus_Modified
 
 		// Update in DB
-		if err := st.UpdateItem(groupID, &itemToModify); err != nil {
+		if err := st.UpdateItem(testCtx, groupID, &itemToModify); err != nil {
 			t.Fatalf("failed to update item in DB: %v", err)
 		}
 
 		// Sync to Zotero
-		if err := syncer.SyncGroup(group); err != nil {
+		if err := syncer.SyncGroup(testCtx, group); err != nil {
 			t.Fatalf("SyncGroup upload failed: %v", err)
 		}
 
 		// Verify in Zotero
-		zotItem, err := cl.GetItemByKey(groupID, createdKey)
+		zotItem, err := cl.GetItemByKey(testCtx, groupID, createdKey)
 		if err != nil {
 			t.Fatalf("failed to get item from Zotero: %v", err)
 		}
@@ -632,11 +632,11 @@ func TestSyncer_Integration_Bidirectional_LocalClient(t *testing.T) {
 		}
 
 		// Verify in DB that status transitioned to Synced and title matches
-		afterSyncItems, err := st.GetItems(groupID, []string{createdKey})
-		if err != nil || len(*afterSyncItems) == 0 {
+		afterSyncItems, err := st.GetItemsByKey(testCtx, groupID, []string{createdKey})
+		if err != nil || len(afterSyncItems) == 0 {
 			t.Fatalf("failed to get item from DB after sync: %v", err)
 		}
-		afterSyncItem := (*afterSyncItems)[0]
+		afterSyncItem := afterSyncItems[0]
 		if afterSyncItem.Status != model.SyncStatus_Synced {
 			t.Errorf("expected DB item status Synced, got %v", afterSyncItem.Status)
 		}
@@ -654,13 +654,13 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 	defer cleanupDB()
 
 	zlog := zerolog.Nop()
-	cl, err := client.NewClient(endpoint, apiKey, &zlog)
+	cl, err := client.NewClient(testCtx, endpoint, apiKey, &zlog)
 	if err != nil {
 		t.Skipf("cannot create cloud client: %v", err)
 		return
 	}
 
-	group, err := cl.GetGroup(groupID)
+	group, err := cl.GetGroup(testCtx, groupID)
 	if err != nil || group == nil {
 		t.Skipf("failed to get group %d from cloud zotero: %v - skipping integration test", groupID, err)
 		return
@@ -687,12 +687,12 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 	group.ItemVersion = 0
 	group.TagVersion = 0
 
-	if err := st.UpdateGroup(group); err != nil {
+	if err := st.UpdateGroup(testCtx, group); err != nil {
 		t.Fatalf("failed to create/update test group in database: %v", err)
 	}
 
 	// Initial full sync
-	if err := syncer.SyncGroup(group); err != nil {
+	if err := syncer.SyncGroup(testCtx, group); err != nil {
 		t.Fatalf("initial SyncGroup failed: %v", err)
 	}
 
@@ -720,7 +720,7 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 		}
 
 		var lastMod int64 = group.ItemVersion
-		createRes, err := cl.CreateItems(groupID, []model.ItemGeneric{zotItemData}, &lastMod)
+		createRes, err := cl.CreateItems(testCtx, groupID, []model.ItemGeneric{zotItemData}, &lastMod)
 		if err != nil {
 			if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "403") {
 				t.Skipf("Zotero API key does not have write permissions: %v", err)
@@ -736,23 +736,23 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 			t.Fatalf("create item in Zotero returned no successful items: %v", err)
 		}
 		defer func() {
-			_ = cl.DeleteItem(groupID, createdKey, 0)
+			_ = cl.DeleteItem(testCtx, groupID, createdKey, 0)
 		}()
 
 		// Run Sync
-		if err := syncer.SyncGroup(group); err != nil {
+		if err := syncer.SyncGroup(testCtx, group); err != nil {
 			t.Fatalf("SyncGroup failed: %v", err)
 		}
 
 		// Verify in Database
-		items, err := st.GetItems(groupID, []string{createdKey})
+		items, err := st.GetItemsByKey(testCtx, groupID, []string{createdKey})
 		if err != nil {
-			t.Fatalf("st.GetItems failed: %v", err)
+			t.Fatalf("st.GetItemsByKey failed: %v", err)
 		}
-		if len(*items) != 1 {
-			t.Fatalf("expected 1 item in database for key %s, found %d", createdKey, len(*items))
+		if len(items) != 1 {
+			t.Fatalf("expected 1 item in database for key %s, found %d", createdKey, len(items))
 		}
-		dbItem := (*items)[0]
+		dbItem := items[0]
 		if dbItem.Key != createdKey {
 			t.Errorf("expected DB item key %s, got %s", createdKey, dbItem.Key)
 		}
@@ -788,7 +788,7 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 		}
 
 		var lastMod int64 = group.ItemVersion
-		createRes, err := cl.CreateItems(groupID, []model.ItemGeneric{baseItem}, &lastMod)
+		createRes, err := cl.CreateItems(testCtx, groupID, []model.ItemGeneric{baseItem}, &lastMod)
 		if err != nil {
 			if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "403") {
 				t.Skipf("Zotero API key does not have write permissions: %v", err)
@@ -804,32 +804,32 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 			t.Fatalf("create base item in Zotero returned no successful items: %v", err)
 		}
 		defer func() {
-			_ = cl.DeleteItem(groupID, createdKey, 0)
+			_ = cl.DeleteItem(testCtx, groupID, createdKey, 0)
 		}()
 
 		// Sync down to DB
-		if err := syncer.SyncGroup(group); err != nil {
+		if err := syncer.SyncGroup(testCtx, group); err != nil {
 			t.Fatalf("SyncGroup failed: %v", err)
 		}
 
 		// Verify item exists in DB
-		dbItems, err := st.GetItems(groupID, []string{createdKey})
-		if err != nil || len(*dbItems) == 0 {
+		dbItems, err := st.GetItemsByKey(testCtx, groupID, []string{createdKey})
+		if err != nil || len(dbItems) == 0 {
 			t.Fatalf("failed to fetch synced item from DB: %v", err)
 		}
 
-		itemToModify := (*dbItems)[0]
+		itemToModify := dbItems[0]
 		updatedTitle := fmt.Sprintf("IntegrationTest DB2Zotero Updated %s", createdKey)
 		itemToModify.Data.Title = updatedTitle
 		itemToModify.Status = model.SyncStatus_Modified
 
 		// Update in DB
-		if err := st.UpdateItem(groupID, &itemToModify); err != nil {
+		if err := st.UpdateItem(testCtx, groupID, &itemToModify); err != nil {
 			t.Fatalf("failed to update item in DB: %v", err)
 		}
 
 		// Verify it is modified in DB before sync
-		modItems, err := st.GetModifiedItems(groupID)
+		modItems, err := st.GetModifiedItems(testCtx, groupID)
 		if err != nil {
 			t.Fatalf("st.GetModifiedItems failed: %v", err)
 		}
@@ -845,12 +845,12 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 		}
 
 		// Sync to Zotero
-		if err := syncer.SyncGroup(group); err != nil {
+		if err := syncer.SyncGroup(testCtx, group); err != nil {
 			t.Fatalf("SyncGroup upload failed: %v", err)
 		}
 
 		// Verify in Zotero
-		zotItem, err := cl.GetItemByKey(groupID, createdKey)
+		zotItem, err := cl.GetItemByKey(testCtx, groupID, createdKey)
 		if err != nil {
 			t.Fatalf("failed to get item from Zotero: %v", err)
 		}
@@ -862,11 +862,11 @@ func TestSyncer_Integration_Bidirectional_CloudClient(t *testing.T) {
 		}
 
 		// Verify in DB that status transitioned to Synced and title matches
-		afterSyncItems, err := st.GetItems(groupID, []string{createdKey})
-		if err != nil || len(*afterSyncItems) == 0 {
+		afterSyncItems, err := st.GetItemsByKey(testCtx, groupID, []string{createdKey})
+		if err != nil || len(afterSyncItems) == 0 {
 			t.Fatalf("failed to get item from DB after sync: %v", err)
 		}
-		afterSyncItem := (*afterSyncItems)[0]
+		afterSyncItem := afterSyncItems[0]
 		if afterSyncItem.Status != model.SyncStatus_Synced {
 			t.Errorf("expected DB item status Synced, got %v", afterSyncItem.Status)
 		}

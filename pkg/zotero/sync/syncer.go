@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -51,32 +52,32 @@ func (s *Syncer) GetGroupBucket(groupId int64) (string, error) {
 	return bucket, nil
 }
 
-func (s *Syncer) SyncGroup(group *model.Group) error {
+func (s *Syncer) SyncGroup(ctx context.Context, group *model.Group) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("Syncing Group #%v - %v", group.Id, group.Data.Name)
 	}
 
-	_, collectionVersion, err := s.SyncCollections(group)
+	_, collectionVersion, err := s.SyncCollections(ctx, group)
 	if err != nil {
 		return errors.Wrapf(err, "cannot sync collections of Group %v", group.Id)
 	}
 
-	_, itemVersion, err := s.UploadItems(group)
+	_, itemVersion, err := s.UploadItems(ctx, group)
 	if err != nil {
 		return errors.Wrapf(err, "cannot sync items of Group %v", group.Id)
 	}
 
-	_, itemVersion, err = s.DownloadItems(group)
+	_, itemVersion, err = s.DownloadItems(ctx, group)
 	if err != nil {
 		return errors.Wrapf(err, "cannot sync items of Group %v", group.Id)
 	}
 
-	_, tagVersion, err := s.SyncTags(group)
+	_, tagVersion, err := s.SyncTags(ctx, group)
 	if err != nil {
 		return errors.Wrapf(err, "cannot sync tags of Group %v", group.Id)
 	}
 
-	_, err = s.SyncDeleted(group)
+	_, err = s.SyncDeleted(ctx, group)
 	if err != nil {
 		return errors.Wrapf(err, "cannot sync deleted of Group %v", group.Id)
 	}
@@ -96,7 +97,7 @@ func (s *Syncer) SyncGroup(group *model.Group) error {
 	}
 
 	if group.IsModified && s.Storage != nil {
-		if err := s.Storage.UpdateGroup(group); err != nil {
+		if err := s.Storage.UpdateGroup(ctx, group); err != nil {
 			return errors.Wrapf(err, "cannot update group in storage")
 		}
 	}
@@ -104,7 +105,7 @@ func (s *Syncer) SyncGroup(group *model.Group) error {
 	return nil
 }
 
-func (s *Syncer) SyncCollections(group *model.Group) (int64, int64, error) {
+func (s *Syncer) SyncCollections(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, 0, nil
 	}
@@ -114,14 +115,14 @@ func (s *Syncer) SyncCollections(group *model.Group) (int64, int64, error) {
 
 	// upload data
 	if group.CanUpload() {
-		num, err = s.syncModifiedCollections(group)
+		num, err = s.syncModifiedCollections(ctx, group)
 		if err != nil {
 			return 0, 0, err
 		}
 	}
 
 	if group.CanDownload() {
-		num2, lastModifiedVersion, err = s.syncCollections(group)
+		num2, lastModifiedVersion, err = s.syncCollections(ctx, group)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -129,7 +130,7 @@ func (s *Syncer) SyncCollections(group *model.Group) (int64, int64, error) {
 
 	counter := num + num2
 	if counter > 0 {
-		if err := s.Storage.RefreshCollectionNameHier(); err != nil {
+		if err := s.Storage.RefreshCollectionNameHier(ctx); err != nil {
 			return counter, 0, err
 		}
 	}
@@ -137,9 +138,9 @@ func (s *Syncer) SyncCollections(group *model.Group) (int64, int64, error) {
 	return counter, lastModifiedVersion, nil
 }
 
-func (s *Syncer) syncModifiedCollections(group *model.Group) (int64, error) {
+func (s *Syncer) syncModifiedCollections(ctx context.Context, group *model.Group) (int64, error) {
 	var counter int64
-	colls, err := s.Storage.GetModifiedCollections(group.Id)
+	colls, err := s.Storage.GetModifiedCollections(ctx, group.Id)
 	if err != nil {
 		return 0, err
 	}
@@ -151,15 +152,15 @@ func (s *Syncer) syncModifiedCollections(group *model.Group) (int64, error) {
 		}
 		var lastModifiedVersion int64 = coll.Version
 		if coll.Deleted {
-			if err := s.Client.DeleteCollection(group.Id, coll.Key, lastModifiedVersion); err != nil {
+			if err := s.Client.DeleteCollection(ctx, group.Id, coll.Key, lastModifiedVersion); err != nil {
 				return 0, errors.Wrapf(err, "error deleting collection %v.%v", group.Id, coll.Key)
 			}
 			coll.Status = model.SyncStatus_Synced
-			if err := s.Storage.UpdateCollection(group.Id, coll); err != nil {
+			if err := s.Storage.UpdateCollection(ctx, group.Id, coll); err != nil {
 				return 0, errors.Wrapf(err, "cannot update deleted collection in storage")
 			}
 		} else {
-			successKey, err := s.Client.UpdateCollection(group.Id, &coll.Data, &lastModifiedVersion)
+			successKey, err := s.Client.UpdateCollection(ctx, group.Id, &coll.Data, &lastModifiedVersion)
 			if err != nil {
 				return 0, errors.Wrapf(err, "error creating/updating collection %v.%v", group.Id, coll.Key)
 			}
@@ -168,7 +169,7 @@ func (s *Syncer) syncModifiedCollections(group *model.Group) (int64, error) {
 			coll.Version = lastModifiedVersion
 			coll.Data.Version = lastModifiedVersion
 			coll.Status = model.SyncStatus_Synced
-			if err := s.Storage.UpdateCollection(group.Id, coll); err != nil {
+			if err := s.Storage.UpdateCollection(ctx, group.Id, coll); err != nil {
 				return 0, errors.Wrapf(err, "cannot update collection in storage")
 			}
 		}
@@ -176,19 +177,19 @@ func (s *Syncer) syncModifiedCollections(group *model.Group) (int64, error) {
 	return counter, nil
 }
 
-func (s *Syncer) syncCollections(group *model.Group) (int64, int64, error) {
+func (s *Syncer) syncCollections(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("Syncing collections of Group #%v", group.Id)
 	}
 
 	var counter int64
-	objectList, lastModifiedVersion, err := s.Client.GetCollectionVersions(group.Id, group.CollectionVersion)
+	objectList, lastModifiedVersion, err := s.Client.GetCollectionVersions(ctx, group.Id, group.CollectionVersion)
 	if err != nil {
 		return counter, 0, errors.Wrapf(err, "cannot get collection versions")
 	}
 	collectionUpdate := []string{}
-	for collectionid, version := range *objectList {
-		oldversion, status, err := s.Storage.GetCollectionVersion(group.Id, collectionid)
+	for collectionid, version := range objectList {
+		oldversion, status, err := s.Storage.GetCollectionVersion(ctx, group.Id, collectionid)
 		if err != nil {
 			return counter, 0, errors.Wrapf(err, "cannot get version of collection %v from database: %v", collectionid, err)
 		}
@@ -200,16 +201,16 @@ func (s *Syncer) syncCollections(group *model.Group) (int64, int64, error) {
 		}
 	}
 	for part := range slices.Chunk(collectionUpdate, 50) {
-		collections, _, err := s.Client.GetCollectionsByKey(group.Id, part)
+		collections, _, err := s.Client.GetCollectionsByKey(ctx, group.Id, part)
 		if err != nil {
 			return counter, 0, errors.Wrapf(err, "cannot get collections")
 		}
 		if s.Logger != nil {
-			s.Logger.Info().Msgf("%v collections", len(*collections))
+			s.Logger.Info().Msgf("%v collections", len(collections))
 		}
-		for _, coll := range *collections {
+		for _, coll := range collections {
 			coll.Status = model.SyncStatus_Synced
-			if err := s.Storage.UpdateCollection(group.Id, &coll); err != nil {
+			if err := s.Storage.UpdateCollection(ctx, group.Id, &coll); err != nil {
 				return counter, 0, errors.Wrapf(err, "cannot update collections")
 			}
 			counter++
@@ -221,7 +222,7 @@ func (s *Syncer) syncCollections(group *model.Group) (int64, int64, error) {
 	return counter, lastModifiedVersion, nil
 }
 
-func (s *Syncer) UploadItems(group *model.Group) (int64, int64, error) {
+func (s *Syncer) UploadItems(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, 0, nil
 	}
@@ -229,13 +230,12 @@ func (s *Syncer) UploadItems(group *model.Group) (int64, int64, error) {
 	var lastModifiedVersion int64
 
 	if group.CanUpload() {
-		verMap, lmv, err := s.Client.GetItemsVersion(group.Id, 0, false)
+		_, lmv, err := s.Client.GetItemVersions(ctx, group.Id, 0, false)
 		if err != nil {
 			return 0, 0, errors.Wrapf(err, "cannot get last modified item version")
 		}
-		_ = verMap
 		lastModifiedVersion = lmv
-		num4, err := s.syncModifiedItems(group, lastModifiedVersion)
+		num4, err := s.syncModifiedItems(ctx, group, lastModifiedVersion)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -243,7 +243,7 @@ func (s *Syncer) UploadItems(group *model.Group) (int64, int64, error) {
 	}
 
 	if counter > 0 {
-		if err := s.Storage.RefreshItemTypeHier(); err != nil {
+		if err := s.Storage.RefreshItemTypeHier(ctx); err != nil {
 			return counter, 0, err
 		}
 	}
@@ -251,9 +251,9 @@ func (s *Syncer) UploadItems(group *model.Group) (int64, int64, error) {
 	return counter, lastModifiedVersion, nil
 }
 
-func (s *Syncer) syncModifiedItems(group *model.Group, lastModifiedVersion int64) (int64, error) {
+func (s *Syncer) syncModifiedItems(ctx context.Context, group *model.Group, lastModifiedVersion int64) (int64, error) {
 	var counter int64
-	items, err := s.Storage.GetModifiedItems(group.Id)
+	items, err := s.Storage.GetModifiedItems(ctx, group.Id)
 	if err != nil {
 		return 0, err
 	}
@@ -265,11 +265,11 @@ func (s *Syncer) syncModifiedItems(group *model.Group, lastModifiedVersion int64
 		}
 
 		if item.Deleted {
-			if err := s.Client.DeleteItem(group.Id, item.Key, lastModifiedVersion); err != nil {
+			if err := s.Client.DeleteItem(ctx, group.Id, item.Key, lastModifiedVersion); err != nil {
 				return 0, errors.Wrapf(err, "delete item %v failed", item.Key)
 			}
 			item.Status = model.SyncStatus_Synced
-			if err := s.Storage.UpdateItem(group.Id, item); err != nil {
+			if err := s.Storage.UpdateItem(ctx, group.Id, item); err != nil {
 				return 0, errors.Wrapf(err, "cannot update deleted item in storage")
 			}
 			continue
@@ -291,7 +291,7 @@ func (s *Syncer) syncModifiedItems(group *model.Group, lastModifiedVersion int64
 					if statErr == nil && fInfo != nil {
 						mtime = fInfo.ModTime().UnixNano() / int64(time.Millisecond)
 					}
-					uploadedMd5, upErr := s.Client.UploadAttachment(group.Id, item.Key, data, item.Data.Filename, item.Data.ContentType, mtime, item.MD5)
+					uploadedMd5, upErr := s.Client.UploadAttachment(ctx, group.Id, item.Key, data, item.Data.Filename, item.Data.ContentType, mtime, item.MD5)
 					if upErr != nil {
 						if s.Logger != nil {
 							s.Logger.Warn().Err(upErr).Msgf("error uploading attachment for item %v", item.Key)
@@ -303,12 +303,12 @@ func (s *Syncer) syncModifiedItems(group *model.Group, lastModifiedVersion int64
 			}
 		}
 
-		successKey, err := s.Client.UpdateItem(group.Id, &item.Data, &lastModifiedVersion)
+		successKey, err := s.Client.UpdateItem(ctx, group.Id, &item.Data, &lastModifiedVersion)
 		if err != nil {
 			if s.Logger != nil {
 				s.Logger.Warn().Msgf("error creating/updating item %v.%v - retrying with new version", group.Id, item.Key)
 			}
-			successKey, err = s.Client.UpdateItem(group.Id, &item.Data, &lastModifiedVersion)
+			successKey, err = s.Client.UpdateItem(ctx, group.Id, &item.Data, &lastModifiedVersion)
 			if err != nil {
 				if s.Logger != nil {
 					s.Logger.Error().Msgf("error creating/updating item %v.%v: %v", group.Id, item.Key, err)
@@ -321,14 +321,14 @@ func (s *Syncer) syncModifiedItems(group *model.Group, lastModifiedVersion int64
 		item.Version = lastModifiedVersion
 		item.Data.Version = lastModifiedVersion
 		item.Status = model.SyncStatus_Synced
-		if err := s.Storage.UpdateItem(group.Id, item); err != nil {
+		if err := s.Storage.UpdateItem(ctx, group.Id, item); err != nil {
 			return 0, errors.Wrapf(err, "cannot update item in storage")
 		}
 	}
 	return counter, nil
 }
 
-func (s *Syncer) DownloadItems(group *model.Group) (int64, int64, error) {
+func (s *Syncer) DownloadItems(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, 0, nil
 	}
@@ -338,14 +338,14 @@ func (s *Syncer) DownloadItems(group *model.Group) (int64, int64, error) {
 
 	if group.CanDownload() {
 		var num2 int64
-		num2, lastModifiedVersion, err = s.syncItems(group, true)
+		num2, lastModifiedVersion, err = s.syncItems(ctx, group, true)
 		if err != nil {
 			return 0, 0, err
 		}
 		counter += num2
 		var h int64
 		var num3 int64
-		num3, h, err = s.syncItems(group, false)
+		num3, h, err = s.syncItems(ctx, group, false)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -356,7 +356,7 @@ func (s *Syncer) DownloadItems(group *model.Group) (int64, int64, error) {
 	}
 
 	if counter > 0 {
-		if err := s.Storage.RefreshItemTypeHier(); err != nil {
+		if err := s.Storage.RefreshItemTypeHier(ctx); err != nil {
 			return counter, 0, err
 		}
 	}
@@ -364,19 +364,19 @@ func (s *Syncer) DownloadItems(group *model.Group) (int64, int64, error) {
 	return counter, lastModifiedVersion, nil
 }
 
-func (s *Syncer) syncItems(group *model.Group, trashed bool) (int64, int64, error) {
+func (s *Syncer) syncItems(ctx context.Context, group *model.Group, trashed bool) (int64, int64, error) {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("Syncing items of Group #%v", group.Id)
 	}
 	var counter int64
 
-	objectList, lastModifiedVersion, err := s.Client.GetItemsVersion(group.Id, group.ItemVersion, trashed)
+	objectList, lastModifiedVersion, err := s.Client.GetItemVersions(ctx, group.Id, group.ItemVersion, trashed)
 	if err != nil {
 		return counter, 0, errors.Wrapf(err, "cannot get item versions")
 	}
 	itemsUpdate := []string{}
-	for itemid, version := range *objectList {
-		oldversion, sync, err := s.Storage.GetItemVersion(group.Id, itemid, "")
+	for itemid, version := range objectList {
+		oldversion, sync, err := s.Storage.GetItemVersion(ctx, group.Id, itemid, "")
 		if err != nil {
 			return counter, 0, errors.Wrapf(err, "cannot get version of item %v from database: %v", itemid, err)
 		}
@@ -392,19 +392,19 @@ func (s *Syncer) syncItems(group *model.Group, trashed bool) (int64, int64, erro
 	}
 	numItems := len(itemsUpdate)
 	for part := range slices.Chunk(itemsUpdate, 50) {
-		var items *[]model.Item
+		var items []model.Item
 		if trashed {
-			items, err = s.Client.GetItemsTrashByKey(group.Id, part)
+			items, err = s.Client.GetItemsTrashByKey(ctx, group.Id, part)
 		} else {
-			items, err = s.Client.GetItemsByKey(group.Id, part)
+			items, err = s.Client.GetItemsByKey(ctx, group.Id, part)
 		}
 		if err != nil {
 			return counter, 0, errors.Wrapf(err, "cannot get items")
 		}
 		if s.Logger != nil {
-			s.Logger.Info().Msgf("%v items", len(*items))
+			s.Logger.Info().Msgf("%v items", len(items))
 		}
-		for _, item := range *items {
+		for _, item := range items {
 			if s.Logger != nil {
 				s.Logger.Info().Msgf("Item %v of %v", counter, numItems)
 			}
@@ -415,7 +415,7 @@ func (s *Syncer) syncItems(group *model.Group, trashed bool) (int64, int64, erro
 			if item.Data.ItemType == "attachment" && item.Data.LinkMode == "imported_file" && s.Fs != nil {
 				bucket, err := s.GetGroupBucket(group.Id)
 				if err == nil {
-					body, contentType, md5str, dlErr := s.Client.DownloadAttachment(group.Id, item.Key)
+					body, contentType, md5str, dlErr := s.Client.DownloadAttachment(ctx, group.Id, item.Key)
 					if dlErr == nil {
 						_ = s.Fs.FilePut(bucket, item.Key, body, filesystem.FilePutOptions{ContentType: contentType})
 						item.MD5 = md5str
@@ -423,7 +423,7 @@ func (s *Syncer) syncItems(group *model.Group, trashed bool) (int64, int64, erro
 				}
 			}
 
-			if err := s.Storage.UpdateItem(group.Id, &item); err != nil {
+			if err := s.Storage.UpdateItem(ctx, group.Id, &item); err != nil {
 				if s.Logger != nil {
 					s.Logger.Error().Msgf("cannot update item: %v", err)
 				}
@@ -437,7 +437,7 @@ func (s *Syncer) syncItems(group *model.Group, trashed bool) (int64, int64, erro
 	return counter, lastModifiedVersion, nil
 }
 
-func (s *Syncer) SyncTags(group *model.Group) (int64, int64, error) {
+func (s *Syncer) SyncTags(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil || !group.CanDownload() || !group.SyncTags {
 		return 0, 0, nil
 	}
@@ -445,12 +445,12 @@ func (s *Syncer) SyncTags(group *model.Group) (int64, int64, error) {
 		s.Logger.Info().Msgf("Syncing tags of Group #%v", group.Id)
 	}
 	var counter int64
-	tagList, lastModifiedVersion, err := s.Client.GetTagsVersion(group.Id, group.Version)
+	tagList, lastModifiedVersion, err := s.Client.GetTags(ctx, group.Id, group.Version)
 	if err != nil {
 		return counter, 0, errors.Wrapf(err, "cannot get tag versions")
 	}
-	for _, tag := range *tagList {
-		if err := s.Storage.CreateTag(group.Id, tag); err != nil {
+	for _, tag := range tagList {
+		if err := s.Storage.CreateTag(ctx, group.Id, tag); err != nil {
 			return 0, 0, errors.Wrapf(err, "cannot create tag %v", tag.Tag)
 		}
 		counter++
@@ -462,52 +462,45 @@ func (s *Syncer) SyncTags(group *model.Group) (int64, int64, error) {
 	return counter, lastModifiedVersion, nil
 }
 
-func (s *Syncer) SyncDeleted(group *model.Group) (int64, error) {
+func (s *Syncer) SyncDeleted(ctx context.Context, group *model.Group) (int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, nil
 	}
-	delCollections, delItems, delTags, err := s.Client.GetDeleted(group.Id, group.Version)
+	deleted, err := s.Client.GetDeleted(ctx, group.Id, group.Version)
 	if err != nil {
 		return 0, errors.Wrapf(err, "cannot get deleted objects")
 	}
 
-	numDeleted := 0
-	if delItems != nil {
-		numDeleted += len(*delItems)
-		for _, itemKey := range *delItems {
-			if err := s.Storage.DeleteItem(group.Id, itemKey); err != nil {
-				return 0, errors.Wrapf(err, "cannot delete item %v", itemKey)
-			}
-		}
+	var numDeleted int64
+	num, err := s.Storage.DeleteItems(ctx, group.Id, deleted.Items)
+	if err != nil {
+		return 0, errors.Wrapf(err, "cannot delete items %v", deleted.Items)
 	}
-	if delCollections != nil {
-		numDeleted += len(*delCollections)
-		for _, collectionKey := range *delCollections {
-			if err := s.Storage.DeleteCollection(group.Id, collectionKey); err != nil {
-				return 0, errors.Wrapf(err, "cannot delete collection %v", collectionKey)
-			}
-		}
-	}
-	if delTags != nil {
-		numDeleted += len(*delTags)
-		for _, tagName := range *delTags {
-			if err := s.Storage.DeleteTag(group.Id, tagName); err != nil {
-				return 0, errors.Wrapf(err, "cannot delete tag %v", tagName)
-			}
-		}
-	}
+	numDeleted += num
 
-	return int64(numDeleted), nil
+	num, err = s.Storage.DeleteCollections(ctx, group.Id, deleted.Collections)
+	if err != nil {
+		return 0, errors.Wrapf(err, "cannot delete collections %v", deleted.Collections)
+	}
+	numDeleted += num
+
+	num, err = s.Storage.DeleteTags(ctx, group.Id, deleted.Tags)
+	if err != nil {
+		return 0, errors.Wrapf(err, "cannot delete tags %v", deleted.Tags)
+	}
+	numDeleted += num
+
+	return numDeleted, nil
 }
 
-func (s *Syncer) BackupLocal(group *model.Group, backupFs filesystem.FileSystem) error {
+func (s *Syncer) BackupLocal(ctx context.Context, group *model.Group, backupFs filesystem.FileSystem) error {
 	if s.Storage == nil {
 		return errors.New("no storage configured for backup")
 	}
 	now := time.Now()
 	groupId := group.Id
 
-	if err := s.Storage.IterateCollectionsAll(groupId, group.Gitlab, func(coll *model.Collection) error {
+	if err := s.Storage.IterateCollectionsAll(ctx, groupId, group.Gitlab, func(coll *model.Collection) error {
 		if s.Logger != nil {
 			s.Logger.Info().Msgf("collection #%v.%v - %v", groupId, coll.Key, coll.Data.Name)
 		}
@@ -536,11 +529,11 @@ func (s *Syncer) BackupLocal(group *model.Group, backupFs filesystem.FileSystem)
 		return errors.Wrap(err, "cannot iterate collections for backup")
 	}
 
-	if err := s.Storage.UpdateCollectionsGitlabTimestamp(groupId, now, group.Gitlab); err != nil {
+	if err := s.Storage.UpdateCollectionsGitlabTimestamp(ctx, groupId, now, group.Gitlab); err != nil {
 		return errors.Wrap(err, "cannot update collections gitlab timestamp")
 	}
 
-	if err := s.Storage.IterateItemsAll(groupId, group.Gitlab, func(item *model.Item) error {
+	if err := s.Storage.IterateItemsAll(ctx, groupId, group.Gitlab, func(item *model.Item) error {
 		if s.Logger != nil {
 			s.Logger.Info().Msgf("item #%v.%v - %v", groupId, item.Key, item.Data.Title)
 		}
@@ -580,7 +573,7 @@ func (s *Syncer) BackupLocal(group *model.Group, backupFs filesystem.FileSystem)
 		return errors.Wrap(err, "cannot iterate items for backup")
 	}
 
-	if err := s.Storage.UpdateItemsGitlabTimestamp(groupId, now, group.Gitlab); err != nil {
+	if err := s.Storage.UpdateItemsGitlabTimestamp(ctx, groupId, now, group.Gitlab); err != nil {
 		return errors.Wrap(err, "cannot update items gitlab timestamp")
 	}
 
@@ -608,7 +601,7 @@ func (s *Syncer) BackupLocal(group *model.Group, backupFs filesystem.FileSystem)
 		return errors.Wrap(err, "cannot write group backup file")
 	}
 
-	if err := s.Storage.UpdateGroupGitlabTimestamp(groupId, now); err != nil {
+	if err := s.Storage.UpdateGroupGitlabTimestamp(ctx, groupId, now); err != nil {
 		return errors.Wrap(err, "cannot update group gitlab timestamp")
 	}
 

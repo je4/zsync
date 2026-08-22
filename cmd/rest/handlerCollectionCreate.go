@@ -11,9 +11,10 @@ import (
 
 func (handlers *Handlers) makeCollectionCreateHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		vars := mux.Vars(r)
 		// get groups object from cache
-		group, err := handlers.groupFromVars(vars)
+		group, err := handlers.groupFromVars(ctx, vars)
 		if err != nil {
 			handlers.logger.Errorf("no group: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no group: %v", err))
@@ -25,7 +26,7 @@ func (handlers *Handlers) makeCollectionCreateHandler() http.HandlerFunc {
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("cannot decode json: %v", err))
 			return
 		}
-		coll, err := handlers.storage.CreateCollection(group.Id, &collectionData)
+		coll, err := handlers.storage.CreateCollection(ctx, group.Id, &collectionData)
 		if err != nil {
 			handlers.logger.Errorf("error storing new collection: %v", err)
 			respondWithError(w, http.StatusUnprocessableEntity, fmt.Sprintf("error storing new collection: %v", err))

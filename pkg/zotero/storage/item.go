@@ -21,7 +21,7 @@ func (s *Storage) itemFromRow(groupId int64, row pgx.Row) (*model.Item, error) {
 	var md5str sql.NullString
 	var gitlab sql.NullTime
 	if err := row.Scan(&(item.Key), &(item.Version), &datastr, &metastr, &(item.Trashed), &(item.Deleted), &sync, &md5str, &gitlab); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
+		if IsEmptyResult(err) {
 			return nil, nil
 		}
 		return nil, errors.Wrapf(err, "cannot scan row")
@@ -66,7 +66,7 @@ func (s *Storage) itemFromRow(groupId int64, row pgx.Row) (*model.Item, error) {
 	return item, nil
 }
 
-func (s *Storage) CreateItem(groupId int64, itemData *model.ItemGeneric, itemMeta *model.ItemMeta, oldId string) (*model.Item, error) {
+func (s *Storage) CreateItem(ctx context.Context, groupId int64, itemData *model.ItemGeneric, itemMeta *model.ItemMeta, oldId string) (*model.Item, error) {
 	if itemData.Key == "" {
 		itemData.Key = model.CreateKey()
 	}
@@ -104,9 +104,9 @@ func (s *Storage) CreateItem(groupId int64, itemData *model.ItemGeneric, itemMet
 		"data":    string(jsonstr),
 		"oldid":   oid,
 	}
-	_, err = s.db.Exec(context.Background(), SQLInsertItem, params)
+	_, err = s.db.Exec(ctx, SQLInsertItem, params)
 	if IsUniqueViolation(err, "items_oldid_constraint") {
-		item2, err := s.GetItemByOldid(groupId, oldId)
+		item2, err := s.GetItemByOldid(ctx, groupId, oldId)
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot load item %v", oldId)
 		}
@@ -114,7 +114,7 @@ func (s *Storage) CreateItem(groupId int64, itemData *model.ItemGeneric, itemMet
 		item.Data.Key = item.Key
 		item.Version = item2.Version
 		item.Status = model.SyncStatus_Modified
-		err = s.UpdateItem(groupId, item)
+		err = s.UpdateItem(ctx, groupId, item)
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot update item %v", oldId)
 		}
@@ -125,7 +125,7 @@ func (s *Storage) CreateItem(groupId int64, itemData *model.ItemGeneric, itemMet
 	return item, nil
 }
 
-func (s *Storage) CreateEmptyItem(groupId int64, itemId string, oldId string) error {
+func (s *Storage) CreateEmptyItem(ctx context.Context, groupId int64, itemId string, oldId string) error {
 	oid := sql.NullString{
 		String: oldId,
 		Valid:  true,
@@ -139,14 +139,14 @@ func (s *Storage) CreateEmptyItem(groupId int64, itemId string, oldId string) er
 		"sync":    "incomplete",
 		"oldid":   oid,
 	}
-	_, err := s.db.Exec(context.Background(), SQLInsertEmptyItem, params)
+	_, err := s.db.Exec(ctx, SQLInsertEmptyItem, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", SQLInsertEmptyItem, params)
 	}
 	return nil
 }
 
-func (s *Storage) GetItemVersion(groupId int64, itemId string, oldId string) (int64, model.SyncStatus, error) {
+func (s *Storage) GetItemVersion(ctx context.Context, groupId int64, itemId string, oldId string) (int64, model.SyncStatus, error) {
 	params := pgx.NamedArgs{
 		"library": groupId,
 		"key":     itemId,
@@ -154,10 +154,10 @@ func (s *Storage) GetItemVersion(groupId int64, itemId string, oldId string) (in
 	var version int64
 	var syncstr string
 	var sync model.SyncStatus
-	err := s.db.QueryRow(context.Background(), SQLGetItemVersion, params).Scan(&version, &syncstr)
+	err := s.db.QueryRow(ctx, SQLGetItemVersion, params).Scan(&version, &syncstr)
 	switch {
-	case errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows:
-		if err := s.CreateEmptyItem(groupId, itemId, oldId); err != nil {
+	case IsEmptyResult(err):
+		if err := s.CreateEmptyItem(ctx, groupId, itemId, oldId); err != nil {
 			return 0, model.SyncStatus_Incomplete, errors.Wrapf(err, "cannot create new item")
 		}
 		version = 0
@@ -170,17 +170,17 @@ func (s *Storage) GetItemVersion(groupId int64, itemId string, oldId string) (in
 	return version, sync, nil
 }
 
-func (s *Storage) GetItems(groupId int64, objectKeys []string) (*[]model.Item, error) {
+func (s *Storage) GetItemsByKey(ctx context.Context, groupId int64, objectKeys []string) ([]model.Item, error) {
 	if len(objectKeys) == 0 {
-		return &[]model.Item{}, nil
+		return []model.Item{}, nil
 	}
 	params := pgx.NamedArgs{
 		"library": groupId,
 		"keys":    objectKeys,
 	}
-	rows, err := s.db.Query(context.Background(), SQLGetItems, params)
+	rows, err := s.db.Query(ctx, SQLGetItems, params)
 	if err != nil {
-		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItems, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItems, params)
 	}
 	defer rows.Close()
 
@@ -203,18 +203,18 @@ func (s *Storage) GetItems(groupId int64, objectKeys []string) (*[]model.Item, e
 		}
 		result = append(result, *item)
 	}
-	return &result, nil
+	return result, nil
 }
 
-func (s *Storage) GetItemsVersion(groupId int64, sinceVersion int64, trashed bool) (*map[string]int64, int64, error) {
+func (s *Storage) GetItemVersions(ctx context.Context, groupId int64, sinceVersion int64, trashed bool) (map[string]int64, int64, error) {
 	params := pgx.NamedArgs{
 		"library":      groupId,
 		"sinceVersion": sinceVersion,
 		"trashed":      trashed,
 	}
-	rows, err := s.db.Query(context.Background(), SQLGetItemsVersion, params)
+	rows, err := s.db.Query(ctx, SQLGetItemVersions, params)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemsVersion, params)
+		return nil, 0, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemVersions, params)
 	}
 	defer rows.Close()
 
@@ -231,15 +231,15 @@ func (s *Storage) GetItemsVersion(groupId int64, sinceVersion int64, trashed boo
 			lastModifiedVersion = version
 		}
 	}
-	return &objects, lastModifiedVersion, nil
+	return objects, lastModifiedVersion, nil
 }
 
-func (s *Storage) GetItemByKey(groupId int64, key string) (*model.Item, error) {
+func (s *Storage) GetItemByKey(ctx context.Context, groupId int64, key string) (*model.Item, error) {
 	params := pgx.NamedArgs{
 		"library": groupId,
 		"key":     key,
 	}
-	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), SQLGetItemByKey, params))
+	item, err := s.itemFromRow(groupId, s.db.QueryRow(ctx, SQLGetItemByKey, params))
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemByKey, params)
 	}
@@ -247,12 +247,12 @@ func (s *Storage) GetItemByKey(groupId int64, key string) (*model.Item, error) {
 	return item, nil
 }
 
-func (s *Storage) GetItemByOldid(groupId int64, oldid string) (*model.Item, error) {
+func (s *Storage) GetItemByOldid(ctx context.Context, groupId int64, oldid string) (*model.Item, error) {
 	params := pgx.NamedArgs{
 		"library": groupId,
 		"oldid":   oldid,
 	}
-	item, err := s.itemFromRow(groupId, s.db.QueryRow(context.Background(), SQLGetItemByOldid, params))
+	item, err := s.itemFromRow(groupId, s.db.QueryRow(ctx, SQLGetItemByOldid, params))
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemByOldid, params)
 	}
@@ -260,7 +260,7 @@ func (s *Storage) GetItemByOldid(groupId int64, oldid string) (*model.Item, erro
 	return item, nil
 }
 
-func (s *Storage) UpdateItem(groupId int64, item *model.Item) error {
+func (s *Storage) UpdateItem(ctx context.Context, groupId int64, item *model.Item) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("updating item [#%s]", item.Key)
 	}
@@ -301,26 +301,44 @@ func (s *Storage) UpdateItem(groupId int64, item *model.Item) error {
 	} else {
 		sqlstr = SQLUpdateItemVersion0
 	}
-	_, err = s.db.Exec(context.Background(), sqlstr, params)
+	_, err = s.db.Exec(ctx, sqlstr, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", sqlstr, params)
 	}
 	return nil
 }
 
-func (s *Storage) DeleteItem(groupId int64, key string) error {
+func (s *Storage) DeleteItem(ctx context.Context, groupId int64, key string) error {
 	params := pgx.NamedArgs{
 		"sync":    model.SyncStatusString[model.SyncStatus_Modified],
 		"key":     key,
 		"library": groupId,
 	}
-	if _, err := s.db.Exec(context.Background(), SQLDeleteItem, params); err != nil {
+	if _, err := s.db.Exec(ctx, SQLDeleteItem, params); err != nil {
 		return errors.Wrapf(err, "error executing %s: %v", SQLDeleteItem, params)
 	}
 	return nil
 }
 
-func (s *Storage) GetChildren(groupId int64, key string) (*[]model.Item, error) {
+// DeleteItems marks all given items as deleted in a single statement.
+// It returns the number of affected rows.
+func (s *Storage) DeleteItems(ctx context.Context, groupId int64, keys []string) (int64, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	params := pgx.NamedArgs{
+		"sync":    model.SyncStatusString[model.SyncStatus_Modified],
+		"keys":    keys,
+		"library": groupId,
+	}
+	tag, err := s.db.Exec(ctx, SQLDeleteItems, params)
+	if err != nil {
+		return 0, errors.Wrapf(err, "error executing %s: %v", SQLDeleteItems, params)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (s *Storage) GetChildren(ctx context.Context, groupId int64, key string) ([]model.Item, error) {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("get children of item [#%s]", key)
 	}
@@ -328,43 +346,46 @@ func (s *Storage) GetChildren(groupId int64, key string) (*[]model.Item, error) 
 		"library": groupId,
 		"parent":  key,
 	}
-	rows, err := s.db.Query(context.Background(), SQLGetChildren, params)
+	rows, err := s.db.Query(ctx, SQLGetChildren, params)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
-			return &[]model.Item{}, nil
+		if IsEmptyResult(err) {
+			return []model.Item{}, nil
 		}
-		return &[]model.Item{}, errors.Wrapf(err, "cannot execute %s: %v", SQLGetChildren, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetChildren, params)
 	}
 	defer rows.Close()
 	items := []model.Item{}
 	for rows.Next() {
 		i, err := s.itemFromRow(groupId, rows)
 		if err != nil {
-			return &[]model.Item{}, errors.Wrapf(err, "cannot scan result row")
+			return nil, errors.Wrapf(err, "cannot scan result row")
+		}
+		if i == nil {
+			continue
 		}
 		items = append(items, *i)
 	}
 
-	return &items, nil
+	return items, nil
 }
 
-func (s *Storage) DeleteItemRecursive(groupId int64, key string) error {
+func (s *Storage) DeleteItemRecursive(ctx context.Context, groupId int64, key string) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("recursively deleting item [#%s]", key)
 	}
-	children, err := s.GetChildren(groupId, key)
+	children, err := s.GetChildren(ctx, groupId, key)
 	if err != nil {
 		return errors.Wrapf(err, "cannot get children of #%v", key)
 	}
-	for _, c := range *children {
-		if err := s.DeleteItemRecursive(groupId, c.Key); err != nil {
+	for _, c := range children {
+		if err := s.DeleteItemRecursive(ctx, groupId, c.Key); err != nil {
 			return errors.Wrapf(err, "cannot delete child #%v of #%v", c.Key, key)
 		}
 	}
-	return s.DeleteItem(groupId, key)
+	return s.DeleteItem(ctx, groupId, key)
 }
 
-func (s *Storage) IterateItems(groupId int64, after *time.Time, f func(item *model.Item) error) error {
+func (s *Storage) IterateItems(ctx context.Context, groupId int64, after *time.Time, f func(item *model.Item) error) error {
 	var sqlstr0, sqlstr string
 	params := pgx.NamedArgs{
 		"library": groupId,
@@ -377,35 +398,10 @@ func (s *Storage) IterateItems(groupId int64, after *time.Time, f func(item *mod
 		sqlstr0 = SQLIterateItemsCount
 		sqlstr = SQLIterateItems
 	}
-	var num int64
-	if err := s.db.QueryRow(context.Background(), sqlstr0, params).Scan(&num); err != nil {
-		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
-	}
-	if s.Logger != nil {
-		s.Logger.Info().Msgf("%v items found", num)
-	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params)
-	if err != nil {
-		return errors.Wrapf(err, "cannot execute %s", sqlstr)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		item, err := s.itemFromRow(groupId, rows)
-		if err != nil {
-			return errors.Wrapf(err, "cannot get item")
-		}
-		if item == nil {
-			continue
-		}
-		if err := f(item); err != nil {
-			return errors.Wrapf(err, "error in callback for %v", item.Key)
-		}
-	}
-	return nil
+	return s.iterateItems(ctx, groupId, sqlstr0, sqlstr, params, f)
 }
 
-func (s *Storage) IterateItemsAll(groupId int64, after *time.Time, f func(item *model.Item) error) error {
+func (s *Storage) IterateItemsAll(ctx context.Context, groupId int64, after *time.Time, f func(item *model.Item) error) error {
 	var sqlstr0, sqlstr string
 	params := pgx.NamedArgs{
 		"library": groupId,
@@ -418,14 +414,18 @@ func (s *Storage) IterateItemsAll(groupId int64, after *time.Time, f func(item *
 		sqlstr0 = SQLIterateItemsAllCount
 		sqlstr = SQLIterateItemsAll
 	}
+	return s.iterateItems(ctx, groupId, sqlstr0, sqlstr, params, f)
+}
+
+func (s *Storage) iterateItems(ctx context.Context, groupId int64, countSql, sqlstr string, params pgx.NamedArgs, f func(item *model.Item) error) error {
 	var num int64
-	if err := s.db.QueryRow(context.Background(), sqlstr0, params).Scan(&num); err != nil {
-		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
+	if err := s.db.QueryRow(ctx, countSql, params).Scan(&num); err != nil {
+		return errors.Wrapf(err, "cannot execute %s", countSql)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v items found", num)
 	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params)
+	rows, err := s.db.Query(ctx, sqlstr, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -446,13 +446,13 @@ func (s *Storage) IterateItemsAll(groupId int64, after *time.Time, f func(item *
 	return nil
 }
 
-func (s *Storage) GetModifiedItems(groupId int64) ([]*model.Item, error) {
+func (s *Storage) GetModifiedItems(ctx context.Context, groupId int64) ([]*model.Item, error) {
 	params := pgx.NamedArgs{
 		"library":      groupId,
 		"syncNew":      "new",
 		"syncModified": "modified",
 	}
-	rows, err := s.db.Query(context.Background(), SQLGetModifiedItems, params)
+	rows, err := s.db.Query(ctx, SQLGetModifiedItems, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetModifiedItems, params)
 	}
@@ -472,17 +472,17 @@ func (s *Storage) GetModifiedItems(groupId int64) ([]*model.Item, error) {
 	return items, nil
 }
 
-func (s *Storage) RefreshItemTypeHier() error {
+func (s *Storage) RefreshItemTypeHier(ctx context.Context) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("refreshing materialized view item_type_hier")
 	}
-	if _, err := s.db.Exec(context.Background(), SQLRefreshItemTypeHier); err != nil {
+	if _, err := s.db.Exec(ctx, SQLRefreshItemTypeHier); err != nil {
 		return errors.Wrapf(err, "cannot refresh materialized view item_type_hier - %v", SQLRefreshItemTypeHier)
 	}
 	return nil
 }
 
-func (s *Storage) UpdateItemsGitlabTimestamp(groupId int64, now time.Time, gitlab *time.Time) error {
+func (s *Storage) UpdateItemsGitlabTimestamp(ctx context.Context, groupId int64, now time.Time, gitlab *time.Time) error {
 	var sqlstr string
 	params := pgx.NamedArgs{
 		"now":     now.Format("2006-01-02 15:04:05"),
@@ -494,7 +494,7 @@ func (s *Storage) UpdateItemsGitlabTimestamp(groupId int64, now time.Time, gitla
 	} else {
 		sqlstr = SQLUpdateItemsGitlabTimestamp
 	}
-	if _, err := s.db.Exec(context.Background(), sqlstr, params); err != nil {
+	if _, err := s.db.Exec(ctx, sqlstr, params); err != nil {
 		return errors.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 	return nil

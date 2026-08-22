@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"testing"
 
 	"github.com/je4/zsync/v2/pkg/filesystem"
@@ -34,3 +35,6 @@ func TestSyncerInit(t *testing.T) {
 		t.Errorf("expected bucket %s, got %s", expectedBucket, bucket)
 	}
 }
+
+// testCtx is the context used by all sync tests.
+var testCtx = context.Background()

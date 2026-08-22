@@ -90,6 +90,7 @@ func main() {
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
 	zotStorage := storage.NewStorage(zoteroDB, false, &zlog)
+	ctx := context.Background()
 
 	sqlstr := fmt.Sprintf(`SELECT "key" FROM %s.item_type_hier WHERE "library" = $1 AND "type" = $2`, config.ZoteroDB.Schema)
 	rows, err := zoteroDB.Query(context.Background(), sqlstr, zoterogroup, "attachment")
@@ -104,7 +105,7 @@ func main() {
 			logger.Error("cannot scan key")
 			return
 		}
-		item, err := zotStorage.GetItemByKey(zoterogroup, key)
+		item, err := zotStorage.GetItemByKey(ctx, zoterogroup, key)
 		if err != nil {
 			logger.Errorf("cannot load item #%v.%v", zoterogroup, key)
 			return
@@ -120,7 +121,7 @@ func main() {
 			logger.Infof("--> %s", mediaserver)
 			item.Data.Url = mediaserver
 
-			if err := zotStorage.UpdateItem(zoterogroup, item); err != nil {
+			if err := zotStorage.UpdateItem(ctx, zoterogroup, item); err != nil {
 				logger.Errorf("cannot update #%v.%v", zoterogroup, key)
 			}
 		}

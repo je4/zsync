@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -8,15 +9,13 @@ import (
 	"gopkg.in/resty.v1"
 )
 
-func (c *Client) GetTagsVersion(groupId int64, sinceVersion int64) (*[]model.Tag, int64, error) {
+// GetTags returns all tags of the group that changed since sinceVersion,
+// together with the group's last modified version.
+func (c *Client) GetTags(ctx context.Context, groupId int64, sinceVersion int64) ([]model.Tag, int64, error) {
 	endpoint := fmt.Sprintf("/groups/%v/tags", groupId)
-	tags, lmv, err := fetchPaginatedSlices[model.Tag](c, endpoint, 100, func(req *resty.Request) {
+	return fetchPaginatedSlices[model.Tag](ctx, c, endpoint, 100, func(req *resty.Request) {
 		if sinceVersion > 0 {
 			req.SetQueryParam("since", strconv.FormatInt(sinceVersion, 10))
 		}
 	})
-	if err != nil {
-		return nil, 0, err
-	}
-	return &tags, lmv, nil
 }

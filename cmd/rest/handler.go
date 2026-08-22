@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strconv"
@@ -63,11 +64,11 @@ func respondWithJSON(w http.ResponseWriter, code int, payload any) {
 	w.Write(response)
 }
 
-func (handlers *Handlers) getGroup(groupId int64) (*model.Group, error) {
+func (handlers *Handlers) getGroup(ctx context.Context, groupId int64) (*model.Group, error) {
 	group, ok := handlers.groups.GetIfPresent(groupId)
 	if !ok {
 		var err error
-		group, err = handlers.storage.LoadGroup(groupId)
+		group, err = handlers.storage.GetGroup(ctx, groupId)
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot load group %v", groupId)
 		}
@@ -76,7 +77,7 @@ func (handlers *Handlers) getGroup(groupId int64) (*model.Group, error) {
 	return group, nil
 }
 
-func (handlers *Handlers) groupFromVars(vars map[string]string) (*model.Group, error) {
+func (handlers *Handlers) groupFromVars(ctx context.Context, vars map[string]string) (*model.Group, error) {
 	groupidstr, ok := vars["groupid"]
 	if !ok {
 		return nil, errors.New("no groupid")
@@ -85,5 +86,5 @@ func (handlers *Handlers) groupFromVars(vars map[string]string) (*model.Group, e
 	if err != nil {
 		return nil, errors.Wrapf(err, "groupid not a number #%v", groupidstr)
 	}
-	return handlers.getGroup(groupid)
+	return handlers.getGroup(ctx, groupid)
 }

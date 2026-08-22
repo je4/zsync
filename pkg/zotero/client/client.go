@@ -25,7 +25,7 @@ type Client struct {
 	CurrentKey *model.ApiKey
 }
 
-func NewClient(endpoint string, apiKey string, logger zLogger.ZLogger) (*Client, error) {
+func NewClient(ctx context.Context, endpoint string, apiKey string, logger zLogger.ZLogger) (*Client, error) {
 	burl, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot parse url %s", endpoint)
@@ -37,14 +37,14 @@ func NewClient(endpoint string, apiKey string, logger zLogger.ZLogger) (*Client,
 		Logger:  logger,
 	}
 
-	if err := c.Init(); err != nil {
+	if err := c.Init(ctx); err != nil {
 		return nil, errors.Wrap(err, "cannot init client")
 	}
 
 	return c, nil
 }
 
-func (c *Client) Init() (err error) {
+func (c *Client) Init(ctx context.Context) (err error) {
 	c.client = resty.New()
 	c.client.SetHostURL(c.baseUrl.String())
 	c.client.SetHeader("User-Agent", info.GetUserAgent())
@@ -56,12 +56,12 @@ func (c *Client) Init() (err error) {
 	c.client.SetContentLength(true)
 	c.client.SetRedirectPolicy(resty.FlexibleRedirectPolicy(3))
 	if c.apiKey != "" {
-		c.CurrentKey, err = c.getCurrentKey()
+		c.CurrentKey, err = c.getCurrentKey(ctx)
 		if err != nil {
 			if c.Logger != nil {
 				c.Logger.Warn().Msgf("Failed to retrieve current key (%v), falling back to server id detection", err)
 			}
-			_, _ = c.DetectServerId()
+			_, _ = c.DetectServerId(ctx)
 			if c.CurrentKey == nil {
 				c.CurrentKey = &model.ApiKey{
 					UserId:   0,
@@ -71,7 +71,7 @@ func (c *Client) Init() (err error) {
 			err = nil
 		}
 	} else {
-		_, _ = c.DetectServerId()
+		_, _ = c.DetectServerId(ctx)
 		if c.CurrentKey == nil {
 			c.CurrentKey = &model.ApiKey{
 				UserId:   0,
@@ -126,10 +126,10 @@ func (c *Client) GetResty() *resty.Client {
 	return c.client
 }
 
-func (c *Client) DetectServerId() (string, error) {
-	resp, err := c.client.R().Get("/")
+func (c *Client) DetectServerId(ctx context.Context) (string, error) {
+	resp, err := c.client.R().SetContext(ctx).Get("/")
 	if err != nil || resp.Header().Get("Zotero-Server-ID") == "" {
-		resp, err = c.client.R().Get("")
+		resp, err = c.client.R().SetContext(ctx).Get("")
 	}
 	if err != nil {
 		return "", errors.Wrap(err, "cannot detect server id")
@@ -145,27 +145,21 @@ func (c *Client) DetectServerId() (string, error) {
 }
 
 // AuthorizeLocal requests authorization from a locally running Zotero desktop instance
-// via POST /local/authorize or POST /keys with a default 2-minute timeout.
+// via POST /local/authorize or POST /keys.
+//
+// The handshake triggers an interactive permission popup in the Zotero Desktop
+// application, so the caller should pass a ctx with a generous timeout.
 //
 // NOTE: Zotero Cloud API keys (created on zotero.org/settings/keys) are validated only
 // by the central Zotero Cloud servers and are NOT recognized by the local embedded HTTP server.
 // To perform write operations against the local Zotero instance (localhost:23119), a local
-// authorization handshake must be initiated, which triggers an interactive permission popup
-// in the Zotero Desktop application and returns a local API token.
-func (c *Client) AuthorizeLocal(appName string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	return c.AuthorizeLocalContext(ctx, appName)
-}
-
-// AuthorizeLocalContext requests authorization from a locally running Zotero desktop instance
-// with a custom context for cancellation/timeout control.
-func (c *Client) AuthorizeLocalContext(ctx context.Context, appName string) (string, error) {
+// authorization handshake must be initiated, which returns a local API token.
+func (c *Client) AuthorizeLocal(ctx context.Context, appName string) (string, error) {
 	if appName == "" {
 		appName = "ZSync"
 	}
 	if c.ServerId == "" {
-		_, _ = c.DetectServerId()
+		_, _ = c.DetectServerId(ctx)
 	}
 
 	authEndpoints := []string{"/local/authorize", "/keys"}
@@ -235,13 +229,14 @@ func (c *Client) AuthorizeLocalContext(ctx context.Context, appName string) (str
 	return "", lastErr
 }
 
-func (c *Client) getCurrentKey() (*model.ApiKey, error) {
+func (c *Client) getCurrentKey(ctx context.Context) (*model.ApiKey, error) {
 	endpoint := "/keys/current"
 	if c.Logger != nil {
 		c.Logger.Info().Msgf("rest call: %s", endpoint)
 	}
 
 	resp, err := c.client.R().
+		SetContext(ctx).
 		SetHeader("Accept", "application/json").
 		Get(endpoint)
 	if err != nil {

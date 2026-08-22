@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
@@ -105,23 +106,23 @@ func TestTagPagination(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	c, err := NewClient(server.URL, "test-api-key", &logger)
+	c, err := NewClient(testCtx, server.URL, "test-api-key", &logger)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
 
-	tags, lastMod, err := c.GetTagsVersion(100, 0)
+	tags, lastMod, err := c.GetTags(testCtx, 100, 0)
 	if err != nil {
 		t.Fatalf("unexpected error fetching tags: %v", err)
 	}
 	if lastMod != 42 {
 		t.Errorf("expected Last-Modified-Version=42, got %d", lastMod)
 	}
-	if len(*tags) != 3 {
-		t.Fatalf("expected 3 tags aggregated across pages, got %d", len(*tags))
+	if len(tags) != 3 {
+		t.Fatalf("expected 3 tags aggregated across pages, got %d", len(tags))
 	}
-	if (*tags)[0].Tag != "tag1" || (*tags)[1].Tag != "tag2" || (*tags)[2].Tag != "tag3" {
-		t.Errorf("unexpected tags: %v", *tags)
+	if tags[0].Tag != "tag1" || tags[1].Tag != "tag2" || tags[2].Tag != "tag3" {
+		t.Errorf("unexpected tags: %v", tags)
 	}
 }
 
@@ -141,7 +142,7 @@ func TestApiVersionHeaderAndInit(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	c, err := NewClient(server.URL, "test-api-key", &logger)
+	c, err := NewClient(testCtx, server.URL, "test-api-key", &logger)
 	if err != nil {
 		t.Fatalf("unexpected error creating client: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestUserAgentHeaderAndInit(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	c, err := NewClient(server.URL, "test-api-key", &logger)
+	c, err := NewClient(testCtx, server.URL, "test-api-key", &logger)
 	if err != nil {
 		t.Fatalf("unexpected error creating client: %v", err)
 	}
@@ -214,7 +215,7 @@ func TestServerIdHeaderMock(t *testing.T) {
 	defer server.Close()
 
 	logger := zerolog.Nop()
-	c, err := NewClient(server.URL, "", &logger)
+	c, err := NewClient(testCtx, server.URL, "", &logger)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -223,11 +224,14 @@ func TestServerIdHeaderMock(t *testing.T) {
 		t.Errorf("expected ServerId '%s', got '%s'", mockServerID, c.GetServerId())
 	}
 
-	versions, err := c.GetUserGroupVersions(nil)
+	versions, err := c.GetUserGroupVersions(testCtx, nil)
 	if err != nil {
 		t.Fatalf("GetUserGroupVersions failed on mock server: %v", err)
 	}
-	if (*versions)[6642571] != 42 || (*versions)[1234567] != 10 {
-		t.Errorf("unexpected group versions result: %v", *versions)
+	if versions[6642571] != 42 || versions[1234567] != 10 {
+		t.Errorf("unexpected group versions result: %v", versions)
 	}
 }
+
+// testCtx is the context used by all client tests.
+var testCtx = context.Background()

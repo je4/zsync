@@ -9,9 +9,10 @@ import (
 
 func (handlers *Handlers) makeCollectionGetHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		vars := mux.Vars(r)
 		// get groups object from cache
-		group, err := handlers.groupFromVars(vars)
+		group, err := handlers.groupFromVars(ctx, vars)
 		if err != nil {
 			handlers.logger.Errorf("no group: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("no group: %v", err))
@@ -28,7 +29,7 @@ func (handlers *Handlers) makeCollectionGetHandler() http.HandlerFunc {
 			return
 		}
 
-		coll, err := handlers.storage.GetCollectionByName(group.Id, name, parentKey)
+		coll, err := handlers.storage.GetCollectionByName(ctx, group.Id, name, parentKey)
 		if err != nil {
 			handlers.logger.Errorf("cannot get collection: %v", err)
 			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("cannot get collection: %v", err))

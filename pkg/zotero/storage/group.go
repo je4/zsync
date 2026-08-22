@@ -17,7 +17,7 @@ func (s *Storage) groupFromRow(row pgx.Row) (*model.Group, error) {
 	var datastr sql.NullString
 	var gitlab sql.NullTime
 	if err := row.Scan(&group.Id, &group.Version, &group.Meta.Created, &group.Meta.LastModified, &datastr, &group.Deleted, &group.ItemVersion, &group.CollectionVersion, &group.TagVersion, &gitlab); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
+		if IsEmptyResult(err) {
 			return nil, nil
 		}
 		return nil, errors.Wrapf(err, "cannot scan row")
@@ -34,7 +34,7 @@ func (s *Storage) groupFromRow(row pgx.Row) (*model.Group, error) {
 	return &group, nil
 }
 
-func (s *Storage) LoadGroup(groupId int64) (*model.Group, error) {
+func (s *Storage) GetGroup(ctx context.Context, groupId int64) (*model.Group, error) {
 	group := &model.Group{
 		Id: groupId,
 	}
@@ -42,7 +42,7 @@ func (s *Storage) LoadGroup(groupId int64) (*model.Group, error) {
 		s.Logger.Debug().Msgf("loading Group #%v from database", groupId)
 	}
 	params := pgx.NamedArgs{"id": groupId}
-	row := s.db.QueryRow(context.Background(), SQLLoadGroup, params)
+	row := s.db.QueryRow(ctx, SQLGetGroup, params)
 	var jsonstr sql.NullString
 	var directionstr string
 	var gitlab sql.NullTime
@@ -58,10 +58,10 @@ func (s *Storage) LoadGroup(groupId int64) (*model.Group, error) {
 		&group.TagVersion,
 		&gitlab)
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) && err != sql.ErrNoRows {
-			return nil, errors.Wrapf(err, "error scanning result of %s: %v", SQLLoadGroup, groupId)
+		if !IsEmptyResult(err) {
+			return nil, errors.Wrapf(err, "error scanning result of %s: %v", SQLGetGroup, groupId)
 		}
-		active, direction, err := s.CreateEmptyGroup(groupId)
+		active, direction, err := s.CreateEmptyGroup(ctx, groupId)
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot create empty Group %v", groupId)
 		}
@@ -83,22 +83,28 @@ func (s *Storage) LoadGroup(groupId int64) (*model.Group, error) {
 	return group, nil
 }
 
-func (s *Storage) LoadGroups() ([]*model.Group, error) {
+func (s *Storage) GetGroups(ctx context.Context) ([]*model.Group, error) {
 	if s.Logger != nil {
 		s.Logger.Debug().Msgf("loading Groups from database")
 	}
-	rows, err := s.db.Query(context.Background(), SQLLoadGroups)
+	rows, err := s.db.Query(ctx, SQLGetGroups)
 	if err != nil {
-		return nil, errors.Wrapf(err, "error executing sql query: %v", SQLLoadGroups)
+		return nil, errors.Wrapf(err, "error executing sql query: %v", SQLGetGroups)
 	}
-	defer rows.Close()
-	grps := []*model.Group{}
+	ids := []int64{}
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
+			rows.Close()
 			return nil, errors.Wrap(err, "cannot scan row")
 		}
-		grp, err := s.LoadGroup(id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	grps := []*model.Group{}
+	for _, id := range ids {
+		grp, err := s.GetGroup(ctx, id)
 		if err != nil {
 			if s.Logger != nil {
 				s.Logger.Error().Msgf("error loading Group #%v: %v", id, err)
@@ -114,11 +120,11 @@ func (s *Storage) LoadGroups() ([]*model.Group, error) {
 	return grps, nil
 }
 
-func (s *Storage) CreateEmptyGroup(groupId int64) (bool, model.SyncDirection, error) {
+func (s *Storage) CreateEmptyGroup(ctx context.Context, groupId int64) (bool, model.SyncDirection, error) {
 	active := s.newGroupActive
 	direction := model.SyncDirection_ToLocal
 	paramsGroup := pgx.NamedArgs{"id": groupId}
-	_, err := s.db.Exec(context.Background(), SQLInsertEmptyGroup, paramsGroup)
+	_, err := s.db.Exec(ctx, SQLInsertEmptyGroup, paramsGroup)
 	if err != nil {
 		return false, model.SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", SQLInsertEmptyGroup, groupId)
 	}
@@ -127,11 +133,11 @@ func (s *Storage) CreateEmptyGroup(groupId int64) (bool, model.SyncDirection, er
 		"active":    active,
 		"direction": model.SyncDirectionString[direction],
 	}
-	_, err = s.db.Exec(context.Background(), SQLInsertEmptySyncGroup, paramsSyncGroup)
+	_, err = s.db.Exec(ctx, SQLInsertEmptySyncGroup, paramsSyncGroup)
 	if err != nil {
 		if IsUniqueViolation(err, "syncgroups_pkey") {
 			var dirstr string
-			if err := s.db.QueryRow(context.Background(), SQLGetSyncGroupActiveDirection, paramsGroup).Scan(&active, &dirstr); err != nil {
+			if err := s.db.QueryRow(ctx, SQLGetSyncGroupActiveDirection, paramsGroup).Scan(&active, &dirstr); err != nil {
 				return false, model.SyncDirection_None, errors.Wrapf(err, "cannot execute %s: %v", SQLGetSyncGroupActiveDirection, groupId)
 			}
 			direction = model.SyncDirectionId[dirstr]
@@ -142,16 +148,16 @@ func (s *Storage) CreateEmptyGroup(groupId int64) (bool, model.SyncDirection, er
 	return active, direction, nil
 }
 
-func (s *Storage) ClearGroup(groupId int64) error {
+func (s *Storage) ClearGroup(ctx context.Context, groupId int64) error {
 	params := pgx.NamedArgs{"id": groupId}
-	_, err := s.db.Exec(context.Background(), SQLClearGroup, params)
+	_, err := s.db.Exec(ctx, SQLClearGroup, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", SQLClearGroup, groupId)
 	}
 	return nil
 }
 
-func (s *Storage) UpdateGroup(group *model.Group) error {
+func (s *Storage) UpdateGroup(ctx context.Context, group *model.Group) error {
 	data, err := json.Marshal(group.Data, jsontext.WithIndent("  "))
 	if err != nil {
 		return errors.Wrapf(err, "cannot marshal Group data")
@@ -168,7 +174,7 @@ func (s *Storage) UpdateGroup(group *model.Group) error {
 		"tagversion":        group.TagVersion,
 		"id":                group.Id,
 	}
-	_, err = s.db.Exec(context.Background(), SQLUpdateGroup, params)
+	_, err = s.db.Exec(ctx, SQLUpdateGroup, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", SQLUpdateGroup, params)
 	}
@@ -176,12 +182,12 @@ func (s *Storage) UpdateGroup(group *model.Group) error {
 	return nil
 }
 
-func (s *Storage) UpdateGroupGitlabTimestamp(groupId int64, t time.Time) error {
+func (s *Storage) UpdateGroupGitlabTimestamp(ctx context.Context, groupId int64, t time.Time) error {
 	params := pgx.NamedArgs{
 		"gitlab": t.Format("2006-01-02 15:04:05"),
 		"id":     groupId,
 	}
-	if _, err := s.db.Exec(context.Background(), SQLUpdateGroupGitlabTimestamp, params); err != nil {
+	if _, err := s.db.Exec(ctx, SQLUpdateGroupGitlabTimestamp, params); err != nil {
 		return errors.Wrapf(err, "cannot update timestamp for group #%v", groupId)
 	}
 	return nil

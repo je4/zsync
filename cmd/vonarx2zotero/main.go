@@ -90,6 +90,7 @@ func main() {
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
 	zotStorage := storage.NewStorage(zoteroDB, false, &zlog)
+	ctx := context.Background()
 
 	mediasqlstr := "select " +
 		"	m.masterid, " +
@@ -136,7 +137,7 @@ func main() {
 			return
 		}
 
-		item, err := zotStorage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v", FILM_NUMMER))
+		item, err := zotStorage.GetItemByOldid(ctx, zoterogroup, fmt.Sprintf("%v", FILM_NUMMER))
 		if err != nil {
 			fmt.Printf("cannot load item by oldid #%v - %v: %v\n", zoterogroup, FILM_NUMMER, err)
 			break
@@ -245,14 +246,14 @@ func main() {
 			itemData.Tags = append(itemData.Tags, model.ItemTag{
 				Tag: Klasse,
 			})
-			coll, err := zotStorage.GetCollectionByName(zoterogroup, Klasse, "")
+			coll, err := zotStorage.GetCollectionByName(ctx, zoterogroup, Klasse, "")
 			if err != nil {
 				fmt.Printf("cannot load collection %s: %v\n", Klasse, err)
 				break
 			}
 			if coll == nil {
 				logger.Infof("creating collection %v", Klasse)
-				coll, err = zotStorage.CreateCollection(zoterogroup, &model.CollectionData{
+				coll, err = zotStorage.CreateCollection(ctx, zoterogroup, &model.CollectionData{
 					Key:              model.CreateKey(),
 					Name:             Klasse,
 					Version:          0,
@@ -277,7 +278,7 @@ func main() {
 		itemMeta := model.ItemMeta{}
 
 		if item == nil {
-			item, err = zotStorage.CreateItem(zoterogroup, &itemData, &itemMeta, fmt.Sprintf("%v", FILM_NUMMER))
+			item, err = zotStorage.CreateItem(ctx, zoterogroup, &itemData, &itemMeta, fmt.Sprintf("%v", FILM_NUMMER))
 			if err != nil {
 				fmt.Printf("cannot create item #%v - %v -- %v\n", zoterogroup, FILM_NUMMER, err)
 				break
@@ -287,14 +288,14 @@ func main() {
 			item.Data.Version = item.Version
 			item.Status = model.SyncStatus_Modified
 			item.Data.Key = item.Key
-			if err := zotStorage.UpdateItem(zoterogroup, item); err != nil {
+			if err := zotStorage.UpdateItem(ctx, zoterogroup, item); err != nil {
 				fmt.Printf("cannot update item %v: %v\n", item.Key, err)
 			}
 		}
 
 		logger.Infof("%v", item)
 
-		technote, err := zotStorage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v.tech", FILM_NUMMER))
+		technote, err := zotStorage.GetItemByOldid(ctx, zoterogroup, fmt.Sprintf("%v.tech", FILM_NUMMER))
 		if err != nil {
 			fmt.Printf("cannot load item by oldid #%v - %v.tech -- %v\n", zoterogroup, FILM_NUMMER, err)
 			break
@@ -326,7 +327,7 @@ func main() {
 		technoteMeta := model.ItemMeta{}
 
 		if technote == nil {
-			technote, err = zotStorage.CreateItem(zoterogroup, &techItemData, &technoteMeta, fmt.Sprintf("%v.tech", FILM_NUMMER))
+			technote, err = zotStorage.CreateItem(ctx, zoterogroup, &techItemData, &technoteMeta, fmt.Sprintf("%v.tech", FILM_NUMMER))
 			if err != nil {
 				fmt.Printf("cannot create item #%v - %v.tech -- %v\n", zoterogroup, FILM_NUMMER, err)
 				break
@@ -336,7 +337,7 @@ func main() {
 			technote.Data.Version = technote.Version
 			technote.Status = model.SyncStatus_Modified
 			technote.Data.Key = technote.Key
-			if err := zotStorage.UpdateItem(zoterogroup, technote); err != nil {
+			if err := zotStorage.UpdateItem(ctx, zoterogroup, technote); err != nil {
 				fmt.Printf("cannot update item %v: %v\n", technote.Key, err)
 			}
 		}
@@ -362,7 +363,7 @@ func main() {
 				break
 			}
 			oldid := fmt.Sprintf("%v-%v", FILM_NUMMER, masterid)
-			item2, err := zotStorage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v", oldid))
+			item2, err := zotStorage.GetItemByOldid(ctx, zoterogroup, fmt.Sprintf("%v", oldid))
 			if err != nil {
 				fmt.Printf("cannot load item by oldid #%v - %v: %v\n", zoterogroup, oldid, err)
 				break
@@ -382,7 +383,7 @@ func main() {
 			itemMeta := model.ItemMeta{}
 
 			if item2 == nil {
-				item2, err = zotStorage.CreateItem(zoterogroup, &itemData, &itemMeta, oldid)
+				item2, err = zotStorage.CreateItem(ctx, zoterogroup, &itemData, &itemMeta, oldid)
 				if err != nil {
 					fmt.Printf("cannot create item #%v.%v - %v\n", zoterogroup, oldid, err)
 					break
@@ -392,7 +393,7 @@ func main() {
 				item2.Data.Version = item2.Version
 				item2.Status = model.SyncStatus_Modified
 				item2.Data.Key = item2.Key
-				if err := zotStorage.UpdateItem(zoterogroup, item2); err != nil {
+				if err := zotStorage.UpdateItem(ctx, zoterogroup, item2); err != nil {
 					fmt.Printf("cannot update item %v: %v\n", item2.Key, err)
 				}
 			}

@@ -88,6 +88,7 @@ func main() {
 
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
 	zotStorage := storage.NewStorage(zoteroDB, false, &zlog)
+	ctx := context.Background()
 
 	form := &Form{
 		sourceDB: sourceDB,
@@ -110,7 +111,7 @@ func main() {
 				form.log.Infof("%s: %v", key, vals)
 			}
 
-			item, err := form.storage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v", obj.Objectid))
+			item, err := form.storage.GetItemByOldid(ctx, zoterogroup, fmt.Sprintf("%v", obj.Objectid))
 			if err != nil {
 				return errors.Wrapf(err, "cannot load item by oldid #%v - %v", zoterogroup, obj.Objectid)
 			}
@@ -188,7 +189,7 @@ func main() {
 			itemMeta := model.ItemMeta{}
 
 			if item == nil {
-				item, err = form.storage.CreateItem(zoterogroup, &itemData, &itemMeta, fmt.Sprintf("%v", obj.Objectid))
+				item, err = form.storage.CreateItem(ctx, zoterogroup, &itemData, &itemMeta, fmt.Sprintf("%v", obj.Objectid))
 				if err != nil {
 					return errors.Wrapf(err, "cannot create item #%v - %v", zoterogroup, obj.Objectid)
 				}
@@ -197,7 +198,7 @@ func main() {
 				item.Data.Version = item.Version
 				item.Status = model.SyncStatus_Modified
 				item.Data.Key = item.Key
-				if err := form.storage.UpdateItem(zoterogroup, item); err != nil {
+				if err := form.storage.UpdateItem(ctx, zoterogroup, item); err != nil {
 					return errors.Wrapf(err, "cannot update item %v", item.Key)
 				}
 			}
@@ -205,7 +206,7 @@ func main() {
 			form.log.Infof("%v", item)
 
 			if err := obj.IterateFiles(func(f *File) error {
-				item2, err := form.storage.GetItemByOldid(zoterogroup, fmt.Sprintf("%v-%v", obj.Objectid, f.Masterid))
+				item2, err := form.storage.GetItemByOldid(ctx, zoterogroup, fmt.Sprintf("%v-%v", obj.Objectid, f.Masterid))
 				if err != nil {
 					return errors.Wrapf(err, "cannot load item by oldid #%v - %v-%v", zoterogroup, obj.Objectid, f.Masterid)
 				}
@@ -225,7 +226,7 @@ func main() {
 				itemMeta := model.ItemMeta{}
 
 				if item2 == nil {
-					item2, err = form.storage.CreateItem(zoterogroup, &itemData, &itemMeta, fmt.Sprintf("%v-%v", obj.Objectid, f.Masterid))
+					item2, err = form.storage.CreateItem(ctx, zoterogroup, &itemData, &itemMeta, fmt.Sprintf("%v-%v", obj.Objectid, f.Masterid))
 					if err != nil {
 						return errors.Wrapf(err, "cannot create item #%v - %v", zoterogroup, obj.Objectid)
 					}
@@ -234,7 +235,7 @@ func main() {
 					item2.Data.Version = item2.Version
 					item2.Status = model.SyncStatus_Modified
 					item2.Data.Key = item2.Key
-					if err := form.storage.UpdateItem(zoterogroup, item2); err != nil {
+					if err := form.storage.UpdateItem(ctx, zoterogroup, item2); err != nil {
 						return errors.Wrapf(err, "cannot update item %v", item2.Key)
 					}
 				}

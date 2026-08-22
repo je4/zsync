@@ -67,13 +67,7 @@ func TestIsUniqueViolation(t *testing.T) {
 
 func TestStorageAccessors(t *testing.T) {
 	st := NewStorage(nil, true, nil)
-	if st.GetPool() != nil {
-		t.Errorf("expected GetPool() to be nil")
-	}
 	if st.GetDB() != nil {
 		t.Errorf("expected GetDB() to be nil")
-	}
-	if st.GetSchema() != "public" {
-		t.Errorf("expected GetSchema() to be 'public', got %q", st.GetSchema())
 	}
 }

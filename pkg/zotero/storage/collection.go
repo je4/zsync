@@ -18,7 +18,7 @@ func (s *Storage) collectionFromRow(groupId int64, row pgx.Row) (*model.Collecti
 	var sync string
 	var gitlab sql.NullTime
 	if err := row.Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows {
+		if IsEmptyResult(err) {
 			return nil, nil
 		}
 		return nil, errors.Wrapf(err, "cannot scan row")
@@ -51,7 +51,7 @@ func (s *Storage) collectionFromRow(groupId int64, row pgx.Row) (*model.Collecti
 	return &coll, nil
 }
 
-func (s *Storage) CreateCollection(groupId int64, collectionData *model.CollectionData) (*model.Collection, error) {
+func (s *Storage) CreateCollection(ctx context.Context, groupId int64, collectionData *model.CollectionData) (*model.Collection, error) {
 	if collectionData.Key == "" {
 		collectionData.Key = model.CreateKey()
 	}
@@ -76,41 +76,41 @@ func (s *Storage) CreateCollection(groupId int64, collectionData *model.Collecti
 		"sync":    "new",
 		"data":    string(jsonstr),
 	}
-	_, err = s.db.Exec(context.Background(), SQLInsertCollection, params)
+	_, err = s.db.Exec(ctx, SQLInsertCollection, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLInsertCollection, params)
 	}
-	if err := s.RefreshCollectionNameHier(); err != nil {
+	if err := s.RefreshCollectionNameHier(ctx); err != nil {
 		return nil, err
 	}
 
 	return coll, nil
 }
 
-func (s *Storage) RefreshCollectionNameHier() error {
+func (s *Storage) RefreshCollectionNameHier(ctx context.Context) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("refreshing materialized view collection_name_hier")
 	}
-	if _, err := s.db.Exec(context.Background(), SQLRefreshCollectionNameHier); err != nil {
+	if _, err := s.db.Exec(ctx, SQLRefreshCollectionNameHier); err != nil {
 		return errors.Wrapf(err, "cannot refresh materialized view collection_name_hier - %v", SQLRefreshCollectionNameHier)
 	}
 	return nil
 }
 
-func (s *Storage) CreateEmptyCollection(groupId int64, collectionId string) error {
+func (s *Storage) CreateEmptyCollection(ctx context.Context, groupId int64, collectionId string) error {
 	params := pgx.NamedArgs{
 		"key":     collectionId,
 		"library": groupId,
 		"sync":    model.SyncStatusString[model.SyncStatus_Incomplete],
 	}
-	_, err := s.db.Exec(context.Background(), SQLInsertEmptyCollection, params)
+	_, err := s.db.Exec(ctx, SQLInsertEmptyCollection, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", SQLInsertEmptyCollection, params)
 	}
 	return nil
 }
 
-func (s *Storage) GetCollectionVersion(groupId int64, collectionId string) (int64, model.SyncStatus, error) {
+func (s *Storage) GetCollectionVersion(ctx context.Context, groupId int64, collectionId string) (int64, model.SyncStatus, error) {
 	params := pgx.NamedArgs{
 		"library": groupId,
 		"key":     collectionId,
@@ -118,10 +118,10 @@ func (s *Storage) GetCollectionVersion(groupId int64, collectionId string) (int6
 	var version int64
 	var sync string
 	var status model.SyncStatus
-	err := s.db.QueryRow(context.Background(), SQLGetCollectionVersion, params).Scan(&version, &sync)
+	err := s.db.QueryRow(ctx, SQLGetCollectionVersion, params).Scan(&version, &sync)
 	switch {
-	case errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows:
-		if err := s.CreateEmptyCollection(groupId, collectionId); err != nil {
+	case IsEmptyResult(err):
+		if err := s.CreateEmptyCollection(ctx, groupId, collectionId); err != nil {
 			return 0, model.SyncStatus_Incomplete, errors.Wrapf(err, "cannot create new collection")
 		}
 		version = 0
@@ -134,17 +134,17 @@ func (s *Storage) GetCollectionVersion(groupId int64, collectionId string) (int6
 	return version, status, nil
 }
 
-func (s *Storage) GetCollections(groupId int64, objectKeys []string) (*[]model.Collection, error) {
+func (s *Storage) GetCollectionsByKey(ctx context.Context, groupId int64, objectKeys []string) ([]model.Collection, error) {
 	if len(objectKeys) == 0 {
-		return &[]model.Collection{}, nil
+		return []model.Collection{}, nil
 	}
 	params := pgx.NamedArgs{
 		"library": groupId,
 		"keys":    objectKeys,
 	}
-	rows, err := s.db.Query(context.Background(), SQLGetCollections, params)
+	rows, err := s.db.Query(ctx, SQLGetCollections, params)
 	if err != nil {
-		return &[]model.Collection{}, errors.Wrapf(err, "cannot execute %s: %v", SQLGetCollections, params)
+		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetCollections, params)
 	}
 	defer rows.Close()
 
@@ -154,17 +154,20 @@ func (s *Storage) GetCollections(groupId int64, objectKeys []string) (*[]model.C
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot scan row")
 		}
+		if coll == nil {
+			continue
+		}
 		result = append(result, *coll)
 	}
-	return &result, nil
+	return result, nil
 }
 
-func (s *Storage) GetCollectionVersions(groupId int64, sinceVersion int64) (*map[string]int64, int64, error) {
+func (s *Storage) GetCollectionVersions(ctx context.Context, groupId int64, sinceVersion int64) (map[string]int64, int64, error) {
 	params := pgx.NamedArgs{
 		"library":      groupId,
 		"sinceVersion": sinceVersion,
 	}
-	rows, err := s.db.Query(context.Background(), SQLGetCollectionVersions, params)
+	rows, err := s.db.Query(ctx, SQLGetCollectionVersions, params)
 	if err != nil {
 		return nil, 0, errors.Wrapf(err, "cannot execute %s: %v", SQLGetCollectionVersions, params)
 	}
@@ -183,57 +186,23 @@ func (s *Storage) GetCollectionVersions(groupId int64, sinceVersion int64) (*map
 			lastModifiedVersion = version
 		}
 	}
-	return &objects, lastModifiedVersion, nil
+	return objects, lastModifiedVersion, nil
 }
 
-func (s *Storage) GetCollectionByKey(groupId int64, key string) (*model.Collection, error) {
+func (s *Storage) GetCollectionByKey(ctx context.Context, groupId int64, key string) (*model.Collection, error) {
 	params := pgx.NamedArgs{
 		"library": groupId,
 		"key":     key,
 	}
-	var coll model.Collection
-	var datastr sql.NullString
-	var metastr sql.NullString
-	var sync string
-	var gitlab sql.NullTime
-	if err := s.db.QueryRow(context.Background(), SQLGetCollectionByKey, params).
-		Scan(&(coll.Key), &(coll.Version), &datastr, &metastr, &(coll.Deleted), &sync, &gitlab); err != nil {
-		if IsEmptyResult(err) {
-			return nil, nil
-		}
+	coll, err := s.collectionFromRow(groupId, s.db.QueryRow(ctx, SQLGetCollectionByKey, params))
+	if err != nil {
 		return nil, errors.Wrapf(err, "cannot get collection: %v - %v", SQLGetCollectionByKey, params)
 	}
-	if gitlab.Valid {
-		coll.Gitlab = &gitlab.Time
-	}
-	coll.Status = model.SyncStatusId[sync]
-	coll.Library.Id = groupId
-	coll.Library.Type = "group"
-	if datastr.Valid {
-		if err := json.Unmarshal([]byte(datastr.String), &(coll.Data)); err != nil {
-			return nil, errors.Wrapf(err, "cannot unmarshal collection data - %v", datastr)
-		}
-	}
-	if metastr.Valid {
-		if err := json.Unmarshal([]byte(metastr.String), &(coll.Meta)); err != nil {
-			return nil, errors.Wrapf(err, "cannot unmarshal collection metadata - %v", metastr)
-		}
-	}
 
-	return &coll, nil
+	return coll, nil
 }
 
-func (s *Storage) GetCollectionByName(groupId int64, name string, parentKey string) (*model.Collection, error) {
-	coll := model.Collection{
-		Key:     "",
-		Version: 0,
-		Library: model.Library{
-			Id:   groupId,
-			Type: "group",
-		},
-		Status: model.SyncStatus_New,
-	}
-
+func (s *Storage) GetCollectionByName(ctx context.Context, groupId int64, name string, parentKey string) (*model.Collection, error) {
 	var sqlstr string
 	params := pgx.NamedArgs{
 		"library": groupId,
@@ -245,36 +214,15 @@ func (s *Storage) GetCollectionByName(groupId int64, name string, parentKey stri
 	} else {
 		sqlstr = SQLGetCollectionByNameTop
 	}
-	var datastr sql.NullString
-	var metastr sql.NullString
-	var sync string
-	var gitlab sql.NullTime
-	if err := s.db.QueryRow(context.Background(), sqlstr, params).
-		Scan(&coll.Key, &coll.Version, &datastr, &metastr, &coll.Deleted, &sync, &gitlab); err != nil {
-		if IsEmptyResult(err) {
-			return nil, nil
-		}
+	coll, err := s.collectionFromRow(groupId, s.db.QueryRow(ctx, sqlstr, params))
+	if err != nil {
 		return nil, errors.Wrapf(err, "cannot get collection: %v - %v", sqlstr, params)
 	}
-	if gitlab.Valid {
-		coll.Gitlab = &gitlab.Time
-	}
-	coll.Status = model.SyncStatusId[sync]
-	if datastr.Valid {
-		if err := json.Unmarshal([]byte(datastr.String), &coll.Data); err != nil {
-			return nil, errors.Wrapf(err, "cannot unmarshal collection data - %v", datastr)
-		}
-	}
-	if metastr.Valid {
-		if err := json.Unmarshal([]byte(metastr.String), &coll.Meta); err != nil {
-			return nil, errors.Wrapf(err, "cannot unmarshal collection metadata - %v", metastr)
-		}
-	}
 
-	return &coll, nil
+	return coll, nil
 }
 
-func (s *Storage) UpdateCollection(groupId int64, collection *model.Collection) error {
+func (s *Storage) UpdateCollection(ctx context.Context, groupId int64, collection *model.Collection) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("Updating Collection [#%s]", collection.Key)
 	}
@@ -295,26 +243,44 @@ func (s *Storage) UpdateCollection(groupId int64, collection *model.Collection) 
 		"library": groupId,
 		"key":     collection.Key,
 	}
-	_, err = s.db.Exec(context.Background(), SQLUpdateCollection, params)
+	_, err = s.db.Exec(ctx, SQLUpdateCollection, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s: %v", SQLUpdateCollection, params)
 	}
 	return nil
 }
 
-func (s *Storage) DeleteCollection(groupId int64, key string) error {
+func (s *Storage) DeleteCollection(ctx context.Context, groupId int64, key string) error {
 	params := pgx.NamedArgs{
 		"sync":    model.SyncStatusString[model.SyncStatus_Modified],
 		"library": groupId,
 		"key":     key,
 	}
-	if _, err := s.db.Exec(context.Background(), SQLDeleteCollection, params); err != nil {
+	if _, err := s.db.Exec(ctx, SQLDeleteCollection, params); err != nil {
 		return errors.Wrapf(err, "error executing %s: %v", SQLDeleteCollection, params)
 	}
 	return nil
 }
 
-func (s *Storage) IterateCollections(groupId int64, after *time.Time, f func(coll *model.Collection) error) error {
+// DeleteCollections marks all given collections as deleted in a single statement.
+// It returns the number of affected rows.
+func (s *Storage) DeleteCollections(ctx context.Context, groupId int64, keys []string) (int64, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	params := pgx.NamedArgs{
+		"sync":    model.SyncStatusString[model.SyncStatus_Modified],
+		"library": groupId,
+		"keys":    keys,
+	}
+	tag, err := s.db.Exec(ctx, SQLDeleteCollections, params)
+	if err != nil {
+		return 0, errors.Wrapf(err, "error executing %s: %v", SQLDeleteCollections, params)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (s *Storage) IterateCollections(ctx context.Context, groupId int64, after *time.Time, f func(coll *model.Collection) error) error {
 	var sqlstr0, sqlstr string
 	params := pgx.NamedArgs{
 		"library": groupId,
@@ -327,35 +293,10 @@ func (s *Storage) IterateCollections(groupId int64, after *time.Time, f func(col
 		sqlstr0 = SQLIterateCollectionsCount
 		sqlstr = SQLIterateCollections
 	}
-	var num int64
-	if err := s.db.QueryRow(context.Background(), sqlstr0, params).Scan(&num); err != nil {
-		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
-	}
-	if s.Logger != nil {
-		s.Logger.Info().Msgf("%v collections found", num)
-	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params)
-	if err != nil {
-		return errors.Wrapf(err, "cannot execute %s", sqlstr)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		coll, err := s.collectionFromRow(groupId, rows)
-		if err != nil {
-			return errors.Wrapf(err, "cannot get collection")
-		}
-		if coll == nil {
-			continue
-		}
-		if err := f(coll); err != nil {
-			return errors.Wrapf(err, "error in callback for %v", coll.Key)
-		}
-	}
-	return nil
+	return s.iterateCollections(ctx, groupId, sqlstr0, sqlstr, params, f)
 }
 
-func (s *Storage) IterateCollectionsAll(groupId int64, after *time.Time, f func(coll *model.Collection) error) error {
+func (s *Storage) IterateCollectionsAll(ctx context.Context, groupId int64, after *time.Time, f func(coll *model.Collection) error) error {
 	var sqlstr0, sqlstr string
 	params := pgx.NamedArgs{
 		"library": groupId,
@@ -368,14 +309,18 @@ func (s *Storage) IterateCollectionsAll(groupId int64, after *time.Time, f func(
 		sqlstr0 = SQLIterateCollectionsAllCount
 		sqlstr = SQLIterateCollectionsAll
 	}
+	return s.iterateCollections(ctx, groupId, sqlstr0, sqlstr, params, f)
+}
+
+func (s *Storage) iterateCollections(ctx context.Context, groupId int64, countSql, sqlstr string, params pgx.NamedArgs, f func(coll *model.Collection) error) error {
 	var num int64
-	if err := s.db.QueryRow(context.Background(), sqlstr0, params).Scan(&num); err != nil {
-		return errors.Wrapf(err, "cannot execute %s", sqlstr0)
+	if err := s.db.QueryRow(ctx, countSql, params).Scan(&num); err != nil {
+		return errors.Wrapf(err, "cannot execute %s", countSql)
 	}
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("%v collections found", num)
 	}
-	rows, err := s.db.Query(context.Background(), sqlstr, params)
+	rows, err := s.db.Query(ctx, sqlstr, params)
 	if err != nil {
 		return errors.Wrapf(err, "cannot execute %s", sqlstr)
 	}
@@ -396,13 +341,13 @@ func (s *Storage) IterateCollectionsAll(groupId int64, after *time.Time, f func(
 	return nil
 }
 
-func (s *Storage) GetModifiedCollections(groupId int64) ([]*model.Collection, error) {
+func (s *Storage) GetModifiedCollections(ctx context.Context, groupId int64) ([]*model.Collection, error) {
 	params := pgx.NamedArgs{
 		"library":      groupId,
 		"syncNew":      "new",
 		"syncModified": "modified",
 	}
-	rows, err := s.db.Query(context.Background(), SQLGetModifiedCollections, params)
+	rows, err := s.db.Query(ctx, SQLGetModifiedCollections, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot execute %s: %v", SQLGetModifiedCollections, params)
 	}
@@ -422,7 +367,7 @@ func (s *Storage) GetModifiedCollections(groupId int64) ([]*model.Collection, er
 	return colls, nil
 }
 
-func (s *Storage) UpdateCollectionsGitlabTimestamp(groupId int64, now time.Time, gitlab *time.Time) error {
+func (s *Storage) UpdateCollectionsGitlabTimestamp(ctx context.Context, groupId int64, now time.Time, gitlab *time.Time) error {
 	var sqlstr string
 	params := pgx.NamedArgs{
 		"now":     now.Format("2006-01-02 15:04:05"),
@@ -434,7 +379,7 @@ func (s *Storage) UpdateCollectionsGitlabTimestamp(groupId int64, now time.Time,
 	} else {
 		sqlstr = SQLUpdateCollectionsGitlabTimestamp
 	}
-	if _, err := s.db.Exec(context.Background(), sqlstr, params); err != nil {
+	if _, err := s.db.Exec(ctx, sqlstr, params); err != nil {
 		return errors.Wrapf(err, "cannot execute %v - %v", sqlstr, params)
 	}
 	return nil
