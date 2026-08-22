@@ -19,6 +19,8 @@ import (
 	"github.com/je4/zsync/v2/pkg/zotero/storage"
 )
 
+// Syncer coordinates synchronization between Zotero, PostgreSQL, and the
+// optional attachment filesystem.
 type Syncer struct {
 	Client  *client.Client
 	Storage *storage.Storage
@@ -26,6 +28,9 @@ type Syncer struct {
 	Logger  zLogger.ZLogger
 }
 
+// NewSyncer creates a synchronizer from its transport, persistence, filesystem,
+// and logging dependencies. Client, storage, and filesystem may be nil when a
+// caller only needs the corresponding subset of functionality.
 func NewSyncer(client *client.Client, storage *storage.Storage, fs filesystem.FileSystem, logger zLogger.ZLogger) *Syncer {
 	return &Syncer{
 		Client:  client,
@@ -35,6 +40,8 @@ func NewSyncer(client *client.Client, storage *storage.Storage, fs filesystem.Fi
 	}
 }
 
+// GetGroupBucket returns, and creates when necessary, the attachment bucket
+// belonging to a Zotero group.
 func (s *Syncer) GetGroupBucket(groupId int64) (string, error) {
 	if s.Fs == nil {
 		return "", errors.New("no filesystem configured")
@@ -52,6 +59,8 @@ func (s *Syncer) GetGroupBucket(groupId int64) (string, error) {
 	return bucket, nil
 }
 
+// SyncGroup runs the complete group pipeline and persists new synchronization
+// cursors only after all stages succeed.
 func (s *Syncer) SyncGroup(ctx context.Context, group *model.Group) error {
 	if s.Logger != nil {
 		s.Logger.Info().Msgf("Syncing Group #%v - %v", group.Id, group.Data.Name)
@@ -105,6 +114,9 @@ func (s *Syncer) SyncGroup(ctx context.Context, group *model.Group) error {
 	return nil
 }
 
+// SyncCollections uploads local collection changes and downloads newer remote
+// collections according to the group's sync direction. It returns the number
+// of changes and the newest remote version.
 func (s *Syncer) SyncCollections(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, 0, nil
@@ -222,6 +234,8 @@ func (s *Syncer) syncCollections(ctx context.Context, group *model.Group) (int64
 	return counter, lastModifiedVersion, nil
 }
 
+// UploadItems sends locally modified items and imported attachment files to
+// Zotero when the group's direction permits cloud writes.
 func (s *Syncer) UploadItems(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, 0, nil
@@ -328,6 +342,8 @@ func (s *Syncer) syncModifiedItems(ctx context.Context, group *model.Group, last
 	return counter, nil
 }
 
+// DownloadItems fetches newer regular and trashed items, including imported
+// attachment files, when the group's direction permits local writes.
 func (s *Syncer) DownloadItems(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, 0, nil
@@ -437,6 +453,8 @@ func (s *Syncer) syncItems(ctx context.Context, group *model.Group, trashed bool
 	return counter, lastModifiedVersion, nil
 }
 
+// SyncTags downloads tags changed since the group's tag cursor when tag sync is
+// enabled and the group permits downloads.
 func (s *Syncer) SyncTags(ctx context.Context, group *model.Group) (int64, int64, error) {
 	if s.Client == nil || s.Storage == nil || !group.CanDownload() || !group.SyncTags {
 		return 0, 0, nil
@@ -462,6 +480,7 @@ func (s *Syncer) SyncTags(ctx context.Context, group *model.Group) (int64, int64
 	return counter, lastModifiedVersion, nil
 }
 
+// SyncDeleted applies Zotero's deleted-object feed to local storage.
 func (s *Syncer) SyncDeleted(ctx context.Context, group *model.Group) (int64, error) {
 	if s.Client == nil || s.Storage == nil {
 		return 0, nil
@@ -493,6 +512,8 @@ func (s *Syncer) SyncDeleted(ctx context.Context, group *model.Group) (int64, er
 	return numDeleted, nil
 }
 
+// BackupLocal writes the group's records and imported attachments to backupFs
+// and advances the corresponding backup timestamps.
 func (s *Syncer) BackupLocal(ctx context.Context, group *model.Group, backupFs filesystem.FileSystem) error {
 	if s.Storage == nil {
 		return errors.New("no storage configured for backup")

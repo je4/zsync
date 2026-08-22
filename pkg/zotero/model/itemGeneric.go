@@ -8,6 +8,8 @@ import (
 	"emperror.dev/errors"
 )
 
+// ItemGeneric stores the common Zotero item fields and arbitrary item-type
+// fields while preserving the original JSON representation.
 type ItemGeneric struct {
 	ItemDataBase
 
@@ -173,6 +175,7 @@ func (item *ItemGeneric) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GetItemType returns the Zotero item type.
 func (item *ItemGeneric) GetItemType() string {
 	return item.ItemType
 }
@@ -189,6 +192,7 @@ func (item *ItemGeneric) FromGeneric(gen *ItemGeneric) error {
 	return nil
 }
 
+// Get returns a field value and whether the field is present.
 func (item *ItemGeneric) Get(field string) (string, bool) {
 	switch field {
 	case "key":
@@ -243,6 +247,7 @@ func (item *ItemGeneric) GetString(field string) string {
 	return val
 }
 
+// Set assigns a raw field value.
 func (item *ItemGeneric) Set(field, val string) {
 	switch field {
 	case "key":
@@ -301,6 +306,7 @@ func (item *ItemGeneric) SetString(field, val string) {
 	item.Set(field, val)
 }
 
+// Delete removes a field from the item.
 func (item *ItemGeneric) Delete(field string) {
 	switch field {
 	case "key":
@@ -356,6 +362,7 @@ func (item *ItemGeneric) Delete(field string) {
 	}
 }
 
+// Validate checks the item against the embedded Zotero schema.
 func (item *ItemGeneric) Validate() error {
 	if item.ItemType == "" {
 		return fmt.Errorf("itemType is required")

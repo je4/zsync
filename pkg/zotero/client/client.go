@@ -16,6 +16,9 @@ import (
 	"gopkg.in/resty.v1"
 )
 
+// Client accesses Zotero's Web API or a compatible local Zotero endpoint.
+// It also stores the server identity and current authorization key used by
+// requests.
 type Client struct {
 	baseUrl    *url.URL
 	apiKey     string
@@ -25,6 +28,8 @@ type Client struct {
 	CurrentKey *model.ApiKey
 }
 
+// NewClient parses endpoint, initializes the HTTP client, and optionally loads
+// metadata for apiKey.
 func NewClient(ctx context.Context, endpoint string, apiKey string, logger zLogger.ZLogger) (*Client, error) {
 	burl, err := url.Parse(endpoint)
 	if err != nil {
@@ -44,6 +49,8 @@ func NewClient(ctx context.Context, endpoint string, apiKey string, logger zLogg
 	return c, nil
 }
 
+// Init configures the underlying HTTP client and discovers the server/key
+// metadata needed for subsequent requests.
 func (c *Client) Init(ctx context.Context) (err error) {
 	c.client = resty.New()
 	c.client.SetHostURL(c.baseUrl.String())
@@ -126,6 +133,8 @@ func (c *Client) GetResty() *resty.Client {
 	return c.client
 }
 
+// DetectServerId obtains and stores Zotero's server identifier from response
+// headers.
 func (c *Client) DetectServerId(ctx context.Context) (string, error) {
 	resp, err := c.client.R().SetContext(ctx).Get("/")
 	if err != nil || resp.Header().Get("Zotero-Server-ID") == "" {
@@ -260,6 +269,8 @@ If the API servers are overloaded, the API may include a Backoff: <seconds> HTTP
 If a client has made too many requests within a given time period, the API may return 429 Too Many Requests with a Retry-After: <seconds> header. Clients receiving a 429 should wait the number of seconds indicated in the header before retrying the request.
 Retry-After can also be included with 503 Service Unavailable responses when the server is undergoing maintenance.
 */
+// CheckRetry waits for a Retry-After response header and reports whether the
+// caller should retry the request.
 func (c *Client) CheckRetry(header http.Header) bool {
 	if header == nil {
 		return false
@@ -293,6 +304,7 @@ func (c *Client) CheckRetry(header http.Header) bool {
 	return false
 }
 
+// CheckBackoff waits for Zotero's Backoff response header.
 func (c *Client) CheckBackoff(header http.Header) bool {
 	if header == nil {
 		return false

@@ -23,6 +23,8 @@ type GroupData struct {
 	Admins         []int64 `json:"admins"`
 }
 
+// Group is the synchronization root and stores the cursors for its child
+// collections, items, and tags.
 type Group struct {
 	Id                int64               `json:"id"`
 	Version           int64               `json:"version"`
@@ -50,10 +52,13 @@ type GroupGitlab struct {
 	TagVersion        int64     `json:"tagversion"`
 }
 
+// Init parses metadata embedded in the group's description.
 func (group *Group) Init() {
 	group.MetaMap = Text2Metadata(group.Data.Description)
 }
 
+// CanUpload reports whether the configured direction permits local-to-cloud
+// synchronization.
 func (group *Group) CanUpload() bool {
 	return group.Direction == SyncDirection_BothCloud ||
 		group.Direction == SyncDirection_BothLocal ||
@@ -61,6 +66,8 @@ func (group *Group) CanUpload() bool {
 		group.Direction == SyncDirection_ToCloud
 }
 
+// CanDownload reports whether the configured direction permits cloud-to-local
+// synchronization.
 func (group *Group) CanDownload() bool {
 	return group.Direction == SyncDirection_BothCloud ||
 		group.Direction == SyncDirection_BothLocal ||
