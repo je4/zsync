@@ -65,101 +65,6 @@ func loadEnv() {
 	}
 }
 
-func ensureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	ddl := fmt.Sprintf(`
-CREATE SCHEMA IF NOT EXISTS %s;
-
-CREATE TABLE IF NOT EXISTS %s.groups (
-    id bigint NOT NULL PRIMARY KEY,
-    version bigint NOT NULL DEFAULT 0,
-    created timestamp with time zone NOT NULL DEFAULT NOW(),
-    modified timestamp with time zone NOT NULL DEFAULT NOW(),
-    data text,
-    deleted boolean NOT NULL DEFAULT false,
-    itemversion bigint NOT NULL DEFAULT 0,
-    collectionversion bigint NOT NULL DEFAULT 0,
-    tagversion bigint NOT NULL DEFAULT 0,
-    gitlab timestamp with time zone,
-    active boolean NOT NULL DEFAULT false,
-    synctags boolean NOT NULL DEFAULT false,
-    direction character varying(32) NOT NULL DEFAULT 'both'
-);
-
-CREATE TABLE IF NOT EXISTS %s.syncgroups (
-    id bigint NOT NULL PRIMARY KEY,
-    title character varying(256),
-    localid bigint NOT NULL,
-    cloudid bigint NOT NULL,
-    direction character varying(32) NOT NULL DEFAULT 'both',
-    synctags boolean NOT NULL DEFAULT false,
-    active boolean NOT NULL DEFAULT false,
-    created timestamp with time zone NOT NULL DEFAULT NOW(),
-    modified timestamp with time zone NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS %s.collections (
-    key varchar(32) NOT NULL,
-    version bigint NOT NULL,
-    data text,
-    meta text,
-    deleted boolean DEFAULT false NOT NULL,
-    sync varchar(32) DEFAULT 'new' NOT NULL,
-    library bigint NOT NULL,
-    modified timestamp with time zone DEFAULT NOW(),
-    gitlab timestamp with time zone,
-    PRIMARY KEY (library, key)
-);
-
-CREATE TABLE IF NOT EXISTS %s.items (
-    key varchar(32) NOT NULL,
-    version bigint NOT NULL,
-    data text,
-    sync varchar(32) DEFAULT 'new' NOT NULL,
-    library bigint NOT NULL,
-    meta text,
-    oldid varchar(128),
-    trashed boolean DEFAULT false NOT NULL,
-    deleted boolean DEFAULT false NOT NULL,
-    md5 varchar(64),
-    modified timestamp with time zone DEFAULT NOW(),
-    gitlab timestamp with time zone,
-    PRIMARY KEY (library, key)
-);
-
-CREATE TABLE IF NOT EXISTS %s.tags (
-    tag varchar(255) NOT NULL,
-    meta text,
-    library bigint NOT NULL,
-    PRIMARY KEY (library, tag)
-);
-
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_matviews WHERE schemaname = '%s' AND matviewname = 'collection_name_hier') THEN
-        EXECUTE 'CREATE MATERIALIZED VIEW %s.collection_name_hier AS SELECT key, library, (data::json->>''name'') AS name, (data::json->>''parentCollection'') AS parent FROM %s.collections';
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_matviews WHERE schemaname = '%s' AND matviewname = 'item_type_hier') THEN
-        EXECUTE 'CREATE MATERIALIZED VIEW %s.item_type_hier AS SELECT key, library, (data::json->>''itemType'') AS type, (data::json->>''parentItem'') AS parent FROM %s.items';
-    END IF;
-END $$;
-
-CREATE OR REPLACE FUNCTION %s.refresh_item_type_hier() RETURNS void AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW %s.item_type_hier WITH DATA;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION %s.refresh_collection_name_hier() RETURNS void AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW %s.collection_name_hier WITH DATA;
-END;
-$$ LANGUAGE plpgsql;
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
-
-	_, err := pool.Exec(ctx, ddl)
-	return err
-}
-
 func getIntegrationTestStorage(t *testing.T, groupID int64) (*storage.Storage, *pgxpool.Pool, string, func()) {
 	t.Helper()
 	loadEnv()
@@ -204,12 +109,6 @@ func getIntegrationTestStorage(t *testing.T, groupID int64) (*storage.Storage, *
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		t.Skipf("database ping failed (%v); skipping integration test", err)
-		return nil, nil, "", nil
-	}
-
-	if err := ensureSchema(ctx, pool, schema); err != nil {
-		pool.Close()
-		t.Skipf("cannot ensure schema (%v); skipping integration test", err)
 		return nil, nil, "", nil
 	}
 
