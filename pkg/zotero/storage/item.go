@@ -158,12 +158,12 @@ func (s *Storage) GetItemVersion(groupId int64, itemId string, oldId string) (in
 	switch {
 	case errors.Is(err, pgx.ErrNoRows) || err == sql.ErrNoRows:
 		if err := s.CreateEmptyItem(groupId, itemId, oldId); err != nil {
-			return 0, model.SyncStatus_New, errors.Wrapf(err, "cannot create new item")
+			return 0, model.SyncStatus_Incomplete, errors.Wrapf(err, "cannot create new item")
 		}
 		version = 0
-		sync = model.SyncStatus_New
+		sync = model.SyncStatus_Incomplete
 	case err != nil:
-		return 0, model.SyncStatus_New, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemVersion, params)
+		return 0, model.SyncStatus_Incomplete, errors.Wrapf(err, "cannot execute %s: %v", SQLGetItemVersion, params)
 	case err == nil:
 		sync = model.SyncStatusId[syncstr]
 	}
@@ -197,6 +197,9 @@ func (s *Storage) GetItems(groupId int64, objectKeys []string) (*[]model.Item, e
 				continue
 			}
 			return nil, errors.Wrapf(err, "cannot scan row")
+		}
+		if item == nil {
+			continue
 		}
 		result = append(result, *item)
 	}
@@ -287,7 +290,7 @@ func (s *Storage) UpdateItem(groupId int64, item *model.Item) error {
 		"meta":    string(meta),
 		"trashed": item.Trashed,
 		"deleted": item.Deleted,
-		"sync":    model.SyncStatusString[model.SyncStatus_Modified],
+		"sync":    model.SyncStatusString[item.Status],
 		"md5":     md5val,
 		"library": groupId,
 		"key":     item.Key,

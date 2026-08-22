@@ -837,3 +837,209 @@ func TestSyncer_Mock_SyncGroup_Full(t *testing.T) {
 		t.Errorf("expected group TagVersion 100, got %d", group.TagVersion)
 	}
 }
+
+func TestSyncer_Mock_BidirectionalSync_Roundtrip(t *testing.T) {
+	groupId := int64(12345)
+	zoteroKey := "ZOTKEY01"
+	dbKey := "DBKEY01"
+
+	itemFields := []pgproto3.FieldDescription{
+		{Name: []byte("key"), DataTypeOID: 1043},
+		{Name: []byte("version"), DataTypeOID: 20},
+		{Name: []byte("data"), DataTypeOID: 25},
+		{Name: []byte("meta"), DataTypeOID: 25},
+		{Name: []byte("trashed"), DataTypeOID: 16},
+		{Name: []byte("deleted"), DataTypeOID: 16},
+		{Name: []byte("sync"), DataTypeOID: 1043},
+		{Name: []byte("md5"), DataTypeOID: 1043},
+		{Name: []byte("gitlab"), DataTypeOID: 1114},
+	}
+
+	versionFields := []pgproto3.FieldDescription{
+		{Name: []byte("version"), DataTypeOID: 20},
+		{Name: []byte("sync"), DataTypeOID: 1043},
+	}
+
+	dbItemData := `{"key":"DBKEY01","version":10,"itemType":"book","title":"Book from DB to Zotero","creators":[{"creatorType":"author","firstName":"Ada","lastName":"Lovelace"}]}`
+	dbItemMeta := `{"numChildren":0}`
+
+	var zoteroUploadReceived []byte
+
+	script := &pgmock.Script{
+		Steps: append(
+			pgmock.AcceptUnauthenticatedConnRequestSteps(),
+			// -------------------------------------------------------------
+			// Phase 1: Database -> Zotero (UploadItems)
+			// -------------------------------------------------------------
+			// 1. GetModifiedItems: returns 1 modified item (DBKEY01)
+			append(
+				mockQuerySteps([]uint32{20, 1043, 1043}, itemFields, [][][]byte{
+					{
+						encodeText(dbKey),
+						encodeInt8(10),
+						encodeText(dbItemData),
+						encodeText(dbItemMeta),
+						encodeBool(false),
+						encodeBool(false),
+						encodeText("modified"),
+						nil,
+						nil,
+					},
+				}),
+				// 2. UpdateItem after upload: updates DBKEY01 to version 15 and status synced
+				append(
+					mockExecSteps([]uint32{20, 25, 25, 16, 16, 1043, 1043, 20, 1043}, "UPDATE 1"),
+					// 3. RefreshItemTypeHier
+					append(
+						mockSimpleExecSteps("SELECT 1"),
+						// -------------------------------------------------------------
+						// Phase 2: Zotero -> Database (DownloadItems)
+						// -------------------------------------------------------------
+						// 4. syncItems (trashed = false): GetItemVersion for ZOTKEY01 -> version 0, synced
+						append(
+							mockQuerySteps([]uint32{20, 1043}, versionFields, [][][]byte{
+								{encodeInt8(0), encodeText("synced")},
+							}),
+							// 5. UpdateItem for ZOTKEY01 into DB with version 20 and synced
+							append(
+								mockExecSteps([]uint32{20, 25, 25, 16, 16, 1043, 1043, 20, 1043}, "UPDATE 1"),
+								// 6. RefreshItemTypeHier
+								mockSimpleExecSteps("SELECT 1")...,
+							)...,
+						)...,
+					)...,
+				)...,
+			)...,
+		),
+	}
+
+	st, cleanupDB := startMockDatabase(t, script)
+	defer cleanupDB()
+
+	cl, cleanupHTTP := startMockZoteroCloudServer(t, "test-cloud-key", func(w http.ResponseWriter, r *http.Request) {
+		// Upload handler: POST /groups/12345/items
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/items") {
+			w.Header().Set("Last-Modified-Version", "15")
+			w.Header().Set("Content-Type", "application/json")
+			body, _ := io.ReadAll(r.Body)
+			zoteroUploadReceived = body
+			res := model.ItemCollectionCreateResult{
+				Success: map[string]string{"0": dbKey},
+				Successful: map[string]model.Item{
+					"0": {
+						Key:     dbKey,
+						Version: 15,
+						Data: model.ItemGeneric{
+							ItemDataBase: model.ItemDataBase{
+								Key:     dbKey,
+								Version: 15,
+							},
+						},
+					},
+				},
+				Unchanged: map[string]string{},
+				Failed:    map[string]model.ItemCollectionCreateResultFailed{},
+			}
+			_ = json.MarshalWrite(w, res)
+			return
+		}
+
+		// Items version check before upload or download
+		if strings.Contains(r.URL.RawQuery, "format=versions") {
+			if strings.Contains(r.URL.Path, "/items/trash") {
+				w.Header().Set("Last-Modified-Version", "20")
+				w.Header().Set("Total-Results", "0")
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.MarshalWrite(w, map[string]int64{})
+				return
+			}
+			// When since=0 (before upload):
+			if strings.Contains(r.URL.RawQuery, "since=0") {
+				w.Header().Set("Last-Modified-Version", "10")
+				w.Header().Set("Total-Results", "0")
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.MarshalWrite(w, map[string]int64{})
+				return
+			}
+			// When downloading new items (ZOTKEY01 with version 20)
+			w.Header().Set("Last-Modified-Version", "20")
+			w.Header().Set("Total-Results", "1")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.MarshalWrite(w, map[string]int64{zoteroKey: 20})
+			return
+		}
+
+		// Download items by key
+		if strings.Contains(r.URL.Path, "/items") && strings.Contains(r.URL.RawQuery, "itemKey") {
+			w.Header().Set("Total-Results", "1")
+			w.Header().Set("Content-Type", "application/json")
+			items := []model.Item{
+				{
+					Key:     zoteroKey,
+					Version: 20,
+					Library: model.Library{
+						Id:   groupId,
+						Type: "group",
+					},
+					Data: model.ItemGeneric{
+						ItemDataBase: model.ItemDataBase{
+							Key:      zoteroKey,
+							Version:  20,
+							ItemType: "book",
+						},
+						Title: "Book from Zotero to DB",
+					},
+					Meta: model.ItemMeta{
+						NumChildren: 0,
+					},
+				},
+			}
+			_ = json.MarshalWrite(w, items)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("[]"))
+	})
+	defer cleanupHTTP()
+
+	zlog := zerolog.Nop()
+	syncer := NewSyncer(cl, st, nil, &zlog)
+
+	group := &model.Group{
+		Id:          groupId,
+		Active:      true,
+		Direction:   model.SyncDirection_BothCloud,
+		ItemVersion: 10,
+	}
+
+	// 1. Upload items from DB to Zotero
+	upCount, upVer, err := syncer.UploadItems(group)
+	if err != nil {
+		t.Fatalf("UploadItems failed: %v", err)
+	}
+	if upCount != 1 {
+		t.Errorf("expected 1 uploaded item, got %d", upCount)
+	}
+	if upVer != 10 {
+		t.Errorf("expected upVer 10, got %d", upVer)
+	}
+	if len(zoteroUploadReceived) == 0 {
+		t.Fatalf("expected Zotero mock server to receive upload payload")
+	}
+	if !strings.Contains(string(zoteroUploadReceived), "Book from DB to Zotero") {
+		t.Errorf("expected upload payload to contain 'Book from DB to Zotero', got %s", string(zoteroUploadReceived))
+	}
+
+	// 2. Download items from Zotero to DB
+	dlCount, dlVer, err := syncer.DownloadItems(group)
+	if err != nil {
+		t.Fatalf("DownloadItems failed: %v", err)
+	}
+	if dlCount != 1 {
+		t.Errorf("expected 1 downloaded item, got %d", dlCount)
+	}
+	if dlVer != 20 {
+		t.Errorf("expected dlVer 20, got %d", dlVer)
+	}
+}
